@@ -1,0 +1,156 @@
+<!--
+  ~   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
+  ~
+  ~   This program is free software: you can redistribute it and/or modify
+  ~   it under the terms of the GNU Affero General Public License as published by
+  ~   the Free Software Foundation, either version 3 of the License, or
+  ~   (at your option) any later version.
+  ~
+  ~   This program is distributed in the hope that it will be useful,
+  ~   but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~   GNU Affero General Public License for more details.
+  ~
+  ~   You should have received a copy of the GNU Affero General Public License
+  ~   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  ~
+  ~   This file is part of LA Referencia software platform LRHarvester v4.x
+  ~   For any further information please contact Lautaro Matas <lmatas@gmail.com>
+  -->
+
+<metadata xmlns="http://www.lyncode.com/xoai">
+   <element name="dc">
+      <element name="language">
+         <field name="value">por</field>
+      </element>
+      <element name="description">
+         <field name="lang">por</field>
+         <field name="value">Dissertação mest., Biologia Marinha, Universidade do Algarve, 2008</field>
+      </element>
+      <element name="description">
+         <field name="lang">por</field>
+         <field name="value">Os crustáceos são um recurso muito importante no Algarve, devido ao seu elevado valor comercial. Este valor aumenta quando são comercializados vivos. Este estudo focou-se num método de transporte e acondicionamento a bordo, desde a captura à chegada ao porto, baseado na criação de um ambiente com temperatura e humidade estáveis e refrigerado com gelo, em particular na avaliação da sua eficácia para a manutenção da qualidade e sobrevivência de crustáceos comercializados vivos. Foram estudadas duas espécies, a lagosta, Palinurus elephas e o lagostim, Nephrops norvegicus, com dois sistemas de pesca, a pesca artesanal (ambas as espécies) e a pesca de arrasto de crustáceos (para o lagostim). Em ambos os casos o trabalho de campo foi feito a bordo de embarcações comerciais e ao longo de operações de pesca de rotina para as respectivas embarcações. O trabalho realizado com a frota artesanal desenvolveu-se na costa Sudoeste a partir de uma embarcação baseada em Sagres e o trabalho com o arrastão desenvolveu-se na costa Sul, a bordo de uma embarcação baseada em Portimão. No caso da pesca artesanal, os crustáceos já são normalmente desembarcados vivos e são mantidos a bordo em caixas com água bombeada da superfície, um sistema que designaremos por método tradicional. Neste caso o sistema testado neste trabalho foi comparado com o tradicional, dividindo a captura de cada lanço de pesca em dois grupos que foram comparados quando da chegada ao porto. No caso da frota de arrasto, o desembarque é feito com os crustáceos já mortos pois são conservados num porão de refrigeração mas com ambiente muito seco. Nesta embarcação a avaliação da condição e sobrevivência com o sistema proposto foi feita em intervalos de 12 horas até às 72 horas, tempo máximo em que os crustáceos são mantidos a bordo entre desembarques. A condição e a sobrevivência foram avaliadas com 3 critérios diferentes: (1) parâmetros bioquímicos, através das concentrações de glucose e lactato da hemolinfa, (2) estado de viveza, através de uma escala de condição com 3 estados relacionados com as reacções ao manuseamento e (3) estado de condição, através de uma escala também com 3 estados relacionada com os danos (perdas de apêndices e danos na carapaça) Os resultados demonstraram que a utilização do sistema proposto é vantajosa para a pesca polivalente quando a temperatura da água à superfície é mais elevada. No caso da pesca de arrasto, os resultados foram positivos até um período máximo de 24 horas, após o qual a proporção de lagostins inactivos aumenta, não sendo garantido o valor comercial elevado associado à venda em vivo.</field>
+      </element>
+      <element name="format">
+         <field name="value">application/pdf</field>
+      </element>
+      <element name="format">
+         <field name="value">application/pdf</field>
+      </element>
+   </element>
+   <element name="datacite">
+      <element name="titles">
+         <element name="title">
+            <field name="lang">por</field>
+            <field name="value">Transporte de crustáceos vivos a bordo em ambiente refrigerado</field>
+         </element>
+      </element>
+      <element name="creators">
+         <element name="creator">
+            <element name="creatorName">
+               <field name="value">Inácio, Mónica Isabel Marreiros</field>
+            </element>
+         </element>
+      </element>
+      <element name="contributors">
+         <element name="contributor">
+            <field name="contributorType">Supervisor</field>
+            <element name="contributorName">
+               <field name="value">Castro, Margarida</field>
+            </element>
+         </element>
+         <element name="contributor">
+            <field name="contributorType">HostingInstitution</field>
+            <element name="contributorName">
+               <field name="nameType">Organizational</field>
+               <field name="value">Sapientia</field>
+            </element>
+            <element name="nameIdentifier">
+               <field name="nameIdentifierScheme">e-mail</field>
+               <field name="schemeURI">mailto:repositorio@ualg.pt</field>
+               <field name="value">repositorio@ualg.pt</field>
+            </element>
+         </element>
+      </element>
+      <element name="alternateIdentifiers"/>
+      <element name="relatedIdentifiers">
+         <element name="relatedIdentifier">
+            <field name="relatedIdentifierType">URN</field>
+            <field name="value">639.2 INA*Tra Cave</field>
+         </element>
+      </element>
+      <element name="dates">
+         <element name="date">
+            <element name="Available">
+               <field name="value">2011-09-07T16:05:30Z</field>
+            </element>
+            <element name="Accepted">
+               <field name="value">2008</field>
+            </element>
+            <element name="Issued">
+               <field name="value">2008</field>
+            </element>
+         </element>
+      </element>
+      <element name="identifier">
+         <field name="identifierType">Handle</field>
+         <field name="value">http://hdl.handle.net/10400.1/760</field>
+      </element>
+      <element name="rights">
+         <field name="rightsURI">http://purl.org/coar/access_right/c_abf2</field>
+         <field name="value">open access</field>
+      </element>
+      <element name="subjects">
+         <element name="subject">
+            <field name="value">Teses</field>
+         </element>
+         <element name="subject">
+            <field name="value">Crustáceos</field>
+         </element>
+         <element name="subject">
+            <field name="value">Conservação de crustáceos</field>
+         </element>
+         <element name="subject">
+            <field name="value">Transporte de crustáceos</field>
+         </element>
+      </element>
+      <element name="sizes">
+         <element name="size">
+            <field name="value">5265629 bytes</field>
+         </element>
+      </element>
+   </element>
+   <element name="oaire">
+      <element name="fundingReferences">
+         <element name="fundingReference">
+            <element name="funderName">
+               <field name="value">Fundação para a Ciência e Tecnologia</field>
+            </element>
+            <element name="funderIdentifier">
+               <field name="funderIdentifierType">Crossref Funder ID</field>
+               <field name="value">http://doi.org/10.13039/501100001871</field>
+            </element>
+            <element name="fundingStream">
+               <field name="value">PDCT</field>
+            </element>
+            <element name="awardNumber">
+               <field name="value">59366</field>
+            </element>
+         </element>
+      </element>
+      <element name="resourceType">
+         <field name="uri">http://purl.org/coar/resource_type/c_bdcc</field>
+         <field name="value">master thesis</field>
+      </element>
+      <element name="files">
+         <element name="file">
+            <field name="accessRightsURI">http://purl.org/coar/access_right/c_abf2</field>
+            <field name="mimeType">application/pdf</field>
+            <field name="objectType">fulltext</field>
+            <field name="value">https://sapientia.ualg.pt/bitstream/10400.1/760/1/Tese%20M%c3%b3nica.pdf</field>
+         </element>
+      </element>
+      <element name="citation"/>
+   </element>
+   <element name="dcterms"/>
+</metadata>

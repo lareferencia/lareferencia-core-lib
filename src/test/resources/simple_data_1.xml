@@ -1,0 +1,51 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes'?>
+<!--
+  ~   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
+  ~
+  ~   This program is free software: you can redistribute it and/or modify
+  ~   it under the terms of the GNU Affero General Public License as published by
+  ~   the Free Software Foundation, either version 3 of the License, or
+  ~   (at your option) any later version.
+  ~
+  ~   This program is distributed in the hope that it will be useful,
+  ~   but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~   GNU Affero General Public License for more details.
+  ~
+  ~   You should have received a copy of the GNU Affero General Public License
+  ~   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  ~
+  ~   This file is part of LA Referencia software platform LRHarvester v4.x
+  ~   For any further information please contact Lautaro Matas <lmatas@gmail.com>
+  -->
+
+<entity-relation-data source="SOURCE1" record="RECORD001" lastUpdate="2020-10-02 18:48:05.125300" >
+	<entities>
+		<entity type="Person" ref="Person1">
+			<semanticIdentifier>dummy::person00001</semanticIdentifier>
+			<!--identifiers -->
+			<field name="name" value="John Doe" />
+			<field name="complex">
+				<field name="subfield1" value="John Doe Complex Subfield1" />
+				<field name="subfield2" value="John Doe Complex Subfield2" />
+			</field>>
+		</entity>
+
+		<entity type="Publication" ref="Publication1" >
+			<semanticIdentifier>dummy::pub00001</semanticIdentifier>
+		
+			<field name="title" value="An Application for Web Mining Systems with Services Oriented Architecture" />
+			<field name="keyword" value="Web Mining" />
+			<field name="keyword" value="Web Services" />
+			<field name="keyword" value="Service Oriented Architecture" />
+		</entity>
+	</entities>
+	<relations>
+		<relation type="Authorship" fromEntityRef="Person1" toEntityRef="Publication1" > />
+			<attributes>
+				<field name="order" value="1" />
+			</attributes>
+		</relation>
+	</relations>
+
+</entity-relation-data>

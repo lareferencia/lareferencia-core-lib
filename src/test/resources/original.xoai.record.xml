@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
+  ~
+  ~   This program is free software: you can redistribute it and/or modify
+  ~   it under the terms of the GNU Affero General Public License as published by
+  ~   the Free Software Foundation, either version 3 of the License, or
+  ~   (at your option) any later version.
+  ~
+  ~   This program is distributed in the hope that it will be useful,
+  ~   but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~   GNU Affero General Public License for more details.
+  ~
+  ~   You should have received a copy of the GNU Affero General Public License
+  ~   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  ~
+  ~   This file is part of LA Referencia software platform LRHarvester v4.x
+  ~   For any further information please contact Lautaro Matas <lmatas@gmail.com>
+  -->
+
+<metadata xmlns="http://www.lyncode.com/xoai"
+          xmlns:fn="http://www.w3.org/2005/xpath-functions"
+          xmlns:fo="http://www.w3.org/1999/XSL/Format"
+          xmlns:xdt="http://www.w3.org/2005/xpath-datatypes"
+          xmlns:xs="http://www.w3.org/2001/XMLSchema"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://www.lyncode.com/xoai http://www.lyncode.com/xsd/xoai.xsd">
+   <element name="dc">
+      <element name="title">
+         <element name="none">
+            <field name="value">Origen y desarrollo de la configuración institucional de la Facultad de Trabajo Social de Huelva, 1968-1983</field>
+         </element>
+      </element>
+      <element name="creator">
+         <element name="none">
+            <field name="value">Banda Gallego, Trinidad|||0000-0001-7948-1684</field>
+         </element>
+      </element>
+      <element name="subject">
+         <element name="none">
+            <field name="value">Universidad de Huelva. Escuela Universitaria de Trabajo Social -- Historia</field>
+            <field name="value">Trabajo social</field>
+            <field name="value">Acción social</field>
+            <field name="value">Historia del Trabajo Social</field>
+            <field name="value">Planes de estudio</field>
+            <field name="value">Escuela Universitaria de Trabajo Social de Huelva</field>
+            <field name="value">Social Action</field>
+            <field name="value">Social Work</field>
+            <field name="value">History of Social Work</field>
+            <field name="value">Study Plans</field>
+            <field name="value">Social Work University School of Huelva</field>
+         </element>
+      </element>
+      <element name="description">
+         <element name="none">
+            <field name="value">Nuestra Tesis Doctoral versa sobre el origen y la configuración institucional de la Facultad de Trabajo Social de Huelva y abarca un periodo de quince años, desde 1968 hasta 1983..
+                 Hasta llegar al centro de nuestra investigación, hemos hecho un recorrido por las diferentes formas de acción social que ha habido a lo largo de la historia porque el Trabajo Social es una profesión que se ha ido construyendo en el andamiaje social y político de varios siglos, aunque su consolidación se produce en los siglos XIX y XX. Posteriormente pasamos a estudiar este contexto histórico concreto donde nace el Trabajo Social, en la realidad europea y americana fundamentalmente. Hemos visto también el papel que las mujeres han tenido en la historia del Trabajo Social como creadoras e impulsoras del mismo y de las propias escuelas, que han sido también objeto de nuestra atención, ya que son la primera instancia donde los futuros profesionales toman contacto con la profesión.
+                 En cuanto a la metodología empleada nos hemos centrado básicamente en el uso del archivo de la Escuela y entrevistas realizadas a personas que estuvieron vinculadas con la misma. También se ha realizado una revisión bibliográfica para establecer el marco teórico conceptual, así como la revisión de todas aquellas investigaciones disponibles que han abordado el tema del Trabajo Social desde los centros donde se han impartido sus enseñanzas.
+                 La Escuela de Trabajo Social de Huelva se pone en marcha por la llegada a esta ciudad del Polo de Desarrollo, cuyo objetivo era el crecimiento de la industria española, como sucedió en otras zonas de España como Barcelona, País Vasco y Madrid, donde se implantaron asimismo estructuras industriales que, a su vez, generaron múltiples problemas sociales y donde también se instalaron las primeras escuelas de Trabajo Social. La Escuela de Huelva pasó por un periodo crítico que amenazó seriamente con su cierre. Se analiza todo este proceso y se indaga en la celebración del día 6 de marzo como día institucional de la Facultad, que responde al
+                 momento en que se inicia la lucha y las movilizaciones que emprendieron profesores y alumnos ante los problemas que acuciaban a la escuela y que podían ocasionar su posible cierre.
+                 Es necesario dejar constancia de una serie de aspectos conclusivos de cómo una entidad que nace como un espacio de estudios sin casi entidad propia pasa a convertirse en una Escuela donde se imparte un título académico muy similar a otras escuelas del mismo tipo que había en España, no sin atravesar por serias dificultades para su consolidación institucional. De una media de 16,5 alumnos por curso desde 1970-1971 (año en el que están implantados los tres cursos) hasta 1973-1974 se pasa a 112 en los tres cursos en 1982-1983. Hay una serie de circunstancias que hacen que la Escuela se quede sin una figura jurídica que la respalde, ello, añadido a otros factores hará que se genere un conflicto que se mantendrá en total efervescencia desde el curso 1977-1978 hasta 1979-1980, curso en el que se constituye plenamente como Escuela de Trabajo Social a través de una Fundación, comenzando un nuevo periodo basado en un reconocimiento jurídico, saneamiento de la situación económica, revisión de los planes de estudio, formalización de los procedimientos para entrar a formar parte de la Escuela como profesor. A partir de este curso podemos decir que nace la Escuela de Trabajo Social de Huelva.
+                 Respecto a las aportaciones más novedosas que hacemos con nuestra investigación, podemos hacer una primera síntesis en la respuesta que da a una necesidad del panorama actual del Trabajo Social español que es la de contribuir a conocer nuestra propia historia, para que sea comprendida por las generaciones venideras. Ello no es posible, pensamos, sin contar con las particularidades de las distintas escuelas, por cuanto la vinculación de las mismas al desarrollo de la profesionalización del Trabajo Social es, hoy día, un hecho indiscutible. Conocer y reconocer las distintas vicisitudes por las que han pasado las instituciones académicas no hace más que dar brillo y lustre a nuestros orígenes por muy insignificante que fuera nuestra cuna. Esta es nuestra máxima intención, que se conozca el origen de este centro de formación y con ello contribuir a ampliar el panorama del Trabajo Social español, ya que hasta que no estén reconocidas las historias particulares este panorama seguirá estando incompleto.</field>
+            <field name="value">Our Doctoral Thesis treats on the origin and the institutional configuration of the Social Work School of Huelva and includes a fifteen year period, from 1968 to 1983.
+                 To be able to get to the focus of our investigation, we have done a tour through the different ways of social action that have existed in history since the Social Work is a profession that has been constructed in the social and political structure of several centuries, though its consolidation takes place in the XlXth and XXth century. Afterwards, we go on to study its specific historical context where the Social Work is born, mainly in the European and American society. We have seen also the role that the women have had in the history as creators and promoters of Social Work and of the schools, which have also been an object of our attention, as they are the first place where the future professionals take contact with the profession. As for the methodology used, vve have focused mainly on the use of the historical files of the School and interviews done to persons who were linked to it. We have also done a bibliographical review to establish the theoretical conceptual frame, as well as the review of all the available investigations that have approached the topic of Social Work from the schools where this education were taught.
+                 The School of Social Work of Huelva was started by the arrival to this city of the Industrial center, its aim was the growth of the Spanish industry, as it happened in other parts of Spain as Barcelona, Basque Country and Madrid, where were established industrial structures that, in turn, generated multiple social problems and also were opened the first Social Work schools. The School of Huelva had a critical period that threatened seriously with its closing. All this process is analyzed and is investigated in the celebration of March 6 as institutional day of the School, which answers to the moment in which mobilizations where started by the teachers and pupils due to the problems that they were harassing the school and that could have caused its closure.
+                 It is necessary to place on record a series of conclusive aspects on how an entity that was born as a space of studies without almost any structure goes on to become a School where is taught an academic title similar to other schools of the same type that existed in Spain, not without going through serious difficulties for its institutional consolidation. From an average of 16,5 pupils per course from 1970-1971 (year in which three courses started) to 1973-1974 it goes up to 112 in three courses in 1982-1983. There are a series of circumstances by which the School remains without a juridical figure that supports it, added to other factors will generate in a conflict that will be kept in total effervescence from the course of 1977-1978 up to 1979-1980, year in which it is constituted fully as a Social Work School by a Foundation, beginning a new period based on a juridical recognition, an economic reparation, review of the study plans and formalization of the procedures to be part of the School as a teacher. From this course on, we can say that the School of Social Work of Huelva is born.
+                 Regarding to the new contributions that we do with our investigation, we can do the first summary as the response that it gives to a need of the current panorama of the Spanish Social Work, that of knowing our own history, in order that it will be understood by future generations. That will not be possible, we think, without knowing the particularities of the different schools, since the link of them to the development of the professionalization of Social Work is, nowadays, an absolute fact. To know and to recognize the different difficulties by which the academic institutions have had to go through makes our origins shine, even though our cradle was insignificant. This is our maximum intention, to know the origin of this school and with it, help to extend the landscape of the Spanish Social Work, since until the particular histories are not known, this landscape will continue being incomplete.</field>
+         </element>
+      </element>
+      <element name="publisher">
+         <element name="none">
+            <field name="value">Universidad de Huelva</field>
+         </element>
+      </element>
+      <element name="contributor">
+         <element name="none">
+            <field name="value">Vázquez Aguado, Octavio</field>
+            <field name="value">Universidad de Huelva. Departamento de Sociología y Trabajo Social</field>
+         </element>
+      </element>
+      <element name="date">
+         <element name="none">
+            <field name="value">2015</field>
+            <field name="value">2015-01-01</field>
+         </element>
+      </element>
+      <element name="type">
+         <element name="none">
+            <field name="value">doctoral thesis</field>
+            <field name="value">http://purl.org/coar/resource_type/c_db06</field>
+            <field name="value">NA</field>
+            <field name="value">http://purl.org/coar/version/c_be7fb7dd8ff6fe43</field>
+         </element>
+      </element>
+      <element name="identifier">
+         <element name="none">
+            <field name="value">http://hdl.handle.net/10272/11477</field>
+         </element>
+      </element>
+      <element name="source">
+         <element name="none">
+            <field name="value">reponame:Arias Montano: Repositorio Institucional de la Universidad de Huelva</field>
+            <field name="value">instname:Universidad de Huelva (UHU)</field>
+         </element>
+      </element>
+      <element name="language">
+         <element name="none">
+            <field name="value">Español</field>
+            <field name="value">spa</field>
+         </element>
+      </element>
+      <element name="rights">
+         <element name="none">
+            <field name="value">open access</field>
+            <field name="value">http://purl.org/coar/access_right/c_abf2</field>
+            <field name="value">Atribución-NoComercial-SinDerivadas 3.0 España</field>
+            <field name="value">http://creativecommons.org/licenses/by-nc-nd/3.0/es/</field>
+         </element>
+      </element>
+   </element>
+   <element name="bundles"/>
+   <element name="others">
+      <field name="handle"/>
+      <field name="identifier">oai:rabida.uhu.es:10272/11477</field>
+      <field name="lastModifyDate">2021-08-19T02:33:36Z</field>
+   </element>
+   <element name="repository">
+      <field name="mail"/>
+      <field name="name"/>
+   </element>
+</metadata>
