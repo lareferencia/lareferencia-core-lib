@@ -82,7 +82,7 @@ public class MDTransformerParameterSetter {
 	
 					if ( valueOfResult != null ) { // if value is not null
 						// set the parameter using the prefixed name of field and the string value of the field 
-						String fieldName = parameterNamePrefix + name.substring(3).toLowerCase(); 
+						String fieldName = parameterNamePrefix + name.toLowerCase(); 
 						if (valueOfResult instanceof List) {
 							List<String> items = (List<String>) valueOfResult; 
 							transformer.setParameter(fieldName, items);
