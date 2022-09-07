@@ -45,7 +45,8 @@ public abstract class AbstractTransformerRule implements ITransformerRule {
 	 * 
 	 * @param metadata
 	 * @return Retorna true si fue necesario aplicar una transformación
+	 * @throws ValidationException 
 	 */
-	public abstract boolean transform(OAIRecord record, OAIRecordMetadata metadata);
+	public abstract boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 	
 }

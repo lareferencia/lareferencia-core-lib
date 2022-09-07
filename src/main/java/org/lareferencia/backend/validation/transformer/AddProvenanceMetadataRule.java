@@ -30,6 +30,7 @@ import org.lareferencia.backend.domain.Network;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
+import org.lareferencia.core.validation.ValidationException;
 import org.apache.commons.beanutils.BeanUtils;
 
 public class AddProvenanceMetadataRule extends AbstractTransformerRule {
@@ -120,9 +121,18 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 
 	public AddProvenanceMetadataRule() {
 	}
+	
+	
+	private String getField(Map<String, Object> attributes, String fieldName) {
+		
+		if ( attributes.containsKey(fieldName) && attributes.get(fieldName) != null )
+			return attributes.get(fieldName).toString();
+		else
+			return "";	
+	}
 
 	@Override
-	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
 
 
 		// LAReferenciaNetworkAttributes attributes = (LAReferenciaNetworkAttributes)
@@ -137,16 +147,16 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 			// AbstractNetworkAttributes attributes = network.getAttributes();
 			Map<String, Object> attributes = network.getAttributes();
 
-			metadata.addFieldOcurrence(repoTypeField, attributes.get("source_type").toString());
-			metadata.addFieldOcurrence(repoUrlField, attributes.get("source_url").toString());
-			metadata.addFieldOcurrence(instTypeField, attributes.get("institution_type").toString());
-			metadata.addFieldOcurrence(instUrlField, attributes.get("institution_url").toString());
-			metadata.addFieldOcurrence(oaiUrlField, attributes.get("oai_url").toString());
-			metadata.addFieldOcurrence(contactEmailField, attributes.get("contact_email").toString());
-			metadata.addFieldOcurrence(countryField, attributes.get("country").toString());
-			metadata.addFieldOcurrence(doiField, attributes.get("doi").toString());
-			metadata.addFieldOcurrence(issnField, attributes.get("issn").toString());
-			metadata.addFieldOcurrence(issnLField, attributes.get("issn_l").toString());
+			metadata.addFieldOcurrence(repoTypeField, getField(attributes,"source_type"));
+			metadata.addFieldOcurrence(repoUrlField, getField(attributes,"source_url"));
+			metadata.addFieldOcurrence(instTypeField, getField(attributes,"institution_type"));
+			metadata.addFieldOcurrence(instUrlField, getField(attributes,"institution_url"));
+			metadata.addFieldOcurrence(oaiUrlField, getField(attributes,"oai_url"));
+			metadata.addFieldOcurrence(contactEmailField, getField(attributes,"contact_email"));
+			metadata.addFieldOcurrence(countryField, getField(attributes,"country"));
+			metadata.addFieldOcurrence(doiField, getField(attributes,"doi"));
+			metadata.addFieldOcurrence(issnField, getField(attributes,"issn"));
+			metadata.addFieldOcurrence(issnLField, getField(attributes,"issn_l"));
 
 			metadata.addFieldOcurrence(oaiIdentifierField, metadata.getIdentifier());
 
@@ -157,7 +167,7 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 			 * preUnderscore += "_"; } String idWithPrefix =
 			 * "od"+preUnderscore+attr_fields.get("repository_id");
 			 */
-			String idWithPrefix = "opendoar:" + attributes.get("repository_id");
+			String idWithPrefix = "opendoar:" + getField(attributes,"repository_id");
 
 			metadata.addFieldOcurrence(repoIdField, idWithPrefix);
 			metadata.addFieldOcurrence(harvestDateField, record.getDatestamp().toString());
@@ -165,7 +175,7 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 					+ record.getSnapshot().getNetwork().getInstitutionName());
 			metadata.addFieldOcurrence(statusField, "" + record.getTransformed());
 		} catch (Exception e) {
-			System.out.println(e.getMessage());
+			throw new ValidationException("An exception occured during AddProvenaceMedatada Transformation:" + e.getMessage());
 		}
 
 		return true;

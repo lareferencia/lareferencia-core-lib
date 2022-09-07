@@ -25,7 +25,7 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 
 public interface ITransformerRule {
 
-	abstract boolean transform(OAIRecord record, OAIRecordMetadata metadata);
+	abstract boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 	public Long getRuleId();
 	public void setRuleId(Long id);
 
