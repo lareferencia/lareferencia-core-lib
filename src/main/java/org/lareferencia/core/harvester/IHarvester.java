@@ -21,11 +21,14 @@
 package org.lareferencia.core.harvester;
 
 import java.util.List;
+import java.util.Map;
 
 
 public interface IHarvester extends IHarvestingEventSource {
 
 	public void harvest(String originURL, String set, String metadataPrefix, String metadataStoreSchema, String from, String until, String resumptionToken, int maxRetries);
+	
+	public Map<String, String> identify(String originURL);
 	
 	public List<String> listSets(String uri);
 

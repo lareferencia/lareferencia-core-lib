@@ -79,7 +79,73 @@ public class DateHelper {
     public static String getDateTimeMachineString(LocalDateTime date) {
         return MACHINE_DATE_TIME_FORMATTER.format(date);
     }
-    
+
+
+    /**
+     * From a date, returns a preformatted String with the<br/>
+     * pattern: "yyyy-MM-dd HH:mm:ss"
+     *
+     * @param date
+     * @param pattern
+     *
+     * @return
+     */
+    public static String getDateTimeFormattedString(LocalDateTime date, String pattern) {
+        return DateTimeFormatter.ofPattern(pattern).format(date);
+    }
+
+    /**
+     * From a date, returns a preformatted String with the<br/>
+     * pattern derived from granularity "yyyy-MM-ddTHH:mm:ssZ"
+     *
+     * @param date
+     * @param granularity
+     *
+     * @return
+     */
+    public static String getDateTimeFormattedStringFromGranularity(LocalDateTime date, String granularity) {
+        return getDateTimeFormattedString(date, getPatternFromGranularity(granularity));
+    }
+
+    private static String getPatternFromGranularity(String granularity) {
+        String pattern = pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'";
+
+        if (granularity != null) {
+
+            switch (granularity) {
+
+            case "yyyy-MM-dd":
+                return "yyyy-MM-dd";
+
+            case "yyyy-MM-ddTHH":
+                return  "yyyy-MM-dd'T'HH";
+
+            case "yyyy-MM-ddTHH:mm":
+                return  "yyyy-MM-dd'T'HH:mm";
+
+            case "yyyy-MM-ddTHH:mm:ss":
+                return  "yyyy-MM-dd'T'HH:mm:ss";
+
+            case "yyyy-MM-ddTHH:mm:ssZ":
+                return  "yyyy-MM-dd'T'HH:mm:ss'Z'";
+
+            case "yyyy-MM-ddTHH:mm:ss.SSSZ":
+                return  "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
+
+            case "yyyy-MM-ddTHH:mm:ss.SSS":
+                return  "yyyy-MM-dd'T'HH:mm:ss.SSS";
+
+            case "yyyy-MM-ddTHH:mm:ss.SSSXXX":
+                return  "yyyy-MM-dd'T'HH:mm:ss.SSSXXX";
+
+            case "yyyy-MM-ddTHH:mm:ss.SSSXXXZ":
+                return  "yyyy-MM-dd'T'HH:mm:ss.SSSXXX'Z'";
+
+            }
+        }
+        return pattern;
+    }
+
     /**
      * From a date, returns a preformatted String with the<br/>
      * pattern: "yyyy-MM-dd HH:mm:ss"

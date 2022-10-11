@@ -22,6 +22,7 @@ package org.lareferencia.core.harvester.workers;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,7 +54,9 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 
 public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implements IWorker<NetworkRunningContext>, IHarvestingEventListener {
-	
+
+	private static final String DEFAULT_GRANDULARITY = "YYYY-MM-DDThh:mm:ssZ";
+
 	private static Logger logger = LogManager.getLogger(HarvestingWorker.class);
 	
 	@Autowired
@@ -137,7 +140,34 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 	 */
 	@Override
 	public void run() {
-		
+
+		// create identify map for contain the information of identify request
+		Map<String, String> identifyMap = null;
+
+		// date granularity
+		String granularity = DEFAULT_GRANDULARITY;
+
+		// check if the url is valid by trying to connect to it with identify verb
+		String originURL = runningContext.getNetwork().getOriginURL();
+
+
+		// if fetch identify is true, will try to fetch the identify information
+		if ( runningContext.getNetwork().getBooleanPropertyValue("HARVEST_IDENTIFY_PARAMETERS") ) {
+			logger.debug("FETCH_IDENTIFY_PARAMETERS is true, fetching identify parameters");
+			identifyMap =  harvester.identify(originURL);
+			if ( identifyMap != null && identifyMap.containsKey("granularity") && identifyMap.get("granularity") != null
+					&& !identifyMap.get("granularity").isEmpty() ) {
+
+				logInfoMessage("Identify Granularity found: " + identifyMap.get("granularity"));
+				granularity = identifyMap.get("granularity");
+			} else {
+				logInfoMessage("Identify Granularity not found, using default granularity: " + granularity);
+			}
+		} else { // if fetch identify is false, will use the default granularity
+			logInfoMessage("Using default granularity: " + granularity);
+		}
+
+
 		LocalDateTime startDateStamp = LocalDateTime.now();
 		validatorResult = new ValidatorResult();
 
@@ -180,7 +210,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 					
 					LocalDateTime startDatestamp = metadataStoreService.getSnapshotStartDatestamp(snapshotId);
 									
-					from = DateHelper.getDateTimeMachineString(startDatestamp); //  DateUtil.OAIPMH_DATE_FORMAT.format(  ); // new DateTime( snapshot.getStartTime() ).toString();
+					from =  DateHelper.getDateTimeFormattedStringFromGranularity(startDatestamp,granularity); //DateHelper.getDateTimeMachineString(startDatestamp);
 
 					metadataStoreService.updateSnapshotLastIncrementalDatestamp(snapshotId, startDatestamp);
 									
@@ -259,7 +289,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		// Ciclo principal de procesamiento, dado por la estructura de la red
 		// nacional
 		// Se recorren los orígenes
-		
+
 		String originURL = runningContext.getNetwork().getOriginURL();
 		String metadataPrefix = runningContext.getNetwork().getMetadataPrefix();
 		String metadataStoreSchema = runningContext.getNetwork().getMetadataStoreSchema();
