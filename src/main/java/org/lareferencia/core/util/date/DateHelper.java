@@ -117,6 +117,9 @@ public class DateHelper {
             case "yyyy-MM-dd":
                 return "yyyy-MM-dd";
 
+            case "YYYY-MM-DD":
+                return "yyyy-MM-dd";
+
             case "yyyy-MM-ddTHH":
                 return  "yyyy-MM-dd'T'HH";
 
