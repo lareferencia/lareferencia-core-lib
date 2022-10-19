@@ -21,10 +21,9 @@
 package org.lareferencia.core.harvester.workers;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
+import javax.print.Doc;
 import javax.xml.transform.TransformerException;
 
 import org.apache.logging.log4j.LogManager;
@@ -40,10 +39,7 @@ import org.lareferencia.core.metadata.MDFormatTransformerService;
 import org.lareferencia.core.metadata.MedatadaDOMHelper;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.date.DateHelper;
-import org.oclc.oai.harvester2.verb.FatalHarvestingException;
-import org.oclc.oai.harvester2.verb.ListRecords;
-import org.oclc.oai.harvester2.verb.ListSets;
-import org.oclc.oai.harvester2.verb.RecoverableHarvestingException;
+import org.oclc.oai.harvester2.verb.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;
@@ -452,5 +448,59 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 		}
 		
 		return setList;
+	}
+
+	@Override
+	public Map<String, String> identify(String originURL) {
+
+		Map<String, String> identifyMap = new HashMap<String, String>();
+
+		try {
+			Identify identify = new Identify(originURL);
+
+			// La obtención de registros por xpath se realiza de acuerdo al schema
+	        // correspondiente
+	        NodeList nodes = null;
+	        String namespace = null;
+
+	        try {
+	            if (identify.getSchemaLocation().indexOf(Identify.SCHEMA_LOCATION_V2_0) != -1) {
+	                nodes = identify.getNodeList("/oai20:OAI-PMH/oai20:Identify");
+	                namespace = "oai20";
+	            } else if (identify.getSchemaLocation().indexOf(Identify.SCHEMA_LOCATION_V1_1_LIST_RECORDS) != -1) {
+	                namespace = "oai11_Identify";
+	                nodes = identify.getNodeList("/oai11_Identify:Identify");
+	            } else {
+	                throw new FatalHarvestingException("ListRecords XML parsing error :: record tag entries not found");
+	            }
+	        } catch ( TransformerException e ) {
+	            throw new FatalHarvestingException("ListRecords XML parsing error :: record tag entries parsing problems" + e.getMessage());
+	        }
+
+			if (nodes.getLength() == 0) {
+	            throw new FatalHarvestingException("ListRecords XML parsing error :: record tag entries not found");
+	        }
+	        Node node = nodes.item(0);
+
+			identifyMap.put("repositoryName", identify.getSingleString(node, namespace + ":repositoryName"));
+			identifyMap.put("baseURL", identify.getSingleString(node, namespace + ":baseURL"));
+			identifyMap.put("protocolVersion", identify.getSingleString(node, namespace + ":protocolVersion"));
+			identifyMap.put("adminEmail", identify.getSingleString(node, namespace + ":adminEmail"));
+			identifyMap.put("earliestDatestamp", identify.getSingleString(node, namespace + ":earliestDatestamp"));
+			identifyMap.put("deletedRecord", identify.getSingleString(node, namespace + ":deletedRecord"));
+			identifyMap.put("granularity", identify.getSingleString(node, namespace + ":granularity"));
+			identifyMap.put("compression", identify.getSingleString(node, namespace + ":compression"));
+
+			return identifyMap;
+
+		} catch (FatalHarvestingException e) {
+			logger.error("Identify Error: " + e.getMessage());
+		} catch (RecoverableHarvestingException e) {
+			logger.error("Identify Error: " + e.getMessage());
+		} catch (TransformerException e) {
+			logger.error("Identify Error: " + e.getMessage());
+		}
+
+		return null;
 	}
 }
