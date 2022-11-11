@@ -301,6 +301,19 @@ public class OAIRecordMetadata {
 	}
 
 	
+    public List<Node> getFieldNodesByXPath (String xpathSelector) {
+        
+
+        try {
+
+            return MedatadaDOMHelper.getListOfTextNodes(DOMDocument, xpathSelector );
+
+        } catch (Exception e) {
+            // TODO: mejorar el tratamiento de esto
+            e.printStackTrace();
+            return new ArrayList<Node>(0);
+        }
+    }
 
 	
 	public List<Node> getFieldNodes(String fieldName) {
