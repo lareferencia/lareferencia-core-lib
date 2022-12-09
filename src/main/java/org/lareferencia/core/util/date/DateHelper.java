@@ -21,8 +21,6 @@
 
 package org.lareferencia.core.util.date;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -56,6 +54,11 @@ public class DateHelper {
         if (optFormatter.isPresent()) {
             return LocalDateTime.parse(strDate, optFormatter.get());
         }
+        try {
+            return LocalDateTime.parse(strDate);
+        } catch ( Exception e ) {}
+        
+        
         throw new DateTimeParseException("Date in an unsupported date format: " + strDate, strDate, 0);
     }
 
