@@ -35,7 +35,7 @@ public class YearMonthDayHourDateFormatter implements IDateTimeFormatter {
     @Override
     public DateTimeFormatter getFormatter() {
         return DateTimeFormatter.ofPattern(
-        		"[yyyy-MM-dd HH:mm:ss.SSSSSS]" + "[yyyy/MM/dd HH:mm:ss.SSSSSS]" + "[yyyy-MM-dd HH:mm:ss[.SSS]]" + "[ddMMMyyyy:HH:mm:ss.SSS[ Z]]",
+                "[yyyy-MM-dd HH:mm:ss.SSSSSS]" + "[yyyy/MM/dd HH:mm:ss.SSSSSS]" + "[yyyy-MM-dd HH:mm:ss[.SSS]]" + "[ddMMMyyyy:HH:mm:ss.SSS[ Z]]",
                 Locale.ENGLISH);
     }
 

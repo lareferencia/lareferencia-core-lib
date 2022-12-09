@@ -35,7 +35,7 @@ public class YearMonthDateFormatter implements IDateTimeFormatter {
 
     @Override
     public DateTimeFormatter getFormatter() {
-        return new DateTimeFormatterBuilder().appendPattern("yyyy-MM").parseDefaulting(ChronoField.DAY_OF_MONTH, 1)
+        return new DateTimeFormatterBuilder().appendPattern("[yyyy-MM][yyyy/MM]").parseDefaulting(ChronoField.DAY_OF_MONTH, 1)
                 .parseDefaulting(ChronoField.HOUR_OF_DAY, 0).parseDefaulting(ChronoField.MINUTE_OF_HOUR, 0)
                 .parseDefaulting(ChronoField.SECOND_OF_MINUTE, 0).parseDefaulting(ChronoField.MILLI_OF_SECOND, 0)
                 .toFormatter();
