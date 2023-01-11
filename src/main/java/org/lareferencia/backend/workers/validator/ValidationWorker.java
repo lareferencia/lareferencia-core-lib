@@ -121,7 +121,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			try {
 	
 				
-				if ( runningContext.getNetwork().getBooleanPropertyValue("VALIDATE") )
+				//if ( runningContext.getNetwork().getBooleanPropertyValue("VALIDATE") )
 					
 					if ( runningContext.getNetwork().getValidator() != null ) {
 						validator = validationManager.createValidatorFromModel(runningContext.getNetwork().getValidator());
@@ -129,19 +129,21 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 						logInfo("No Validator was found for " + runningContext.toString() + "!!!");
 					}
 	
-				if (  runningContext.getNetwork().getBooleanPropertyValue("TRANSFORM") ) {
+				//if (  runningContext.getNetwork().getBooleanPropertyValue("TRANSFORM") ) {
 				
 					if ( runningContext.getNetwork().getTransformer() != null ) {
 						transformer = validationManager.createTransformerFromModel(runningContext.getNetwork().getTransformer());
-					} else {
-						logInfo("No transformer was found for "+  runningContext.toString() +"!!!");
-					}
+					} 
 					
-					if ( runningContext.getNetwork().getBooleanPropertyValue("TRANSFORM") && runningContext.getNetwork().getSecondaryTransformer() != null ) {
+					if ( runningContext.getNetwork().getSecondaryTransformer() != null ) {
 						secondaryTransformer = validationManager.createTransformerFromModel(runningContext.getNetwork().getSecondaryTransformer());
 					}
 					
-				}
+					if ( transformer == null || secondaryTransformer == null )
+					    logInfo("No transformers for "+  runningContext.toString() +"!!!");
+	                    
+					
+				//}
 				
 				if (! isIncremental() ) { // si es validacion full hace un reset de los indicadores
 					metadataStoreService.resetSnapshotValidationCounts(snapshotId);
@@ -180,6 +182,9 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 		
 		
 		try {
+		    // reset validation result
+            reusableValidationResult.reset();
+
 		
 			// if is full revalidation set record as untested and not transformed
 			if ( ! isIncremental() ) {
@@ -197,27 +202,29 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 			
 			// si corresponde lo transforma
-			if ( runningContext.getNetwork().getBooleanPropertyValue("TRANSFORM") ) {
+			//if ( runningContext.getNetwork().getBooleanPropertyValue("TRANSFORM") ) {
 				
-				logger.debug("Starting transformations: " + record.getId() + " :: "+ record.getIdentifier() );
-				
-				// transforma
-				
-				if ( transformer != null ) {
-					logger.debug("Primary transformer: "  + record.getId() + " :: "+ record.getIdentifier() );
-					wasTransformed |= transformer.transform(record, metadata);
-				}
-				
-				if ( secondaryTransformer != null ) {
-					logger.debug("Secondary transformer: "  + record.getId() + " :: "+ record.getIdentifier() );
-					wasTransformed |= secondaryTransformer.transform(record, metadata);
-				}
-					
-				logger.debug( record.getId() + " :: "+ record.getIdentifier() + "  Transformed: " + wasTransformed);
-
+			logger.debug("Starting transformations: " + record.getId() + " :: "+ record.getIdentifier() );
+			
+			// transforma
+			
+			if ( transformer != null ) {
+				logger.debug("Primary transformer: "  + record.getId() + " :: "+ record.getIdentifier() );
+				wasTransformed |= transformer.transform(record, metadata);
 			}
+			
+			if ( secondaryTransformer != null ) {
+				logger.debug("Secondary transformer: "  + record.getId() + " :: "+ record.getIdentifier() );
+				wasTransformed |= secondaryTransformer.transform(record, metadata);
+			}
+				
+			logger.debug( record.getId() + " :: "+ record.getIdentifier() + "  Transformed: " + wasTransformed);
 
-			if ( runningContext.getNetwork().getBooleanPropertyValue("VALIDATE") && validator != null ) {
+			//}
+			
+			
+			// if validator is defined
+			if ( /*runningContext.getNetwork().getBooleanPropertyValue("VALIDATE") && */ validator != null ) {
 
 				logger.debug("Validating: "  + record.getId() + " :: "+ record.getIdentifier() );
 				
@@ -227,17 +234,22 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 				// update record validation status
 				metadataStoreService.updateRecordStatus(record, reusableValidationResult.isValid() ? RecordStatus.VALID : RecordStatus.INVALID, wasTransformed);
 					
-				// Se almacenan las estadísticas de cosecha
-				if ( runningContext.getNetwork().getBooleanPropertyValue("DIAGNOSE") ) {
-					logger.debug("Storing diagnose "  + record.getId() + " :: "+ record.getIdentifier() );
-					validationStatsObservations.add( validationStatisticsService.buildObservation(record, reusableValidationResult) );
-				}
+				
 			}
-			else { // si no hay validador o no está indicado validar el status es valid
-				// update record validation status
+			else { // if no validator is set, then record is consired valid and the validation results are set to true
+				
+			    reusableValidationResult.setValid(true);
+
+	            // update record validation status
 				metadataStoreService.updateRecordStatus(record, RecordStatus.VALID, wasTransformed);
 
 			}
+			
+			// Se almacenan las estadísticas de cosecha
+            //if ( runningContext.getNetwork().getBooleanPropertyValue("DIAGNOSE") ) {
+            logger.debug("Storing diagnose "  + record.getId() + " :: "+ record.getIdentifier() );
+            validationStatsObservations.add( validationStatisticsService.buildObservation(record, reusableValidationResult) );
+            //}
 
 			logger.debug( record.getId() + " :: "+ record.getIdentifier() + " final status: " + record.getStatus() );
 

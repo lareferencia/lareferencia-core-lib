@@ -52,12 +52,19 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 
+import lombok.Getter;
+import lombok.Setter;
+
 
 public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implements IWorker<NetworkRunningContext>, IHarvestingEventListener {
 
 	private static final String DEFAULT_GRANDULARITY = "YYYY-MM-DDThh:mm:ssZ";
 
 	private static Logger logger = LogManager.getLogger(HarvestingWorker.class);
+	
+	@Getter
+	@Setter
+	private boolean fetchIdentifyParameters = false;
 	
 	@Autowired
 	private PlatformTransactionManager transactionManager;
@@ -152,7 +159,8 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 
 
 		// if fetch identify is true, will try to fetch the identify information
-		if ( runningContext.getNetwork().getBooleanPropertyValue("HARVEST_IDENTIFY_PARAMETERS") ) {
+		//if ( runningContext.getNetwork().getBooleanPropertyValue("HARVEST_IDENTIFY_PARAMETERS") ) {
+		if ( this.fetchIdentifyParameters ) {
 			logger.debug("FETCH_IDENTIFY_PARAMETERS is true, fetching identify parameters");
 			identifyMap =  harvester.identify(originURL);
 			if ( identifyMap != null && identifyMap.containsKey("granularity") && identifyMap.get("granularity") != null
