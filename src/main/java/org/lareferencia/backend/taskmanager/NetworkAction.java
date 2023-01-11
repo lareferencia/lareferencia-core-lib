@@ -49,12 +49,17 @@ public class NetworkAction {
 	Boolean runOnSchedule = false; 
 	
 	@Getter
+    @Setter
+    Boolean allwaysRunOnSchedule = false; 
+	
+	@Getter
 	@Setter
 	String name = "DUMMY";
 	
 	@Getter
 	@Setter
 	String description = "DUMMY";
+	
 
 	public boolean isIncremental() {
 		return incremental;

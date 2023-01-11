@@ -96,7 +96,10 @@ public class NetworkActionkManager {
 			for (NetworkProperty property: action.getProperties() )
 				anyPropertyisTrue |= network.getBooleanPropertyValue(property.getName());
 			
-			// si es programada y alguna propiedad de esa red es true
+			// allways runs overrides any property is set
+			anyPropertyisTrue |= action.allwaysRunOnSchedule;
+			
+			// now running depends on beans file (RunOnSchedule) AND some property to be true (or allway run is set)
 			if ( action.getRunOnSchedule() && anyPropertyisTrue ) {
 			
 				for ( String workerBeanName : action.getWorkers() ) {
