@@ -382,11 +382,10 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 				
 			metadataStoreService.saveSnapshot(snapshotId);
 
-			logInfo("End of index tasks: "+ runningContext.toString() + "(" + this.targetSchemaName + ")");
-			logInfo("Number of indexed documents:" + this.queryForNetworkDocumentCount( runningContext.getNetwork().getAcronym() ) );
+			logInfo("Finishing Indexing: "+ runningContext.toString() + "(" + this.targetSchemaName + ")");
+			logInfo("Indexed documents in " + runningContext.getNetwork().getAcronym() + " == " + this.queryForNetworkDocumentCount( runningContext.getNetwork().getAcronym() ) );
 
 			logger.debug("Updates snapshot status to " + SnapshotIndexStatus.INDEXED);
-
 
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
 			logError("Issues when commiting to SOLR: " + runningContext.toString() + ": " + e.getMessage());
@@ -440,7 +439,7 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 	private Long queryForNetworkDocumentCount(String networkAcronym) {
 
 		try {
-			return this.sendCountQueryToSolr("<query>" + this.solrNetworkIDField + ":" + networkAcronym + "</query>");
+			return this.sendCountQueryToSolr(this.solrNetworkIDField + ":" + networkAcronym );
 
 		} catch (Exception e) {
 			logError("Issues when querying for network document count: " + runningContext.toString() + ": " + e.getMessage());
