@@ -383,7 +383,7 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 			metadataStoreService.saveSnapshot(snapshotId);
 
 			logInfo("Finishing Indexing: "+ runningContext.toString() + "(" + this.targetSchemaName + ")");
-			logInfo("Indexed documents in " + runningContext.getNetwork().getAcronym() + " == " + this.queryForNetworkDocumentCount( runningContext.getNetwork().getAcronym() ) );
+			logInfo("Indexed documents in " + runningContext.getNetwork().getAcronym() + "::" + this.targetSchemaName + " = " + this.queryForNetworkDocumentCount( runningContext.getNetwork().getAcronym() ) );
 
 			logger.debug("Updates snapshot status to " + SnapshotIndexStatus.INDEXED);
 
