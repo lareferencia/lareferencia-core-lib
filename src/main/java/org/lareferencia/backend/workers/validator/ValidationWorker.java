@@ -285,7 +285,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	@Override
 	public void postPage() {
 		
-		if ( runningContext.getNetwork().getBooleanPropertyValue("DIAGNOSE") && validationStatisticsService.isServiceAvaliable() ) {
+		if ( validationStatisticsService.isServiceAvaliable() ) {
 			validationStatisticsService.registerObservations(validationStatsObservations);
 		} 
 		
