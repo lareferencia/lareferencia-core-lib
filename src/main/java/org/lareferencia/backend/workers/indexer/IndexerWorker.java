@@ -27,9 +27,11 @@ import java.util.Map;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
+import org.apache.solr.client.solrj.response.QueryResponse;
 import org.lareferencia.backend.domain.OAIBitstream;
 import org.lareferencia.backend.domain.SnapshotIndexStatus;
 import org.lareferencia.backend.repositories.jpa.OAIBitstreamRepository;
@@ -380,8 +382,11 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 				
 			metadataStoreService.saveSnapshot(snapshotId);
 
-			logInfo("End of index tasks: "+ runningContext.toString() + "(" + this.targetSchemaName + ")");
+			logInfo("Finishing Indexing: "+ runningContext.toString() + "(" + this.targetSchemaName + ")");
+			logInfo("Indexed documents in " + runningContext.getNetwork().getAcronym() + "::" + this.targetSchemaName + " = " + this.queryForNetworkDocumentCount( runningContext.getNetwork().getAcronym() ) );
+
 			logger.debug("Updates snapshot status to " + SnapshotIndexStatus.INDEXED);
+
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
 			logError("Issues when commiting to SOLR: " + runningContext.toString() + ": " + e.getMessage());
 			error();
@@ -431,6 +436,18 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 		}
 	}
 
+	private Long queryForNetworkDocumentCount(String networkAcronym) {
+
+		try {
+			return this.sendCountQueryToSolr(this.solrNetworkIDField + ":" + networkAcronym );
+
+		} catch (Exception e) {
+			logError("Issues when querying for network document count: " + runningContext.toString() + ": " + e.getMessage());
+			error();
+		}
+		return 0L;
+	}
+
 	private void solrRollback() {
 
 		try {
@@ -445,6 +462,22 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 			throws SolrServerException, IOException, HttpSolrClient.RemoteSolrException {
 		DirectXmlRequest request = new DirectXmlRequest("/update", data);
 		solrClient.request(request);
+	}
+
+	private Long sendCountQueryToSolr(String queryString ) {
+		try {
+			// Create select query
+			SolrQuery query = new SolrQuery();
+			query.setQuery(queryString);
+			query.setRows(0);
+
+			return solrClient.query(query).getResults().getNumFound();
+
+		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
+			logError("Issues with query  " + runningContext.toString() + ": " + e.getMessage());
+			error();
+		}
+		return 0L;
 	}
 
 	@Override
