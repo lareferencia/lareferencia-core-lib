@@ -29,7 +29,7 @@
 	<artifactId>lareferencia-core-lib</artifactId>
 	<name>LA Referencia core lib</name>
 	<description>LA Referencia core library</description>
-	<version>4.2.0</version>
+	<version>4.1.0</version>
 
 	<parent>
 		<groupId>org.lareferencia</groupId>
@@ -43,7 +43,7 @@
 		<dependency>
 			<groupId>org.lareferencia</groupId>
 			<artifactId>lareferencia-oclc-harvester</artifactId>
-			<version>4.2.0</version>
+			<version>4.1.0</version>
 		</dependency>
 
 		
