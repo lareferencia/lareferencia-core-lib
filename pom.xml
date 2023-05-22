@@ -177,6 +177,11 @@
   			<version>3.0.5</version>
 		</dependency>
 
+		<!-- Monitor Dependencies -->
+		<dependency>
+	        <groupId>org.springframework.boot</groupId>
+	        <artifactId>spring-boot-starter-actuator</artifactId>
+    	</dependency>
 
 	</dependencies>
 

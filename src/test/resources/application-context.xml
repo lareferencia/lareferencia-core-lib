@@ -43,6 +43,6 @@
             </set>
         </property>
     </bean>
-
+    <bean id="monitorService" class="org.lareferencia.core.monitor.LoadingProcessMonitorService" />
 	
 </beans>
