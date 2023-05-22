@@ -21,9 +21,11 @@
 package org.lareferencia.core.harvester.workers;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-import javax.print.Doc;
 import javax.xml.transform.TransformerException;
 
 import org.apache.logging.log4j.LogManager;
@@ -39,7 +41,11 @@ import org.lareferencia.core.metadata.MDFormatTransformerService;
 import org.lareferencia.core.metadata.MedatadaDOMHelper;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.date.DateHelper;
-import org.oclc.oai.harvester2.verb.*;
+import org.oclc.oai.harvester2.verb.FatalHarvestingException;
+import org.oclc.oai.harvester2.verb.Identify;
+import org.oclc.oai.harvester2.verb.ListRecords;
+import org.oclc.oai.harvester2.verb.ListSets;
+import org.oclc.oai.harvester2.verb.RecoverableHarvestingException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;

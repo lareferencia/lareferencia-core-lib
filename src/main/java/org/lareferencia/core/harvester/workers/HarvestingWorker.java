@@ -292,6 +292,16 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 
 
 	/*************************************************************/
+	/**
+	 * 	
+	 	Loading process in progress
+		Number of individuals of the loaded entities
+		Number of individuals of the duplicated entities
+		Number of individuals from discarded entities
+		Number of successfully processed files
+		Number of files processed with error
+		
+	 */
 
 	private void harvestEntireNetwork() {
 		// Ciclo principal de procesamiento, dado por la estructura de la red
