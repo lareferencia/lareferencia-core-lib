@@ -58,7 +58,7 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 	
 	Page<NetworkSnapshot> findByNetwork(Network network, Pageable pageable);
 
-	List<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus status);
+	//List<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus status);
 
 	Page<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus valid, Pageable pageable);
 
