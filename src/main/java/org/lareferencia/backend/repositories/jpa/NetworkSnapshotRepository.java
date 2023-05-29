@@ -58,12 +58,11 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 	
 	Page<NetworkSnapshot> findByNetwork(Network network, Pageable pageable);
 
-	@Query("select ns from NetworkSnapshot ns where ns.network.id = :network_id and ns.startTime >= :startDate and ns.startTime <= :endDate ")
-	Page<NetworkSnapshot> findByNetworkIdAndDate(@Param("network_id") Long network_id, @Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate, Pageable pageable);
-
 	List<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus status);
 
 	Page<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus valid, Pageable pageable);
+
+	Page<NetworkSnapshot> findByNetworkAndStatusAndStartTimeAndEndTime(Network network, SnapshotStatus valid, LocalDateTime startTime, LocalDateTime endTime, Pageable pageable);
 
 	List<NetworkSnapshot> findByNetworkAndStatusOrderByEndTimeAsc(Network network, SnapshotStatus status);
 
