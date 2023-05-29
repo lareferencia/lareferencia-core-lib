@@ -63,6 +63,8 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 
 	List<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus status);
 
+	Page<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus valid, Pageable pageable);
+
 	List<NetworkSnapshot> findByNetworkAndStatusOrderByEndTimeAsc(Network network, SnapshotStatus status);
 
 	Page<NetworkSnapshot> findByNetworkAndStatusOrderByEndTimeDesc(Network network, SnapshotStatus status, Pageable page);
@@ -86,6 +88,7 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 	@Transactional
 	@Query("delete from NetworkSnapshot ns where ns.network.id = ?1")
 	void deleteByNetworkID(Long network_id);
+
 
 	
 }
