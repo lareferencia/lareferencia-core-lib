@@ -62,7 +62,7 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 
 	Page<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus valid, Pageable pageable);
 
-	Page<NetworkSnapshot> findByNetworkAndStatusAndStartTimeAndEndTime(Network network, SnapshotStatus valid, LocalDateTime startTime, LocalDateTime endTime, Pageable pageable);
+	Page<NetworkSnapshot> findByNetworkAndStatusAndEndTimeBetween(Network network, SnapshotStatus status, LocalDateTime from, LocalDateTime to, Pageable pageable);
 
 	List<NetworkSnapshot> findByNetworkAndStatusOrderByEndTimeAsc(Network network, SnapshotStatus status);
 
