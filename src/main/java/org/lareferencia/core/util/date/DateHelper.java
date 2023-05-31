@@ -21,6 +21,7 @@
 
 package org.lareferencia.core.util.date;
 
+import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -200,6 +201,21 @@ public class DateHelper {
             }
         }
         return Optional.ofNullable(null);
+    }
+
+    /**
+     * Validates if a LocalDateTime is a valid date
+     *
+     * @param dateTime
+     * @return
+     */
+    public boolean isValidLocalDateTime(LocalDateTime dateTime) {
+        try {
+            dateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            return true;
+        } catch (DateTimeException e) {
+            return false;
+        }
     }
 
 }
