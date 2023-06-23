@@ -21,6 +21,7 @@
 package org.lareferencia.core.harvester.workers;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 
 import javax.print.Doc;
@@ -318,7 +319,7 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 
 			try {
 				identifier = listRecords.getSingleString(nodes.item(i), namespace + ":header/" + namespace + ":identifier");
-				datestamp = dateHelper.parseDate( listRecords.getSingleString(nodes.item(i), namespace + ":header/" + namespace + ":datestamp") );		
+				datestamp = dateHelper.parseDate( listRecords.getSingleString(nodes.item(i), namespace + ":header/" + namespace + ":datestamp") );
 				
 				String setSpec = listRecords.getSingleString(nodes.item(i), namespace + ":header/" + namespace + ":setSpec");
 				status = listRecords.getSingleString(nodes.item(i), namespace + ":header/@status");
@@ -326,45 +327,47 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 				if (!status.equals(STATUS_DELETED)) {
 					
 					//logger.debug(( MedatadaDOMHelper.node2XMLString( nodes.item(i) )));
-					
-					try {
-					
-						// Obtiene el iésimo node de metadatos del listrecords
-						Document domDocument = getMetadataNode( nodes.item(i), listRecords.getDocument() );
-						logger.debug( "Processed id:" + identifier);
-						
-						// Si el formato de metadatos cosechado no es el usado para store lo transforma
-						if ( transformMetadataFormat ) {
-						
-							// identifier del record
-							metadataTransformer.setParameter("identifier", identifier);
-							metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(datestamp));
 
-							domDocument = metadataTransformer.transform(domDocument);
-						}
-						
-						// crea un elemento de metadata con esa información
-						OAIRecordMetadata metadata = new OAIRecordMetadata(identifier, domDocument);
-						metadata.setOrigin( originURL);
-						metadata.setSetSpec(setSpec);
-						metadata.setStoreSchema(metadataStoreSchema);
-						metadata.setDatestamp(datestamp);
-	
-						reusableEvent.getRecords().add(metadata);
-					
-					} catch (NoSuchFieldException e) {
-						reusableEvent.getMissingRecordsIdentifiers().add(identifier);
-						reusableEvent.setRecordMissing(true);
+					// Obtiene el iésimo node de metadatos del listrecords
+					Document domDocument = getMetadataNode( nodes.item(i), listRecords.getDocument() );
+					logger.debug( "Processed id:" + identifier);
+
+					// Si el formato de metadatos cosechado no es el usado para store lo transforma
+					if ( transformMetadataFormat ) {
+
+						// identifier del record
+						metadataTransformer.setParameter("identifier", identifier);
+						metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(datestamp));
+
+						domDocument = metadataTransformer.transform(domDocument);
 					}
+
+					// crea un elemento de metadata con esa información
+					OAIRecordMetadata metadata = new OAIRecordMetadata(identifier, domDocument);
+					metadata.setOrigin( originURL);
+					metadata.setSetSpec(setSpec);
+					metadata.setStoreSchema(metadataStoreSchema);
+					metadata.setDatestamp(datestamp);
+
+					reusableEvent.getRecords().add(metadata);
+
 				} else {
 					reusableEvent.getDeletedRecordsIdentifiers().add(identifier); 
 				}
 
+			} catch (NoSuchFieldException e) {
+				reusableEvent.getMissingRecordsIdentifiers().add(identifier);
+				reusableEvent.setRecordMissing(true);
+			} catch (DateTimeParseException e) {
+				throw new FatalHarvestingException("XML Record parsing error :: record datestamp parsing exception: " + e.getMessage() + " :: identifier " + identifier );
 			} catch (TransformerException e) {
-				throw new FatalHarvestingException("XML Record parsing error :: record field not found: " + e.getMessage() + "\n" + nodes.item(i).toString());		
+				throw new FatalHarvestingException("XML Record parsing error :: record field not found: " + e.getMessage() + "\n" + " :: identifier " + identifier );
 			} catch (MDFormatTranformationException e) {
-				throw new FatalHarvestingException("XML Record schema transform from: " +  metadataPrefix + " to: " + metadataStoreSchema + " :: "+ e.getMessage() + "\n" + nodes.item(i).toString());		
+				throw new FatalHarvestingException("XML Record schema transform from: " +  metadataPrefix + " to: " + metadataStoreSchema + " :: "+ e.getMessage() +  " :: identifier " + identifier );
+			} catch (Exception e) {
+				throw new FatalHarvestingException("XML Record parsing unknown error" + e.getMessage() + " :: identifier " + identifier);
 			}
+
 		} /* fin for nodes */ 
 			
 		
