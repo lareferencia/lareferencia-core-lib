@@ -67,7 +67,8 @@ public class OAIRecordMetadata {
 	@Getter
 	@Setter
 	private String storeSchema;
-	
+
+	private static final String EMPTY_DOCUMENT = "<metadata></metadata>";
 
 	public Document getDOMDocument() {
 		return DOMDocument;
@@ -80,6 +81,23 @@ public class OAIRecordMetadata {
 		try {
 
 			DOMDocument = MedatadaDOMHelper.XMLString2Document(xmlString);
+
+		} catch (ParserConfigurationException e) {
+			throw new OAIRecordMetadataParseException("Error en configuración del parser. Idenfier" + identifier , e);
+		} catch (SAXException e) {
+			throw new OAIRecordMetadataParseException("Error parsing xml en: " + identifier, e);
+		} catch (IOException e) {
+			throw new OAIRecordMetadataParseException("Error desconocido en parsing de  " + identifier, e);
+		}
+	}
+
+	public OAIRecordMetadata(String identifier) throws OAIRecordMetadataParseException {
+
+		this.identifier = identifier;
+
+		try {
+
+			DOMDocument = MedatadaDOMHelper.XMLString2Document(EMPTY_DOCUMENT);
 
 		} catch (ParserConfigurationException e) {
 			throw new OAIRecordMetadataParseException("Error en configuración del parser. Idenfier" + identifier , e);

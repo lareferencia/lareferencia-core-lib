@@ -224,10 +224,27 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 
 		try {
 
-			OAIRecordMetadata metadata = metadataStoreService.getPublishedMetadata(record);
+			// if the record is invalid, deleted or untested and executeDeletion is true then delete it from the index
+			// some indexers may want to index deleted records, in that case executeDeletion should be false
+			if (executeDeletion && (record.getStatus() == RecordStatus.DELETED
+					|| record.getStatus() == RecordStatus.INVALID || record.getStatus() == RecordStatus.UNTESTED)) {
 
-			if (contentFiltersByFieldName != null) { // esto filtra los registros por contenido, dejando solo los que
-														// deben ser enviados al indice
+				logger.debug("Deleting record from solr index (" + record.getStatus() + "): " + record.getId());
+				deleteRecord(record.getId().toString(), fingerprintHelper.getFingerprint(record));
+			}
+
+			OAIRecordMetadata metadata = null;
+
+			// deleted records may have no metadata, so we only get the metadata if the record is not deleted
+			if ( !record.getStatus().equals(RecordStatus.DELETED) ) {
+				metadata = metadataStoreService.getPublishedMetadata(record);
+			} else {
+				logger.debug("Record is deleted, no metadata will be indexed: " + record.getId());
+				metadata = new OAIRecordMetadata(record.getIdentifier());
+			}
+
+			// this filters the records by content, using the contentFiltersByFieldName map
+			if (contentFiltersByFieldName != null ) {
 
 				logger.debug("Evaluating record content: " + record.getId());
 
@@ -252,18 +269,7 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 				if (!allowIndexing) // si no pertenece al conjunto de este indexador entonces debe ser rechazado
 					return;
 
-			} // fin del filtro por contenido
-
-			// Se transforma y genera el string del registro
-
-			// si esta indicado borrar los registros borrados o invalidos los elimina del
-			// indice
-			if (executeDeletion && (record.getStatus() == RecordStatus.DELETED
-					|| record.getStatus() == RecordStatus.INVALID || record.getStatus() == RecordStatus.UNTESTED)) {
-
-				logger.debug("Deleting record from solr index (" + record.getStatus() + "): " + record.getId());
-				deleteRecord(record.getId().toString(), fingerprintHelper.getFingerprint(record));
-			}
+			} // end of content filtering
 
 			// fingerprint del registro
 			metadataTransformer.setParameter("fingerprint", fingerprintHelper.getFingerprint(record));
@@ -277,6 +283,9 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 			// metadata como string
 			metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(record.getDatestamp()));
 
+			// if the record is invalid, deleted or untested then set the deleted parameter to true
+			// this parameter is used to filter out deleted records in oai providers
+			// this parameter is not used by frontends solr indices
 			metadataTransformer
 					.setParameter("deleted",
 							(new Boolean(record.getStatus() == RecordStatus.DELETED
@@ -307,20 +316,26 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 			// stringBuffer.append( metadataTransformer.transformToString(
 			// record.getMetadata().getDOMDocument()) );
 
+			// THIS WAS COMMENTED BECAUSE DELET RECORDS IS ALREADY DONE ABOVE / @lmatas 2023-09-20
 			// si no debe indexar registros borrados o invalidos los elimina del indice
-			if (!indexDeletedRecords && (record.getStatus() == RecordStatus.DELETED
-					|| record.getStatus() == RecordStatus.INVALID || record.getStatus() == RecordStatus.UNTESTED)) {
+//			if (!indexDeletedRecords && (record.getStatus() == RecordStatus.DELETED
+//					|| record.getStatus() == RecordStatus.INVALID || record.getStatus() == RecordStatus.UNTESTED)) {
+//
+//				logger.debug("Executing record deletion (" + record.getStatus() + "): " + record.getId());
+//				deleteRecord(record.getId().toString(), fingerprintHelper.getFingerprint(record));
+//			}
 
-				logger.debug("Executing record deletion (" + record.getStatus() + "): " + record.getId());
-				deleteRecord(record.getId().toString(), fingerprintHelper.getFingerprint(record));
-			}
-
-			// si es un record valido o si no es valido pero no debe remover los invalidos,
-			// lo indexa
+			// if the record is valid or if it is a deleted record but indexDeletedRecords is true then index it
+			// indexDeletedRecords is used to index deleted records in the index, this is used by oaipmh providers but not by frontends
+			// frontend indexer should set indexDeletedRecords to false and oai provider indexer should set it to true
 			if (record.getStatus() == RecordStatus.VALID || indexDeletedRecords) {
 				String recordStr = metadataTransformer.transformToString(metadata.getDOMDocument());
 				stringBuffer.append(recordStr);
-				logger.debug("Indexed record size: " + recordStr.length());
+
+				logger.debug("Transformed record to be indexed: " + record.getId() + " :: " + record.getIdentifier() + " :: " + recordStr );
+				logger.debug("Indexed record size in bytes: " + recordStr.length());
+			} else {
+				logger.debug("Record not indexed: " + record.getId() + " :: " + record.getIdentifier() + " :: " + record.getStatus());
 			}
 
 		} catch (MDFormatTranformationException e) {

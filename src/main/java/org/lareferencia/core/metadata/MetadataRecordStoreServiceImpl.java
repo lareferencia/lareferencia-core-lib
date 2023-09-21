@@ -23,11 +23,9 @@ package org.lareferencia.core.metadata;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.apache.commons.collections4.map.HashedMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,7 +45,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import lombok.Getter;
-import net.openhft.hashing.LongHashFunction;
 
 public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreService {
 	
@@ -291,6 +288,47 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 
 	};
 
+	@Override
+	public OAIRecord createDeletedRecord(Long snapshotId, String identifier, LocalDateTime dateStamp) throws MetadataRecordStoreException {
+
+		NetworkSnapshot snapshot = getSnapshot(snapshotId);
+
+		OAIRecord record = new OAIRecord(snapshot);
+		record.setDatestamp( dateStamp );
+		record.setIdentifier( identifier );
+		record.setStatus( RecordStatus.DELETED );
+		recordRepository.save(record);
+
+		return record;
+	};
+
+
+	@Override
+	public void copyNotDeletedRecordsFromSnapshot(Long previousSnapshotId, Long snapshotId) {
+
+		snapshotRepository.copyNotDeletedRecordsFromSnapshot(previousSnapshotId, snapshotId);
+
+		NetworkSnapshot snapshot;
+		try {
+			snapshot = getSnapshot(snapshotId);
+
+			RecordStatus[] statuses = { RecordStatus.VALID, RecordStatus.INVALID, RecordStatus.UNTESTED };
+
+			Long size = recordRepository.countBySnapshotAndStatusIn(snapshot, statuses);
+			snapshot.setSize(size.intValue());
+
+			Long validSize = recordRepository.countBySnapshotAndStatusIn(snapshot, new RecordStatus[] { RecordStatus.VALID });
+			snapshot.setValidSize(validSize.intValue());
+
+			Long transformedSize = recordRepository.countBySnapshotAndTransformed(snapshot, true);
+			snapshot.setTransformedSize(transformedSize.intValue());
+
+		} catch (MetadataRecordStoreException e) {
+			logger.error("MetadataRecordStore::copyNotDeletedRecordsFromSnapshot::"+e.getMessage());
+
+		}
+
+	}
 	
 	@Override
 	public OAIRecord updateRecordStatus(OAIRecord record, RecordStatus status, Boolean wasTransformed) {
@@ -587,13 +625,12 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 	@Override
 	public IPaginator<OAIRecord> getUpdatedRecordsPaginator(Long snapshotId) throws MetadataRecordStoreException {
 		NetworkSnapshot snapshot = getSnapshot(snapshotId);
-		return new RecordPaginator(snapshotId, snapshot.getEndTime());
+		return new RecordPaginator(snapshotId, snapshot.getLastIncrementalTime());
 	}
 
 	
 	@Override
 	public IPaginator<OAIRecord> getValidRecordsPaginator(Long snapshotId) {
-		// TODO Auto-generated method stub
 		return new RecordPaginator(snapshotId, RecordStatus.VALID);
 	} 
 	
@@ -601,8 +638,8 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 	public IPaginator<String> getRecordIdentifiersPaginator(Long snapshotId, RecordStatus status) {
 		return new RecordIdentifierPaginator(snapshotId, status);
 	}
-	
-	
+
+
 	public class RecordPaginator implements IPaginator<OAIRecord> {
 
 		// implements dummy starting page
@@ -631,8 +668,7 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		public RecordPaginator(Long snapshotID, RecordStatus status,
 				boolean negateStatus, LocalDateTime from) {
 
-			logger.debug(
-					"Creando paginador - snapshot: " + snapshotID + " status: " + status + " negado?: " + negateStatus);
+			logger.debug("RecordPaginator::snapshotID: " + snapshotID + " status: " + status + " negateStatus: " + negateStatus + " from: " + from);
 
 			this.negateStatus = negateStatus;
 			this.lastRecordID = -1L;
@@ -645,8 +681,11 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 
 		@Override
 		public void setPageSize(int size) {
-			this.pageSize = size;
-			obtainPage();
+			// only if size is different from current change it
+			if ( size != this.pageSize ) {
+				this.pageSize = size;
+				obtainPage();
+			}
 		}
 
 		private Page<OAIRecord> obtainPage() {
@@ -655,21 +694,41 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 
 			if (status == null) { // caso sin status
 
-				if (from == null) // caso sin fecha
-					page = recordRepository.findBySnapshotIdOptimizedOrderByRecordID(snapshotID, lastRecordID,
-							PageRequest.of(0, pageSize));
-				else // caso completa con estatus y fecha
-					page = recordRepository.findBySnapshotIdAndDateOptimizedOrderByRecordID(snapshotID, from,
-							lastRecordID, PageRequest.of(0, pageSize));
+				if (from == null) { // no date and no status
+					logger.debug("In case of no date and no status");
+					logger.debug("RecordPaginator::obtainPage::snapshotID: " + snapshotID + " lastRecordID: " + lastRecordID + " pageSize: " + pageSize);
+					//page = recordRepository.findBySnapshotIdOptimizedOrderByIdAsc(snapshotID, lastRecordID, PageRequest.of(0, pageSize));
+					page = recordRepository.findBySnapshotIdAndIdGreaterThanOrderByIdAsc(snapshotID, lastRecordID, PageRequest.of(0, pageSize));
+				}
+				else { // date no status
+					logger.debug("In case of date and no status");
+					logger.debug("RecordPaginator::obtainPage::snapshotID: " + snapshotID + " from: " + from + " lastRecordID: " + lastRecordID + " pageSize: " + pageSize);
+					//page = recordRepository.findBySnapshotIdAndDateOptimizedOrderByIdAsc(snapshotID, from, lastRecordID, PageRequest.of(0, pageSize));
+					page = recordRepository.findBySnapshotIdAndDatestampGreaterThanEqualAndIdGreaterThanOrderByIdAsc(snapshotID, from, lastRecordID, PageRequest.of(0, pageSize));
+				}
 
 			} else { // caso con status
 
-				if (from == null) // caso sin fecha
-					page = recordRepository.findBySnapshotIdAndStatusOptimizedOrderByRecordID(snapshotID, status,
-							negateStatus, lastRecordID, PageRequest.of(0, pageSize));
-				else // caso completa con estatus y fecha
-					page = recordRepository.findBySnapshotIdAndStatusAndDateOptimizedOrderByRecordID(snapshotID, status,
-							negateStatus, from, lastRecordID, PageRequest.of(0, pageSize));
+				if (from == null) { // no date and status
+					logger.debug("In case of no date and status");
+					logger.debug("RecordPaginator::obtainPage::snapshotID: " + snapshotID + " status: " + status + " lastRecordID: " + lastRecordID + " pageSize: " + pageSize);
+
+					//page = recordRepository.findBySnapshotIdAndStatusOptimizedOrderByIdAsc(snapshotID, status, negateStatus, lastRecordID, PageRequest.of(0, pageSize));
+					if ( negateStatus )
+						page = recordRepository.findBySnapshotIdAndStatusNotAndIdGreaterThanOrderByIdAsc(snapshotID, status, lastRecordID, PageRequest.of(0, pageSize));
+					else
+						page = recordRepository.findBySnapshotIdAndStatusAndIdGreaterThanOrderByIdAsc(snapshotID, status, lastRecordID, PageRequest.of(0, pageSize));
+
+				}
+				else { // date and status
+					logger.debug("In case of date and status");
+					logger.debug("RecordPaginator::obtainPage::snapshotID: " + snapshotID + " status: " + status + " from: " + from + " lastRecordID: " + lastRecordID + " pageSize: " + pageSize);
+					//page = recordRepository.findBySnapshotIdAndStatusAndDateOptimizedOrderByIdAsc(snapshotID, status, negateStatus, from, lastRecordID, PageRequest.of(0, pageSize));
+					if ( negateStatus )
+						page = recordRepository.findBySnapshotIdAndStatusNotAndDatestampGreaterThanEqualAndIdGreaterThanOrderByIdAsc(snapshotID, status, from, lastRecordID, PageRequest.of(0, pageSize));
+					else
+						page = recordRepository.findBySnapshotIdAndStatusAndDatestampGreaterThanEqualAndIdGreaterThanOrderByIdAsc(snapshotID, status, from, lastRecordID, PageRequest.of(0, pageSize));
+				}
 
 			}
 

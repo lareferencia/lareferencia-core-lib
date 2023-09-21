@@ -36,6 +36,7 @@ import org.lareferencia.core.harvester.HarvestingEvent;
 import org.lareferencia.core.harvester.IHarvester;
 import org.lareferencia.core.harvester.IHarvestingEventListener;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
+import org.lareferencia.core.metadata.MetadataRecordStoreException;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.util.date.DateHelper;
@@ -106,6 +107,11 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 	}
 	
 	private Long snapshotId;
+
+	// this will hold the previous snapshot id when the harvesting is incremental
+	private Long previousSnapshotId;
+
+
 	ValidatorResult validatorResult;
 
 
@@ -126,13 +132,11 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 
 		logInfoMessage(runningContext.toString() + " Stop signal received - Harvesting is stopping");
 		harvester.stop();
-		
-	
+
 		metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
 		metadataStoreService.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());
 		metadataStoreService.saveSnapshot(snapshotId);
-		
-		
+
 		try {
 			Thread.sleep(1000);
 		} catch (InterruptedException e) {}
@@ -154,9 +158,23 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		// date granularity
 		String granularity = DEFAULT_GRANDULARITY;
 
+		// create a validator result for reusing the object in the loop
+		validatorResult = new ValidatorResult();
+
+		// start datestamp
+		// LocalDateTime startDatestamp = null;
+		LocalDateTime startDateStamp = LocalDateTime.now();
+		LocalDateTime previusSnapshotStartDatestamp = null;
+
 		// check if the url is valid by trying to connect to it with identify verb
 		String originURL = runningContext.getNetwork().getOriginURL();
 
+
+		// create the snapshot
+		snapshotId = metadataStoreService.createSnapshot( runningContext.getNetwork() );
+
+		// set the snapshot start datetime
+		metadataStoreService.updateSnapshotStartDatestamp(snapshotId, startDateStamp);
 
 		// if fetch identify is true, will try to fetch the identify information
 		//if ( runningContext.getNetwork().getBooleanPropertyValue("HARVEST_IDENTIFY_PARAMETERS") ) {
@@ -176,9 +194,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		}
 
 
-		LocalDateTime startDateStamp = LocalDateTime.now();
-		validatorResult = new ValidatorResult();
-
 		if (runningContext.getNetwork() != null) {
 			
 			Validator validatorModel = runningContext.getNetwork().getPrevalidator();
@@ -197,7 +212,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		    
 			// caso de harvesting incremental
 			
-			// fuerza el tratamiento full de la cosecha
+			// forces full harvesting
 			if ( runningContext.getNetwork().getBooleanPropertyValue("FORCE_FULL_HARVESTING") ) {
 				logger.debug("Forcing full harvesting");
 				this.setIncremental(false);			
@@ -207,77 +222,68 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 	
 			if ( isIncremental() ) {
 				
-				// trata de conseguir la ultima cosecha válida , puede ser status 4 o 9 (harvested o valid)
-				//snapshot = snapshotRepository.findLastHarvestedByNetworkID( runningContext.getNetwork().getId() );
-				snapshotId = metadataStoreService.findLastHarvestingSnapshot( runningContext.getNetwork() );
+				// get the last good known snapshot if exists (the last one that finished with status VALID)
+				previousSnapshotId = metadataStoreService.findLastGoodKnownSnapshot( runningContext.getNetwork() );
 					
-				if ( snapshotId == null ) {
+				if ( previousSnapshotId == null ) {
 					logInfoMessage(runningContext.toString() + " There isn't any previous snapshot. Launching full harvesting instead ...");
+					this.setIncremental(false);
 				} 
-				else { // caso cosecha full anterior
-					
-					LocalDateTime startDatestamp = metadataStoreService.getSnapshotStartDatestamp(snapshotId);
-									
-					from =  DateHelper.getDateTimeFormattedStringFromGranularity(startDatestamp,granularity); //DateHelper.getDateTimeMachineString(startDatestamp);
+				else { 	// if there is a previous snapshot, get the last incremental datestamp
 
-					metadataStoreService.updateSnapshotLastIncrementalDatestamp(snapshotId, startDatestamp);
-									
-					logInfoMessage(runningContext.toString() + " Starting incremental harvesting from date: " + from + " -- Snapshot: " + snapshotId);
+					previusSnapshotStartDatestamp = metadataStoreService.getSnapshotStartDatestamp(previousSnapshotId);
+
+					// set the from date for the harvester
+					from =  DateHelper.getDateTimeFormattedStringFromGranularity(previusSnapshotStartDatestamp,granularity); //DateHelper.getDateTimeMachineString(startDatestamp);
+
+					logInfoMessage(runningContext.toString() + " Setting up incremental harvesting from date: " + from + " based on snapshot: " + previousSnapshotId);
 				}			
-			} 
-			
-			// if no snapshot then create a new one, full harvesting case
-			if ( snapshotId == null ) {
-				snapshotId = metadataStoreService.createSnapshot( runningContext.getNetwork() );
-				metadataStoreService.updateSnapshotStartDatestamp(snapshotId, startDateStamp);						
 			}
-			
-			
+
 		} else {
 			logErrorMessage("Network does't exists("+ runningContext.toString()+"), cannot continue. Breaking ...");
 			return;
 		}
-
 
 		logInfoMessage("Harvesting is starting for "+ runningContext.toString()+"...");
 				
 		metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING);
 		metadataStoreService.saveSnapshot(snapshotId);
 
-		
 		// inicialización del harvester
 		harvester.reset();
-		harvestEntireNetwork();
+		runOAIPMHHarvesting();
 		
-		// Luego del harvesting el snapshot puede presentar estados diversos
+		// when the harvesting is finished, check if there are errors
 
-		// si no fue detenido
-		//if (snapshot.getStatus() != SnapshotStatus.HARVESTING_STOPPED) {
-		
-		
+		// if the size of the snapshot is 0, then there are no records harvested and the status should be HARVESTING_FINISHED_ERROR
 		if ( metadataStoreService.getSnapshotSize(snapshotId) < 1 ) {
 			logErrorMessage( runningContext.toString() + " :: No records found !!");
 			metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
 		}
 		
-		// Si no generó errores, entonces terminó exitosa la cosecha
+		// if the snapshot status is not HARVESTING_FINISHED_ERROR, then the harvesting finished successfully
 		if (metadataStoreService.getSnapshotStatus(snapshotId) != SnapshotStatus.HARVESTING_FINISHED_ERROR) {
 
-			logInfoMessage( runningContext.toString() + " :: Harvesting ended succesfully.");
+			if ( isIncremental() && previousSnapshotId != null  ) {
+				// copy the previous snapshot records to the current snapshot avoiding duplicates and deleted records
+				logInfoMessage(runningContext.toString() + " :: getting records from previous snapshot: " + previousSnapshotId);
+				metadataStoreService.updateSnapshotLastIncrementalDatestamp(snapshotId, previusSnapshotStartDatestamp);
+				metadataStoreService.copyNotDeletedRecordsFromSnapshot(previousSnapshotId, snapshotId);
+			}
+
+			logInfoMessage( runningContext.toString() + " :: Harvesting ended successfully.");
 
 			metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
 			metadataStoreService.updateSnapshotStartDatestamp(snapshotId, startDateStamp);						
 			metadataStoreService.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());	
 			metadataStoreService.saveSnapshot(snapshotId);
 
-
-
 		} else {
 			logErrorMessage (runningContext.toString() + " :: Harvesting ended with errors !!!");
 		}
-		//}
 
-	}
+	} // end of run method
 	
 	private Boolean metadataPassPrevalidation(OAIRecordMetadata metadata) throws ValidationException {
 		
@@ -293,15 +299,14 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 
 	/*************************************************************/
 
-	private void harvestEntireNetwork() {
-		// Ciclo principal de procesamiento, dado por la estructura de la red
-		// nacional
-		// Se recorren los orígenes
+	private void runOAIPMHHarvesting() {
 
 		String originURL = runningContext.getNetwork().getOriginURL();
 		String metadataPrefix = runningContext.getNetwork().getMetadataPrefix();
 		String metadataStoreSchema = runningContext.getNetwork().getMetadataStoreSchema();
-		
+
+		String until = null;
+
 		List<String> sets = runningContext.getNetwork().getSets();
 		
 		if ( originURL != null ) {
@@ -310,41 +315,22 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 			if (sets != null && sets.size() > 0) {
 
 				logInfoMessage("There are defined sets. Harvesting configured sets for "+ runningContext.toString());
+				logInfoMessage("Please note that sets may not be disjoint, so the same record may be harvested more than once");
 
 				for (String set : sets) {
-
 					logInfoMessage("Harvesting set: " + set + " for "+ runningContext.toString());
-
-					harvester.harvest(originURL, set, metadataPrefix, metadataStoreSchema, from, null, null, MAX_RETRIES);
+					harvester.harvest(originURL, set, metadataPrefix, metadataStoreSchema, from, until,  null, MAX_RETRIES);
 				}
 			}
 			// si no hay set declarado cosecha todo
 			else {
 
 				logInfoMessage("There aren't defined sets. Harvesting the entire collection for " + runningContext.toString());
-				harvester.harvest(originURL, null, metadataPrefix, metadataStoreSchema, from, null, null, MAX_RETRIES);
+				harvester.harvest(originURL, null, metadataPrefix, metadataStoreSchema, from, until, null, MAX_RETRIES);
 			}
 		}
 	}
 
-//	private void harvestEntireNetworkBySet() {
-//		// Ciclo principal de procesamiento, dado por la estructura de la red
-//		// nacional
-//		// Se recorren los orígenes
-//		for (OAIOrigin origin : runningContext.getNetwork().getOrigins()) {
-//
-//			List<String> setList = harvester.listSets(origin.getUri());
-//
-//			for (String setName : setList) {
-//				logger.info("Harvesting: " + origin.getName() + " set: " +setName);
-//				OAISet set = new OAISet();
-//				set.setSpec(setName);
-//				set.setName(setName);
-//				harvester.harvest(origin, set, from, null, null, MAX_RETRIES);
-//			}
-//		}
-//
-//	}
 
 	@Override
 	public void harvestingEventOccurred(HarvestingEvent event) {
@@ -354,110 +340,81 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		
 		TransactionStatus transactionStatus = transactionManager.getTransaction(transactionDefinition);
 
-
 		logger.debug(runningContext.getNetwork().getName() + "  HarvestingEvent received: " + event.getStatus());
 
 		switch (event.getStatus()) {
 
 		case OK:
-			
-			
-			// Registra si hubo errores en esta pagina
+
+			// if some record is missing, log the error
 			if ( event.isRecordMissing() ) {
 				logErrorMessage("Some record metadata is missing RT:" + event.getResumptionToken() + " identifiers: " + event.getMissingRecordsIdentifiers() );
 			}
 			
-			// marca como borrados los identifiers reportados 
-			if ( isIncremental()) {
-				for ( String deletedRecordIdentifier : event.getDeletedRecordsIdentifiers() ) {
-					
-					OAIRecord record = metadataStoreService.findRecordByIdentifier(snapshotId, deletedRecordIdentifier); 
-					
-					// Si se encuentra se modifica el status del registro
-					if (record != null) {
-						logger.debug("Marking record as deleted: " + record.getId() + " : " + record.getIdentifier() );
-						metadataStoreService.updateRecordStatus(record, RecordStatus.DELETED, null);
-					}
+			// if is an incremental harvesting, then get the deleted records
+			if ( isIncremental() ) {
+
+				try {
+
+					OAIRecord record = null;
+
+					// process the deleted records
+					for (String deletedRecordIdentifier : event.getDeletedRecordsIdentifiers())
+						record = metadataStoreService.createDeletedRecord(snapshotId, deletedRecordIdentifier, LocalDateTime.now());
+
+					// log the deleted records
+					if (!event.getDeletedRecordsIdentifiers().isEmpty())
+						logger.debug("Stored as deleted:" + event.getDeletedRecordsIdentifiers() + " for " + runningContext.toString());
+
+				} catch (MetadataRecordStoreException e) {
+					logErrorMessage("Error storing deleted records for " + runningContext.toString() + " : " + e.getMessage());
+				} catch (Exception e) {
+					logErrorMessage("Unknown error storing deleted records for " + runningContext.toString() + " : " + e.getMessage());
 				}
-				
-				// Se registra la lista de registros borrados
-				if ( !event.getDeletedRecordsIdentifiers().isEmpty() )
-					logInfoMessage( "Marked as deleted:" + event.getDeletedRecordsIdentifiers() + " for " + runningContext.toString() );
-			
+
 			}
 			
 			
-			// Agrega los records al snapshot actual
+			// add non delted records to the snapshot
 			for (OAIRecordMetadata metadata : event.getRecords()) {
 
 				try {
-					
-					OAIRecord record = null;
-					Boolean isMetadataValidAccordingPrevalidator = metadataPassPrevalidation(metadata);
-					
-					// Si es cosecha incremental
-					if ( isIncremental() ) {
-						// busca si ya existe el registro
-						//record = recordRepository.findOneBySnapshotIdAndIdentifier(snapshot.getId(), metadata.getIdentifier() );
-						record = metadataStoreService.findRecordByIdentifier(snapshotId, metadata.getIdentifier() );
 
-						// si existe lo actualiza o lo borra si no pasa el validador 
-						if ( record != null  ) {
-							logger.debug( "Updating record: " + record.getId() + " : " + record.getIdentifier() );
-							
-							// if the existing record no longer result valid in pre-valitatin must be marked as deleted, if is valid must be updated
-							if ( isMetadataValidAccordingPrevalidator )
-								metadataStoreService.updateOriginalMetadata(record, metadata);
-							else {
-								metadataStoreService.updateRecordStatus(record, RecordStatus.DELETED, null);
-							}
-						}
-					} 
-					
-					// si no existe o no es incremental
-					if ( record == null ) {
-						// if metadata is valid according to prevalidator the store the records
-						if ( isMetadataValidAccordingPrevalidator )						
-							record = metadataStoreService.createRecord(snapshotId, metadata); 
-					}
-					
-				} catch (Exception e) { //TODO: specialize this exception
-					logErrorMessage("Metadata store error :: " + e.getMessage());
+					OAIRecord record = null;
+
+					// if the metadata pass the prevalidation, then store it
+					if (metadataPassPrevalidation(metadata))
+						record = metadataStoreService.createRecord(snapshotId, metadata);
+
+				} catch (MetadataRecordStoreException e) {
+					logErrorMessage("Error storing record " + metadata.getIdentifier() + " for " + runningContext.toString() + " : " + e.getMessage());
+				} catch (ValidationException e) {
+					logErrorMessage("Error prevalidating record " + metadata.getIdentifier() + " for " + runningContext.toString() + " : " + e.getMessage());
+				} catch (Exception e) {
+					logErrorMessage("Unknown record store error :: " + e.getMessage());
 				}
 			}
 			
 		
-			// FIXME: Esto evita el problema con la restricción de resumption
-			// token mayor a 255
+			// FIXME: this is a workaround for the resumption token length problem
 			String resumptionToken = event.getResumptionToken();
 			if (resumptionToken != null && resumptionToken.length() > 255)
 				resumptionToken = resumptionToken.substring(0, 255);
 
 			//snapshotId.setResumptionToken(resumptionToken);
 
-			// Graba el status
+			// stores the status of the snapshot
 			metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING);
 			metadataStoreService.saveSnapshot(snapshotId);
-
-			//setSnapshotStatus();
 
 			break;
 			
 		case NO_MATCHING_QUERY:
-			
-			if ( isIncremental() ) {
-				logInfoMessage("No new records found. Finishing incremental harvesting for "+ runningContext.toString());
-				metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
-			}
-			else {
-				if ( metadataStoreService.getSnapshotSize(snapshotId) > 0 )
-					metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
-				else
-					metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
 
-				logInfoMessage("No records found!!! at " + runningContext.toString());
-			}
-			
+			// if NO_MATCHING_QUERY is received, then the harvesting is finished with error
+			metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+			logInfoMessage("No records found!!! at " + runningContext.toString());
+
 			break;
 
 		case ERROR_RETRY:
@@ -482,9 +439,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 			break;
 
 		default:
-			/**
-			 * TODO: Definir que se hace en caso de eventos sin status conocido
-			 */
+			// TODO: decide what to do in this case
 			break;
 		}
 		

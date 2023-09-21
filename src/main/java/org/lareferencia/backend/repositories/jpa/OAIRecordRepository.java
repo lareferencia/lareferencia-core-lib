@@ -21,8 +21,8 @@
 package org.lareferencia.backend.repositories.jpa;
 
 import java.time.LocalDateTime;
-import java.util.Date;
 
+import org.lareferencia.backend.domain.NetworkSnapshot;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.RecordStatus;
 import org.springframework.data.domain.Page;
@@ -46,37 +46,45 @@ public interface OAIRecordRepository extends JpaRepository<OAIRecord, Long> {
 
 	/// Paginados y optimizados 
 	
-	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and rc.id > ?4 and ((false=?3 AND rc.status=?2) OR (true=?3 AND rc.status<>?2)) order by rc.id asc")
-	Page<OAIRecord> findBySnapshotIdAndStatusOptimizedOrderByRecordID(Long snapshotID, RecordStatus status, Boolean negateStatus, Long lastRecordID, Pageable pageable);
+//	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and rc.id > ?4 and ((false=?3 AND rc.status=?2) OR (true=?3 AND rc.status<>?2)) order by rc.id asc")
+//	Page<OAIRecord> findBySnapshotIdAndStatusOptimizedOrderByRecordID(Long snapshotID, RecordStatus status, Boolean negateStatus, Long lastRecordID, Pageable pageable);
 
-	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and rc.datestamp > ?4 and rc.id > ?5 and ((false=?3 AND rc.status=?2) OR (true=?3 AND rc.status<>?2)) order by rc.id asc")
-	Page<OAIRecord> findBySnapshotIdAndStatusAndDateOptimizedOrderByRecordID(Long snapshotID, RecordStatus status, Boolean negateStatus, LocalDateTime date, Long lastRecordID, Pageable pageable);
+//	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and rc.datestamp > ?4 and rc.id > ?5 and ((false=?3 AND rc.status=?2) OR (true=?3 AND rc.status<>?2)) order by rc.id asc")
+//	Page<OAIRecord> findBySnapshotIdAndStatusAndDateOptimizedOrderByRecordID(Long snapshotID, RecordStatus status, Boolean negateStatus, LocalDateTime date, Long lastRecordID, Pageable pageable);
 
-	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and rc.id > ?2 order by rc.id asc")
-	Page<OAIRecord> findBySnapshotIdOptimizedOrderByRecordID(Long snapshotID, Long lastRecordID, Pageable pageable);
+//	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and rc.id > ?2 order by rc.id asc")
+//	Page<OAIRecord> findBySnapshotIdOptimizedOrderByRecordID(Long snapshotID, Long lastRecordID, Pageable pageable);
 	
-	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and rc.datestamp > ?2 and rc.id > ?3 order by rc.id asc")
-	Page<OAIRecord> findBySnapshotIdAndDateOptimizedOrderByRecordID(Long snapshotID, LocalDateTime from, Long lastRecordID, Pageable pageable);
+//	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and rc.datestamp >= ?2 and rc.id > ?3 order by rc.id asc")
+//	Page<OAIRecord> findBySnapshotIdAndDateOptimizedOrderByRecordID(Long snapshotID, LocalDateTime from, Long lastRecordID, Pageable pageable);
+
+	// find by snapshot_id and status and id > lastRecordId order by id asc
+	Page<OAIRecord> findBySnapshotIdAndStatusAndIdGreaterThanOrderByIdAsc(Long snapshotID, RecordStatus status, Long lastRecordId, Pageable pageable);
+
+	// find by snapshot_id and not status and id > lastRecordId order by id asc
+	Page<OAIRecord> findBySnapshotIdAndStatusNotAndIdGreaterThanOrderByIdAsc(Long snapshotID, RecordStatus status, Long lastRecordId, Pageable pageable);
+
+ 	// find by snapshot_id and status and datestamp >= from and id > lastRecordId order by id asc
+	Page<OAIRecord> findBySnapshotIdAndDatestampGreaterThanEqualAndIdGreaterThanOrderByIdAsc(Long snapshotID, LocalDateTime from, Long lastRecordId, Pageable pageable);
+
+	// find by snapshot_id and status and datestamp >= from and id > lastRecordId order by id asc
+	Page<OAIRecord> findBySnapshotIdAndStatusAndDatestampGreaterThanEqualAndIdGreaterThanOrderByIdAsc(Long snapshotID, RecordStatus status, LocalDateTime from, Long lastRecordId, Pageable pageable);
+
+	// find by snapshot_id and not status and datestamp >= from and id > lastRecordId order by id asc
+	Page<OAIRecord> findBySnapshotIdAndStatusNotAndDatestampGreaterThanEqualAndIdGreaterThanOrderByIdAsc(Long snapshotID, RecordStatus status, LocalDateTime from, Long lastRecordId, Pageable pageable);
+
+	// find by snapshot_id and status and id > lastRecordId order by id asc
+	Page<OAIRecord> findBySnapshotIdAndIdGreaterThanOrderByIdAsc(Long snapshotID, Long lastRecordId, Pageable pageable);
 
 	@Modifying
 	@Transactional
 	@Query("delete from OAIRecord r where r.snapshot.id = ?1")
 	void deleteBySnapshotID(Long snapshot_id);
-	
-	
+
 	@Query("select rc.identifier from OAIRecord rc where rc.snapshot.id = ?1 and rc.status = ?2")
 	Page<String> listIdentifiersBySnapshotAndStatus(Long snapshotId, RecordStatus status, Pageable pageable);
 
-	/* Paginación optimizada por snapshot id y status, con posibilidad de negar el status*/
-	//@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and ((false=?3 AND rc.status=?2) OR (true=?3 AND rc.status<>?2))  order by rc.id asc")
-	//Page<OAIRecord> findBySnapshotIdAndStatusAndDateOrderByRecordID(Long snapshotID, RecordStatus status, Boolean negateStatus, Date date, Pageable pageable);
-	
-	/* Paginación optimizada por snapshot id y status, con posibilidad de negar el status*/
-	//@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 and ((false=?3 AND rc.status=?2) OR (true=?3 AND rc.status<>?2))  order by rc.id asc")
-	//Page<OAIRecord> findBySnapshotIdAndStatusOrderByRecordID(Long snapshotID, RecordStatus status, Boolean negateStatus, Pageable pageable);
-	
-	///	@Query("select rc from OAIRecord rc where rc.snapshot.id = ?1 order by rc.id asc")
-	///	Page<OAIRecord> findBySnapshotIdOrderByRecordID(Long snapshotID, Pageable pageable);
+	Long countBySnapshotAndStatusIn(NetworkSnapshot snapshot, RecordStatus[] status);
 
-	
+	Long countBySnapshotAndTransformed(NetworkSnapshot snapshot, boolean b);
 }

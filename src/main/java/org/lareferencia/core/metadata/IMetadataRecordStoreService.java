@@ -63,7 +63,10 @@ public interface IMetadataRecordStoreService {
 	public OAIRecord findRecordByIdentifier(Long snapshot, String oaiIdentifier);
 	public OAIRecord findRecordByRecordId(Long recordId);
 
-	public OAIRecord createRecord(Long snapshot, OAIRecordMetadata metadata) throws MetadataRecordStoreException;	
+	public OAIRecord createRecord(Long snapshot, OAIRecordMetadata metadata) throws MetadataRecordStoreException;
+	public OAIRecord createDeletedRecord(Long snapshotId, String identifier, LocalDateTime dateStamp) throws MetadataRecordStoreException;
+
+
 	public OAIRecord updateRecordStatus(OAIRecord record, RecordStatus status, Boolean wasTransformed);
 
 	public OAIRecord updateOriginalMetadata(OAIRecord record, OAIRecordMetadata metadata);
@@ -79,5 +82,7 @@ public interface IMetadataRecordStoreService {
 	public IPaginator<OAIRecord> getUpdatedRecordsPaginator(Long snapshot) throws MetadataRecordStoreException;
 	
 	public IPaginator<String> getRecordIdentifiersPaginator(Long snapshot, RecordStatus status);
+
+	void copyNotDeletedRecordsFromSnapshot(Long previousSnapshotId, Long snapshotId);
 
 }

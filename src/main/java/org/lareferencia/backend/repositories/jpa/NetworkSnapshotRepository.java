@@ -89,5 +89,18 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 	void deleteByNetworkID(Long network_id);
 
 
-	
+	/** This method is used to copy the records from the original snapshot to the new snapshot resulting from an incremental harvest
+	 *  It copies all the records that are not deleted and that are not already in the new snapshot
+	 * @param fromSnapshot
+	 * @param toSnapshot
+	 */
+	@Modifying
+	@Transactional
+	@Query( value = "insert into oairecord (datestamp, identifier, originalmetadatahash, publishedmetadatahash, snapshot_id, status,transformed) " +
+			"select o.datestamp , o.identifier, o.originalmetadatahash, o.publishedmetadatahash, :toSnapshot, o.status, o.transformed from oairecord o where o.snapshot_id = :fromSnapshot and " +
+			"not exists ( select r.identifier from oairecord r where r.snapshot_id = :toSnapshot and r.status = 3 and r.identifier = o.identifier )", nativeQuery = true)
+	void copyNotDeletedRecordsFromSnapshot(@Param("fromSnapshot")  Long fromSnapshot, @Param("toSnapshot")  Long toSnapshot);
+
+
+
 }
