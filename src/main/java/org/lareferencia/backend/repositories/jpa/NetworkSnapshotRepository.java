@@ -98,7 +98,7 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 	@Transactional
 	@Query( value = "insert into oairecord (datestamp, identifier, originalmetadatahash, publishedmetadatahash, snapshot_id, status,transformed) " +
 			"select o.datestamp , o.identifier, o.originalmetadatahash, o.publishedmetadatahash, :toSnapshot, o.status, o.transformed from oairecord o where o.snapshot_id = :fromSnapshot and " +
-			"not exists ( select r.identifier from oairecord r where r.snapshot_id = :toSnapshot and r.status = 3 and r.identifier = o.identifier )", nativeQuery = true)
+			"not exists ( select r.identifier from oairecord r where r.snapshot_id = :toSnapshot and r.identifier = o.identifier )", nativeQuery = true)
 	void copyNotDeletedRecordsFromSnapshot(@Param("fromSnapshot")  Long fromSnapshot, @Param("toSnapshot")  Long toSnapshot);
 
 
