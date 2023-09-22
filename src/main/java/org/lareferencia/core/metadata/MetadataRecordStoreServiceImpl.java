@@ -552,7 +552,7 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		String newHash = hashing.calculateHash(metadataStr);
 		
 		// if new metadata hash is new the update, if not do nothing
-		if ( newHash != record.getPublishedMetadataHash() ) {
+		if ( ! newHash.equals( record.getPublishedMetadataHash() ) ) {
 			logger.debug( "Updating metadata record: " + record.getId() );
 			record.setPublishedMetadataHash( metadataStore.storeAndReturnHash(metadataStr) );
 			record.setDatestamp( metadata.getDatestamp() );
