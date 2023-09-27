@@ -114,8 +114,10 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 
 	ValidatorResult validatorResult;
 
-
 	private String from = null;
+
+	private Boolean bySetHarvesting = false;
+	private  String currentSetSpec = null;
 
 
 	public HarvestingWorker(Network network) {
@@ -314,11 +316,14 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 			// si tiene sets declarados solo va a cosechar
 			if (sets != null && sets.size() > 0) {
 
+				bySetHarvesting = true;
+
 				logInfoMessage("There are defined sets. Harvesting configured sets for "+ runningContext.toString());
 				logInfoMessage("Please note that sets may not be disjoint, so the same record may be harvested more than once");
 
 				for (String set : sets) {
 					logInfoMessage("Harvesting set: " + set + " for "+ runningContext.toString());
+					currentSetSpec = set;
 					harvester.harvest(originURL, set, metadataPrefix, metadataStoreSchema, from, until,  null, MAX_RETRIES);
 				}
 			}
@@ -412,8 +417,14 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		case NO_MATCHING_QUERY:
 
 			// if NO_MATCHING_QUERY is received, then the harvesting is finished with error
-			metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
-			logInfoMessage("No records found!!! at " + runningContext.toString());
+			if ( ! bySetHarvesting ) { // if is not by set harvesting, then the harvesting is finished with error
+				metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+				logInfoMessage("No records found!!! at " + runningContext.toString());
+			}
+			else { // if is by set harvesting, then the harvesting can be susscessful even when no records are found in this set
+				metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+				logInfoMessage("No records found for the set: " + currentSetSpec + " at " + runningContext.toString());
+			}
 
 			break;
 
