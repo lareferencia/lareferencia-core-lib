@@ -271,6 +271,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 				// copy the previous snapshot records to the current snapshot avoiding duplicates and deleted records
 				logInfoMessage(runningContext.toString() + " :: getting records from previous snapshot: " + previousSnapshotId);
 				metadataStoreService.updateSnapshotLastIncrementalDatestamp(snapshotId, previusSnapshotStartDatestamp);
+				metadataStoreService.setPreviousSnapshotId(snapshotId, previousSnapshotId);
 				metadataStoreService.copyNotDeletedRecordsFromSnapshot(previousSnapshotId, snapshotId);
 			}
 
@@ -307,6 +308,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		String metadataPrefix = runningContext.getNetwork().getMetadataPrefix();
 		String metadataStoreSchema = runningContext.getNetwork().getMetadataStoreSchema();
 
+		//String until = "2022-01-01";
 		String until = null;
 
 		List<String> sets = runningContext.getNetwork().getSets();
@@ -416,10 +418,17 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 			
 		case NO_MATCHING_QUERY:
 
-			// if NO_MATCHING_QUERY is received, then the harvesting is finished with error
+			// if NO_MATCHING_QUERY is received, then
 			if ( ! bySetHarvesting ) { // if is not by set harvesting, then the harvesting is finished with error
-				metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+
 				logInfoMessage("No records found!!! at " + runningContext.toString());
+
+				if ( isIncremental() ) { // if is incremental, then the harvesting is marked as empty
+					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.EMPTY_INCREMENTAL);
+				} else { // if is not incremental, then the harvesting is finished with error
+					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+				}
+
 			}
 			else { // if is by set harvesting, then the harvesting can be susscessful even when no records are found in this set
 				metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);

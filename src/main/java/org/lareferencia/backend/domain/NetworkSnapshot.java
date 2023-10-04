@@ -48,6 +48,10 @@ public class NetworkSnapshot  {
 
 	@Getter
 	@Setter
+	private Long previousSnapshotId = null;
+
+	@Getter
+	@Setter
 	@Column(nullable = false)
 	private SnapshotStatus status;
 	

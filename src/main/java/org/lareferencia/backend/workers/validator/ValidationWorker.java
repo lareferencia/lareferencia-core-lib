@@ -22,6 +22,7 @@ package org.lareferencia.backend.workers.validator;
 
 import java.text.NumberFormat;
 import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -30,6 +31,7 @@ import org.lareferencia.backend.domain.ValidationStatObservation;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
+import org.lareferencia.backend.services.ValidationStatisticsException;
 import org.lareferencia.backend.services.ValidationStatisticsService;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
@@ -42,8 +44,12 @@ import org.lareferencia.core.validation.IValidator;
 import org.lareferencia.core.validation.ValidationException;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.worker.BaseBatchWorker;
+import org.lareferencia.core.worker.IPaginator;
 import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.worker.WorkerRuntimeException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.transaction.TransactionStatus;
 
 public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningContext> {
 	
@@ -91,15 +97,24 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	
 	@Override
 	public void preRun() {
+
+
+		if ( ! validationStatisticsService.isServiceAvaliable() ) {
+			logError("Validation Statistics Service is not available, can't run validation");
+			this.stop();
+			return;
+		}
 		
 		// new reusable validation result
 		reusableValidationResult = new ValidatorResult();
 		
 		// trata de conseguir la ultima cosecha válida o el revalida el lgk 
 		this.snapshotId = metadataStoreService.findLastHarvestingSnapshot( runningContext.getNetwork() );
-		
+
 		if ( snapshotId != null ) {
-		
+
+			Long previousSnapshotId = metadataStoreService.getPreviousSnapshotId(snapshotId);
+
 			logInfo("Starting Validation/Tranformation " +  runningContext.toString() + "  -  snapshot: " + snapshotId +  (isIncremental() ? " (incremental)" : " (full)"));
 			/***
 			 * Si es una validación incremental se crea un paginado que solo considera los untested, 
@@ -107,12 +122,21 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			 * si las reglas cambiaron pueden cambiar su status
 			 */
 			
-			if ( isIncremental() )
+			if ( isIncremental() && previousSnapshotId != null ) {
+
+				// if is the first incremental validation, copy the results from the previous snapshot
+				if ( metadataStoreService.getSnapshotStatus(snapshotId) == SnapshotStatus.HARVESTING_FINISHED_VALID )
+					this.copyAndUpdatePreviousValidationResults(previousSnapshotId, snapshotId);
+
 				/// El validador solo trabaja sobre los registros marcados como untested
 				this.setPaginator( metadataStoreService.getUntestedRecordsPaginator(snapshotId) );
+			}
+
 			else /// si es full validation entonces trabajo sobre los no deleted
 				this.setPaginator( metadataStoreService.getNotDeletedRecordsPaginator(snapshotId) );
-			
+
+
+
 		
 			logger.debug("Detailed diagnose: " + runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
 			validationStatisticsService.setDetailedDiagnose( runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
@@ -161,7 +185,47 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 		}
 		
 	}
-	
+
+
+	private void copyAndUpdatePreviousValidationResults(Long previousSnapshotId, Long snapshotId)  {
+		// copia los resultados de validación del snapshot anterior
+		validationStatisticsService.copyValidationStatsObservationsFromTo(previousSnapshotId, snapshotId);
+
+		// obtain paginator for deleted records
+		IPaginator<OAIRecord> paginator = metadataStoreService.getDeletedRecordsPaginator(snapshotId);
+
+		// if paginator is not null
+		if (paginator != null) {
+
+			int totalPages = paginator.getTotalPages();
+
+			for (int actualPage = paginator.getStartingPage(); actualPage <= totalPages; actualPage++) {
+
+				try {
+
+					Page<OAIRecord> page = paginator.nextPage();
+
+					// use record ids from page and call validation services delete
+					page.getContent().stream().forEach(record -> {
+						try {
+							validationStatisticsService.deleteValidationStatsObservationBySnapshotID(snapshotId, record.getId());
+							logger.debug("Deleting validation results for record: " + record.getId() + " :: Snapshot: " + snapshotId);
+						} catch (ValidationStatisticsException e) {
+							throw new RuntimeException(e);
+						}
+					});
+
+				} catch (Exception e) {
+					logError("Error copying validation results from previous snapshot: " + e.getMessage());
+					this.stop();
+				}
+			}
+
+		} else {
+		    logError("No deleted records paginator was found for snapshot: " + snapshotId);
+			this.stop();
+		}
+	}
 	
 	@Override
 	public void prePage() {

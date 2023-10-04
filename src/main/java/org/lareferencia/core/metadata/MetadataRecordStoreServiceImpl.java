@@ -219,7 +219,32 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 	
 	};
 
-	
+	@Override
+	public Long getPreviousSnapshotId(Long snapshotId) {
+		NetworkSnapshot snapshot;
+		try {
+			snapshot = getSnapshot(snapshotId);
+			return snapshot.getPreviousSnapshotId();
+
+		} catch (MetadataRecordStoreException e) {
+			logger.error("MetadataRecordStore::getPreviousSnapshotId::"+e.getMessage());
+			return null;
+		}
+	}
+
+	@Override
+	public void setPreviousSnapshotId(Long snapshotId, Long previousSnapshotId) {
+		NetworkSnapshot snapshot;
+		try {
+			snapshot = getSnapshot(snapshotId);
+			snapshot.setPreviousSnapshotId(previousSnapshotId);
+			snapshotRepository.save(snapshot);
+
+		} catch (MetadataRecordStoreException e) {
+			logger.error("MetadataRecordStore::setPreviousSnapshotId::"+e.getMessage());
+		}
+	}
+
 	@Override
 	public void resetSnapshotValidationCounts(Long snapshotId) throws MetadataRecordStoreException {
 		NetworkSnapshot snapshot = getSnapshot(snapshotId);
@@ -329,7 +354,9 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		}
 
 	}
-	
+
+
+
 	@Override
 	public OAIRecord updateRecordStatus(OAIRecord record, RecordStatus status, Boolean wasTransformed) {
 		
@@ -520,8 +547,6 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		}		
 	}
 
-	
-	
 	/////////////////////////////// Metadata //////////////////////////////////////////////////
 	
 	
@@ -615,6 +640,11 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 	@Override
 	public IPaginator<OAIRecord> getNotDeletedRecordsPaginator(Long snapshotId) {
 		return new RecordPaginator(snapshotId, RecordStatus.DELETED, true);
+	}
+
+	@Override
+	public IPaginator<OAIRecord> getDeletedRecordsPaginator(Long snapshotId) {
+		return new RecordPaginator(snapshotId, RecordStatus.DELETED, false);
 	}
 	
 	@Override

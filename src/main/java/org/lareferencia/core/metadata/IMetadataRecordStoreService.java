@@ -77,6 +77,7 @@ public interface IMetadataRecordStoreService {
 	
 	public IPaginator<OAIRecord> getUntestedRecordsPaginator(Long snapshot);
 	public IPaginator<OAIRecord> getNotDeletedRecordsPaginator(Long snapshot);
+	public IPaginator<OAIRecord> getDeletedRecordsPaginator(Long snapshot);
 	public IPaginator<OAIRecord> getNotInvalidRecordsPaginator(Long snapshot);
 	public IPaginator<OAIRecord> getValidRecordsPaginator(Long snapshot);
 	public IPaginator<OAIRecord> getUpdatedRecordsPaginator(Long snapshot) throws MetadataRecordStoreException;
@@ -85,4 +86,6 @@ public interface IMetadataRecordStoreService {
 
 	void copyNotDeletedRecordsFromSnapshot(Long previousSnapshotId, Long snapshotId);
 
+	Long getPreviousSnapshotId(Long snapshotId);
+	void setPreviousSnapshotId(Long snapshotId, Long previousSnapshotId);
 }
