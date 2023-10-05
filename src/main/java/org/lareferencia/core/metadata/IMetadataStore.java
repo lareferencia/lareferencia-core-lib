@@ -26,4 +26,6 @@ public interface IMetadataStore {
 	String storeAndReturnHash(String metadata);
 	String getMetadata(String hash) throws MetadataRecordStoreException;
 
+	Boolean cleanAndOptimizeStore();
+
 }

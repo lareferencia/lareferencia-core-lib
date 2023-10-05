@@ -60,6 +60,11 @@ public class MetadataStoreSQLImpl implements IMetadataStore {
 		else throw new MetadataRecordStoreException("Metadata with hash " + hash + " not found in store.");
 	}
 
-	
+	@Override
+	public Boolean cleanAndOptimizeStore() {
+		mdRepository.deleteOrphanMetadataEntries();
+		return true;
+	}
+
 
 }

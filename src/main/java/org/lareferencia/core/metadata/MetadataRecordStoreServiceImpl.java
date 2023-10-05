@@ -246,6 +246,11 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 	}
 
 	@Override
+	public void optimizeStore() {
+		metadataStore.cleanAndOptimizeStore();
+	}
+
+	@Override
 	public void resetSnapshotValidationCounts(Long snapshotId) throws MetadataRecordStoreException {
 		NetworkSnapshot snapshot = getSnapshot(snapshotId);
 		snapshot.setValidSize(0);

@@ -85,7 +85,8 @@ public interface IMetadataRecordStoreService {
 	public IPaginator<String> getRecordIdentifiersPaginator(Long snapshot, RecordStatus status);
 
 	void copyNotDeletedRecordsFromSnapshot(Long previousSnapshotId, Long snapshotId);
-
 	Long getPreviousSnapshotId(Long snapshotId);
 	void setPreviousSnapshotId(Long snapshotId, Long previousSnapshotId);
+	void optimizeStore();
+
 }

@@ -23,6 +23,7 @@ package org.lareferencia.backend.repositories.jpa;
 
 import org.lareferencia.backend.domain.OAIMetadata;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 
@@ -37,5 +38,13 @@ public interface OAIMetadataRepository extends JpaRepository<OAIMetadata, String
 	//@Transactional(readOnly = true)
 	@Query(value="SELECT m.metadata from oaimetadata m where m.hash = ?1", nativeQuery=true)
 	String getMetadata(String hash);
-	
+
+	/**
+	 * Delete orphan metadata by checking if there is a record that uses it
+	 */
+	@Modifying
+	@Query(value="delete from oaimetadata o where  not exists " +
+			  "(select r.id from oairecord r where r.originalmetadatahash = o.hash or r.publishedmetadatahash = o.hash)", nativeQuery=true)
+	void deleteOrphanMetadataEntries();
+
 }
