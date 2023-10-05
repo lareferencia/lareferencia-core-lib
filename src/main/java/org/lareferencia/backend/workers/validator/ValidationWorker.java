@@ -22,7 +22,6 @@ package org.lareferencia.backend.workers.validator;
 
 import java.text.NumberFormat;
 import java.util.ArrayList;
-import java.util.List;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,10 +45,8 @@ import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.worker.BaseBatchWorker;
 import org.lareferencia.core.worker.IPaginator;
 import org.lareferencia.core.worker.NetworkRunningContext;
-import org.lareferencia.core.worker.WorkerRuntimeException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
-import org.springframework.transaction.TransactionStatus;
 
 public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningContext> {
 	
@@ -115,26 +112,43 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 			Long previousSnapshotId = metadataStoreService.getPreviousSnapshotId(snapshotId);
 
-			logInfo("Starting Validation/Tranformation " +  runningContext.toString() + "  -  snapshot: " + snapshotId +  (isIncremental() ? " (incremental)" : " (full)"));
+			logInfo("Starting Validation/Tranformation " + runningContext.toString() + "  -  snapshot: " + snapshotId + (isIncremental() ? " (incremental)" : " (full)"));
 			/***
 			 * Si es una validación incremental se crea un paginado que solo considera los untested, 
 			 * para la validacion full se considera los no deleted, eso asegura que se vuelvan a evaluar los valid e invalid
 			 * si las reglas cambiaron pueden cambiar su status
 			 */
-			
-			if ( isIncremental() && previousSnapshotId != null ) {
+
+			if (isIncremental() && previousSnapshotId != null) {
 
 				// if is the first incremental validation, copy the results from the previous snapshot
-				if ( metadataStoreService.getSnapshotStatus(snapshotId) == SnapshotStatus.HARVESTING_FINISHED_VALID )
-					this.copyAndUpdatePreviousValidationResults(previousSnapshotId, snapshotId);
+				if (metadataStoreService.getSnapshotStatus(snapshotId) == SnapshotStatus.HARVESTING_FINISHED_VALID) {
 
-				/// El validador solo trabaja sobre los registros marcados como untested
-				this.setPaginator( metadataStoreService.getUntestedRecordsPaginator(snapshotId) );
+					try {
+						this.copyAndUpdatePreviousValidationResults(previousSnapshotId, snapshotId);
+					} catch (ValidationStatisticsException e) {
+						logError("Error copying previous validation results from: " + previousSnapshotId + " to: " + snapshotId + " :: " + e.getMessage());
+						this.stop();
+					}
+
+				}
+
+				// set the paginator to the untested records, this means that already valid and invalid records will not be revalidated
+				this.setPaginator(metadataStoreService.getUntestedRecordsPaginator(snapshotId));
+
+			} else { /// si es full validation entonces trabajo sobre los no deleted
+
+			   // delete previous validation results if any
+				try {
+					validationStatisticsService.deleteValidationStatsBySnapshotID(snapshotId);
+				} catch (ValidationStatisticsException e) {
+					logError("Error deleting previous validation results: " + e.getMessage());
+					this.stop();
+				}
+
+				// set the paginator to the not deleted records, this means that all records will be revalidated
+				this.setPaginator(metadataStoreService.getNotDeletedRecordsPaginator(snapshotId));
 			}
-
-			else /// si es full validation entonces trabajo sobre los no deleted
-				this.setPaginator( metadataStoreService.getNotDeletedRecordsPaginator(snapshotId) );
-
 
 
 		
@@ -187,7 +201,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	}
 
 
-	private void copyAndUpdatePreviousValidationResults(Long previousSnapshotId, Long snapshotId)  {
+	private void copyAndUpdatePreviousValidationResults(Long previousSnapshotId, Long snapshotId) throws ValidationStatisticsException {
 		// copia los resultados de validación del snapshot anterior
 		validationStatisticsService.copyValidationStatsObservationsFromTo(previousSnapshotId, snapshotId);
 
@@ -208,7 +222,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 					// use record ids from page and call validation services delete
 					page.getContent().stream().forEach(record -> {
 						try {
-							validationStatisticsService.deleteValidationStatsObservationBySnapshotID(snapshotId, record.getId());
+							validationStatisticsService.deleteValidationStatsObservationByRecordIDAndSnapshotID(snapshotId, record.getId());
 							logger.debug("Deleting validation results for record: " + record.getId() + " :: Snapshot: " + snapshotId);
 						} catch (ValidationStatisticsException e) {
 							throw new RuntimeException(e);
@@ -216,8 +230,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 					});
 
 				} catch (Exception e) {
-					logError("Error copying validation results from previous snapshot: " + e.getMessage());
-					this.stop();
+					throw new ValidationStatisticsException("Error cleaning deleted record validation" + e.getMessage(), e);
 				}
 			}
 

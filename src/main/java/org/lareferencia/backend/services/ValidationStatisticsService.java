@@ -32,8 +32,6 @@ import org.lareferencia.backend.domain.ValidatorRule;
 import org.lareferencia.backend.repositories.solr.ValidationStatRepository;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
-import org.lareferencia.core.metadata.OAIMetadataBitstream;
-import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.QuantifierValues;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.validation.ValidatorRuleResult;
@@ -42,7 +40,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.solr.core.SolrTemplate;
 import org.springframework.data.solr.core.query.FacetOptions;
@@ -383,6 +380,18 @@ public class ValidationStatisticsService {
 		return results;
 	}
 
+	/**
+	 * deleteValidationStatsObservationsBySnapshotID
+	 */
+	public void deleteValidationStatsObservationsByRecordIDsAndSnapshotID(Long snapshotID) throws ValidationStatisticsException {
+
+		try {
+			Query query = new SimpleQuery(SNAPSHOT_ID_FIELD + ":" + snapshotID.toString());
+			validationSolrTemplate.delete(validationCoreName,query);
+		} catch (Exception e) {
+			throw new ValidationStatisticsException("Error deleting validation info | snapahot:" + snapshotID  + " :: " + e.getMessage());
+		}
+	}
 
 
 	/**
@@ -390,7 +399,7 @@ public class ValidationStatisticsService {
 	 * @param snapshotID
 	 * @param recordIDs
 	 */
-	public void deleteValidationStatsObservationsBySnapshotID(Long snapshotID,  Collection<Long> recordIDs) throws ValidationStatisticsException {
+	public void deleteValidationStatsObservationsByRecordIDsAndSnapshotID(Long snapshotID, Collection<Long> recordIDs) throws ValidationStatisticsException {
 
 		for (Long recordID : recordIDs) {
 			try {
@@ -401,7 +410,12 @@ public class ValidationStatisticsService {
 		}
 	}
 
-	public void deleteValidationStatsObservationBySnapshotID(Long snapshotID,  Long recordID) throws ValidationStatisticsException {
+	/**
+	 * deleteValidationStatsObservationBySnapshotID
+	 * @param snapshotID
+	 * @param recordID
+	 */
+	public void deleteValidationStatsObservationByRecordIDAndSnapshotID(Long snapshotID, Long recordID) throws ValidationStatisticsException {
 
 			try {
 				validationStatRepository.deleteById(snapshotID.toString() + "-" + recordID.toString());
@@ -412,7 +426,7 @@ public class ValidationStatisticsService {
 	}
 
 	/** Copy ValidationStatObservation from an existing snapshotID to another **/
-	public boolean copyValidationStatsObservationsFromTo(Long originalSnapshotId, Long newSnapshotId) {
+	public boolean copyValidationStatsObservationsFromTo(Long originalSnapshotId, Long newSnapshotId) throws ValidationStatisticsException {
 
 		int pageSize = 1000;
 		Long pageNumber = 0L;
@@ -420,40 +434,44 @@ public class ValidationStatisticsService {
 		Query baseQuery = new SimpleQuery(SNAPSHOT_ID_FIELD + ":" + originalSnapshotId.toString());
 		Query query = baseQuery.setRows(pageSize).setOffset(pageNumber * pageSize);
 
-		// query the first page
-		Page<ValidationStatObservation> page = validationSolrTemplate.queryForPage(validationCoreName,query,ValidationStatObservation.class);
+		try {
+			// query the first page
+			Page<ValidationStatObservation> page = validationSolrTemplate.queryForPage(validationCoreName, query, ValidationStatObservation.class);
 
-		// while there are results
-		while ( page.hasContent() ) {
+			// while there are results
+			while (page.hasContent()) {
 
-			// for each result update the snapshotID
-			for ( ValidationStatObservation obs : page.getContent() ) {
+				// for each result update the snapshotID
+				for (ValidationStatObservation obs : page.getContent()) {
 
-				// parse first part of the id separated by -
-				String[] parts = obs.getId().split("-");
+					// parse first part of the id separated by -
+					String[] parts = obs.getId().split("-");
 
-				// if there is a second part, use it, otherwise use the first part (backward compatibility)
-				if ( parts.length >= 2 ) {
-					obs.setId( newSnapshotId + "-" + parts[1] );
-				} else {
-					obs.setId( newSnapshotId + "-" + obs.getId());
+					// if there is a second part, use it, otherwise use the first part (backward compatibility)
+					if (parts.length >= 2) {
+						obs.setId(newSnapshotId + "-" + parts[1]);
+					} else {
+						obs.setId(newSnapshotId + "-" + obs.getId());
+					}
+
+					// update the snapshotID
+					obs.setSnapshotID(newSnapshotId);
 				}
 
-				// update the snapshotID
-				obs.setSnapshotID(newSnapshotId);
+				// save the page
+				validationStatRepository.saveAll(page.getContent());
+
+				// query the next page
+
+				pageNumber++;
+				query = baseQuery.setRows(pageSize).setOffset(pageNumber * pageSize);
+				page = validationSolrTemplate.queryForPage(validationCoreName, query, ValidationStatObservation.class);
 			}
-
-			// save the page
-			validationStatRepository.saveAll(page.getContent());
-
-			// query the next page
-
-			pageNumber++;
-			query = baseQuery.setRows(pageSize).setOffset(pageNumber * pageSize);
-			page = validationSolrTemplate.queryForPage(validationCoreName,query, ValidationStatObservation.class);
+		} catch (Exception e) {
+			throw new ValidationStatisticsException("Error copying validation info | snapahot:" + originalSnapshotId + " to snapahot:" + newSnapshotId + " :: " + e.getMessage());
 		}
 
-		return false;
+		return true;
 	}
 	
 	
