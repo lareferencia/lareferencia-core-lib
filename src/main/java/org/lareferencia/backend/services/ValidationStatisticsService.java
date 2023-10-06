@@ -32,6 +32,7 @@ import org.lareferencia.backend.domain.ValidatorRule;
 import org.lareferencia.backend.repositories.solr.ValidationStatRepository;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
+import org.lareferencia.core.util.IRecordFingerprintHelper;
 import org.lareferencia.core.validation.QuantifierValues;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.validation.ValidatorRuleResult;
@@ -99,15 +100,16 @@ public class ValidationStatisticsService {
 	@Setter
 	@Getter
 	boolean detailedDiagnose = false;
-	
-	
-	
-	
+
+	@Autowired
+	private IRecordFingerprintHelper fingerprintHelper;
+
+
 	/**
 	 * Se construye un resultado de validación persistible en solr a partir del
 	 * objeto resultado devuelto por el validador para un registro
 	 * 
-	 * @param result
+	 * @param validationResult
 	 */
 	public ValidationStatObservation buildObservation(OAIRecord record, ValidatorResult validationResult) {
 
@@ -115,7 +117,7 @@ public class ValidationStatisticsService {
 
 		logger.debug("Building validation result record ID: " +  record.getId().toString() );
 
-		obs.setId( record.getSnapshot().getId() + "-"+ record.getId().toString() );
+		obs.setId( fingerprintHelper.getStatsIDfromRecord(record) );
 
 		obs.setIdentifier( record.getIdentifier() );
 		obs.setOrigin( record.getSnapshot().getNetwork().getOriginURL() );
@@ -397,15 +399,15 @@ public class ValidationStatisticsService {
 	/**
 	 * deleteValidationStatsObservationsBySnapshotID
 	 * @param snapshotID
-	 * @param recordIDs
+	 * @param records
 	 */
-	public void deleteValidationStatsObservationsByRecordIDsAndSnapshotID(Long snapshotID, Collection<Long> recordIDs) throws ValidationStatisticsException {
+	public void deleteValidationStatsObservationsByRecordsAndSnapshotID(Long snapshotID, Collection<OAIRecord> records) throws ValidationStatisticsException {
 
-		for (Long recordID : recordIDs) {
+		for (OAIRecord record : records) {
 			try {
-				validationStatRepository.deleteById(snapshotID.toString() + "-" + recordID.toString());
+				validationStatRepository.deleteById( fingerprintHelper.getStatsIDfromRecord(record) );
 			} catch (Exception e) {
-				throw new ValidationStatisticsException("Error deleting validation info | snapahot:" + snapshotID + " recordID:" + recordID + " :: " + e.getMessage());
+				throw new ValidationStatisticsException("Error deleting validation info | snapahot:" + snapshotID + " recordID:" + record.getIdentifier() + " :: " + e.getMessage());
 			}
 		}
 	}
@@ -413,14 +415,14 @@ public class ValidationStatisticsService {
 	/**
 	 * deleteValidationStatsObservationBySnapshotID
 	 * @param snapshotID
-	 * @param recordID
+	 * @param record
 	 */
-	public void deleteValidationStatsObservationByRecordIDAndSnapshotID(Long snapshotID, Long recordID) throws ValidationStatisticsException {
+	public void deleteValidationStatsObservationByRecordAndSnapshotID(Long snapshotID, OAIRecord record) throws ValidationStatisticsException {
 
 			try {
-				validationStatRepository.deleteById(snapshotID.toString() + "-" + recordID.toString());
+				validationStatRepository.deleteById( fingerprintHelper.getStatsIDfromRecord(record) );
 			} catch (Exception e) {
-				throw new ValidationStatisticsException("Error deleting validation info | snapahot:" + snapshotID + " recordID:" + recordID + " :: " + e.getMessage());
+				throw new ValidationStatisticsException("Error deleting validation info | snapahot:" + snapshotID + " recordID:" + record.getIdentifier() + " :: " + e.getMessage());
 			}
 
 	}
@@ -443,19 +445,9 @@ public class ValidationStatisticsService {
 
 				// for each result update the snapshotID
 				for (ValidationStatObservation obs : page.getContent()) {
-
-					// parse first part of the id separated by -
-					String[] parts = obs.getId().split("-");
-
-					// if there is a second part, use it, otherwise use the first part (backward compatibility)
-					if (parts.length >= 2) {
-						obs.setId(newSnapshotId + "-" + parts[1]);
-					} else {
-						obs.setId(newSnapshotId + "-" + obs.getId());
-					}
-
 					// update the snapshotID
 					obs.setSnapshotID(newSnapshotId);
+					obs.setId( fingerprintHelper.getStatsIDfromValidationStatObservation(obs) );
 				}
 
 				// save the page

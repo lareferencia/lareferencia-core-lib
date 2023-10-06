@@ -222,7 +222,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 					// use record ids from page and call validation services delete
 					page.getContent().stream().forEach(record -> {
 						try {
-							validationStatisticsService.deleteValidationStatsObservationByRecordIDAndSnapshotID(snapshotId, record.getId());
+							validationStatisticsService.deleteValidationStatsObservationByRecordAndSnapshotID(snapshotId, record);
 							logger.debug("Deleting validation results for record: " + record.getId() + " :: Snapshot: " + snapshotId);
 						} catch (ValidationStatisticsException e) {
 							throw new RuntimeException(e);
