@@ -37,4 +37,8 @@ public class XXHash64Hashing implements IHashingHelper {
 	   	return LongHashFunction.xx().hashBytes(  metadata.toString().getBytes() );  
 	}
 
+	public static String calculateHashString(String metadata) {
+	   	return String.format("%016X", LongHashFunction.xx().hashBytes(  metadata.toString().getBytes() )) ;  
+	}
+
 }
