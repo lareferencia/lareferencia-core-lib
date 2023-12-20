@@ -112,7 +112,7 @@ public class DateHelper {
     }
 
     private static String getPatternFromGranularity(String granularity) {
-        String pattern = pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'";
+        String pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'";
 
         if (granularity != null) {
 
@@ -215,6 +215,17 @@ public class DateHelper {
             return true;
         } catch (DateTimeException e) {
             return false;
+        }
+    }
+
+    public LocalDateTime parseTimestamp(String timestampStr) {
+
+        YearMonthDayHourDateFormatter yearMonthDayHourDateFormatter = new YearMonthDayHourDateFormatter();
+
+        try {
+            return LocalDateTime.parse(timestampStr, yearMonthDayHourDateFormatter.getFormatter());
+        } catch (Exception e) { 
+            throw new DateTimeParseException("Timestamp in an unsupported format: " + timestampStr, timestampStr, 0);
         }
     }
 
