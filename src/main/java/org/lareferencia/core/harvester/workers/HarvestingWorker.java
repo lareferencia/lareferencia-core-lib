@@ -38,7 +38,6 @@ import org.lareferencia.core.harvester.IHarvestingEventListener;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
 import org.lareferencia.core.metadata.MetadataRecordStoreException;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.util.date.DateHelper;
 import org.lareferencia.core.validation.IValidator;
 import org.lareferencia.core.validation.ValidationException;
@@ -423,8 +422,9 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 
 				logInfoMessage("No records found!!! at " + runningContext.toString());
 
-				if ( isIncremental() ) { // if is incremental, then the harvesting is marked as empty
-					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.EMPTY_INCREMENTAL);
+				if ( isIncremental() ) { // if is incremental, then the harvesting is marked as valid
+					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+					//metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.EMPTY_INCREMENTAL);
 				} else { // if is not incremental, then the harvesting is finished with error
 					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
 				}
