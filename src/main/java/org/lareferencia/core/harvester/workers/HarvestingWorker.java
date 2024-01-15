@@ -257,8 +257,8 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		
 		// when the harvesting is finished, check if there are errors
 
-		// if the size of the snapshot is 0, then there are no records harvested and the status should be HARVESTING_FINISHED_ERROR
-		if ( metadataStoreService.getSnapshotSize(snapshotId) < 1 ) {
+		// if the size of the snapshot is 0 and is not incremental, then there are no records harvested and the status should be HARVESTING_FINISHED_ERROR
+		if ( metadataStoreService.getSnapshotSize(snapshotId) < 1 && ! isIncremental() ) {
 			logErrorMessage( runningContext.toString() + " :: No records found !!");
 			metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
 		}
@@ -420,13 +420,15 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 			// if NO_MATCHING_QUERY is received, then
 			if ( ! bySetHarvesting ) { // if is not by set harvesting, then the harvesting is finished with error
 
-				logInfoMessage("No records found!!! at " + runningContext.toString());
-
 				if ( isIncremental() ) { // if is incremental, then the harvesting is marked as valid
 					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+					logInfoMessage("No records found in incremental harvesting" + runningContext.toString());
+
 					//metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.EMPTY_INCREMENTAL);
 				} else { // if is not incremental, then the harvesting is finished with error
 					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+					logInfoMessage("No records found!!! at " + runningContext.toString());
+
 				}
 
 			}
