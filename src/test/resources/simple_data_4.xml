@@ -19,12 +19,12 @@
   ~   For any further information please contact Lautaro Matas <lmatas@gmail.com>
   -->
 
-<entity-relation-data source="SOURCE1" record="RECORD001" lastUpdate="2020-10-02 18:48:05.125300" >
+<entity-relation-data source="SOURCE1" record="RECORD001" lastUpdate="2021-10-02 18:48:05.125300" >
 	<entities>
 		<entity type="Person" ref="Person1">
 			<semanticIdentifier>dummy::person00001</semanticIdentifier>
 			<!--identifiers -->
-			<field name="name" value="John Doe" />
+			<field name="name" value="John D. Doe" />
 			<field name="complex">
 				<field name="subfield1" value="John Doe Complex Subfield1" />
 				<field name="subfield2" value="John Doe Complex Subfield2" />

@@ -19,33 +19,20 @@
   ~   For any further information please contact Lautaro Matas <lmatas@gmail.com>
   -->
 
-<entity-relation-data source="SOURCE1" record="RECORD001" lastUpdate="2020-10-02 18:48:05.125300" >
+<entity-relation-data source="SOURCE2" record="RECORD002" lastUpdate="2020-10-02 18:48:05.125300" >
 	<entities>
 		<entity type="Person" ref="Person1">
 			<semanticIdentifier>dummy::person00001</semanticIdentifier>
-			<!--identifiers -->
-			<field name="name" value="John Doe" />
-			<field name="complex">
-				<field name="subfield1" value="John Doe Complex Subfield1" />
-				<field name="subfield2" value="John Doe Complex Subfield2" />
-			</field>
-		</entity>
+			<semanticIdentifier>orcid:0902392901348</semanticIdentifier>
 
-		<entity type="Publication" ref="Publication1" >
-			<semanticIdentifier>dummy::pub00001</semanticIdentifier>
-		
-			<field name="title" value="An Application for Web Mining Systems with Services Oriented Architecture" />
-			<field name="keyword" value="Web Mining" />
-			<field name="keyword" value="Web Services" />
-			<field name="keyword" value="Service Oriented Architecture" />
+			<!--identifiers -->
+			<field name="name" value="John D. Doe" />
+			<field name="citationName" value="J.D. Doe" /> 
+
+			
 		</entity>
 	</entities>
 	<relations>
-		<relation type="Authorship" fromEntityRef="Person1" toEntityRef="Publication1" > />
-			<attributes>
-				<field name="order" value="1" />
-			</attributes>
-		</relation>
 	</relations>
 
 </entity-relation-data>
