@@ -27,6 +27,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 
 import lombok.Getter;
 import lombok.Setter;
+import org.springframework.context.ApplicationContext;
 
 @Getter
 @Setter
@@ -37,14 +38,19 @@ public abstract class AbstractValidatorRule implements IValidatorRule {
 	protected Long ruleId;
 
 	@JsonIgnore
-	protected Boolean mandatory = false;
+	protected Boolean mandatory;
 
 	@JsonIgnore
-	protected QuantifierValues quantifier = QuantifierValues.ONE_OR_MORE;
+	protected QuantifierValues quantifier;
+
+	@Getter
+	@JsonIgnore
+	protected ApplicationContext applicationContext;
 
 	public AbstractValidatorRule() {
 		this.mandatory = false;
 		this.quantifier = QuantifierValues.ONE_OR_MORE;
-	};
+	}
+
 
 }

@@ -21,21 +21,24 @@
 package org.lareferencia.core.validation;
 
 import org.lareferencia.core.metadata.OAIRecordMetadata;
+import org.springframework.context.ApplicationContext;
 
 public interface IValidatorRule {
 
-	public ValidatorRuleResult validate(OAIRecordMetadata metadata);
+	ValidatorRuleResult validate(OAIRecordMetadata metadata);
 
-	public Long getRuleId();
+	Long getRuleId();
 
-	public void setRuleId(Long id);
+	void setRuleId(Long id);
 
-	public Boolean getMandatory();
+	Boolean getMandatory();
 
-	public void setMandatory(Boolean mandatory);
+	void setMandatory(Boolean mandatory);
 
-	public QuantifierValues getQuantifier();
+	QuantifierValues getQuantifier();
 
-	public void setQuantifier(QuantifierValues qv);
+	void setQuantifier(QuantifierValues qv);
+
+
 
 }
