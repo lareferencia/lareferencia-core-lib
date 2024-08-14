@@ -37,7 +37,6 @@ import org.lareferencia.core.validation.IValidatorRule;
 import org.lareferencia.core.validation.RuleSerializer;
 import org.lareferencia.core.validation.ValidationException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -60,9 +59,6 @@ public class ValidationService {
 
 	@Autowired
 	private RuleSerializer serializer;
-
-	@Autowired
-	private ApplicationContext applicationContext;
 	
 	
 	private Ordering<TransformerRule> ruleByOrderOrdering = new Ordering<TransformerRule>() {
@@ -98,6 +94,7 @@ public class ValidationService {
 				rule.setRuleId(vrule.getId());
 				rule.setMandatory(vrule.getMandatory());
 				rule.setQuantifier(vrule.getQuantifier());
+	
 				validator.getRules().add(rule);
 			}
 			catch (Exception e) {
@@ -132,7 +129,6 @@ public class ValidationService {
 			try {
 				ITransformerRule rule = serializer.deserializeTransformerFromJsonString(trule.getJsonserialization());
 				rule.setRuleId(trule.getId());
-				rule.setApplicationContext(applicationContext);
 				transformer.getRules().add(rule);			
 			}
 			catch (Exception e) {

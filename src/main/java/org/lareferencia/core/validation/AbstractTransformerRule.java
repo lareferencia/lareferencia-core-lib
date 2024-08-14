@@ -29,7 +29,6 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
-import org.springframework.context.ApplicationContext;
 
 @Getter
 @Setter
@@ -38,10 +37,6 @@ public abstract class AbstractTransformerRule implements ITransformerRule {
 
 	@JsonIgnore
 	protected Long ruleId;
-
-	@JsonIgnore
-	@Setter @Getter
-	private ApplicationContext applicationContext;
 	
 	public AbstractTransformerRule() {
 	}
@@ -53,6 +48,5 @@ public abstract class AbstractTransformerRule implements ITransformerRule {
 	 * @throws ValidationException 
 	 */
 	public abstract boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
-
 	
 }

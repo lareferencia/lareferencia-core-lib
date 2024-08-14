@@ -22,14 +22,11 @@ package org.lareferencia.core.validation;
 
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.springframework.context.ApplicationContext;
 
 public interface ITransformerRule {
 
 	abstract boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 	public Long getRuleId();
 	public void setRuleId(Long id);
-
-	void setApplicationContext(ApplicationContext applicationContext);
 
 }

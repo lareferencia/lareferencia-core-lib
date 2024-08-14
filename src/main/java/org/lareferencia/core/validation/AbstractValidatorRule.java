@@ -43,10 +43,6 @@ public abstract class AbstractValidatorRule implements IValidatorRule {
 	@JsonIgnore
 	protected QuantifierValues quantifier;
 
-	@Getter
-	@JsonIgnore
-	protected ApplicationContext applicationContext;
-
 	public AbstractValidatorRule() {
 		this.mandatory = false;
 		this.quantifier = QuantifierValues.ONE_OR_MORE;
