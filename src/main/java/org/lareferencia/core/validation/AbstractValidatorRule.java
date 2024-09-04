@@ -21,7 +21,6 @@
 package org.lareferencia.core.validation;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 
@@ -37,14 +36,15 @@ public abstract class AbstractValidatorRule implements IValidatorRule {
 	protected Long ruleId;
 
 	@JsonIgnore
-	protected Boolean mandatory = false;
+	protected Boolean mandatory;
 
 	@JsonIgnore
-	protected QuantifierValues quantifier = QuantifierValues.ONE_OR_MORE;
+	protected QuantifierValues quantifier;
 
 	public AbstractValidatorRule() {
 		this.mandatory = false;
 		this.quantifier = QuantifierValues.ONE_OR_MORE;
-	};
+	}
+
 
 }

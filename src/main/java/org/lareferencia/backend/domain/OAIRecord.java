@@ -68,15 +68,7 @@ public class OAIRecord  {
 	@Convert(converter = LocalDateTimeAttributeConverter.class)
 	private LocalDateTime datestamp;
 
-//	@Setter
-//	@Type(type = "org.hibernate.type.TextType")
-//	private String publishedXML;
-//	
-//	@Setter
-//	@Getter
-//	@Type(type = "org.hibernate.type.TextType")
-//	private String originalXML;
-	
+
 	@Setter
 	@Getter
 	@Column(length = 32)
@@ -118,5 +110,12 @@ public class OAIRecord  {
 		this.snapshot = snapshot;
 		this.status = RecordStatus.UNTESTED;
 	}
-	
+
+	@Override
+	public String toString() {
+		return "OAIRecord{" +
+				"id=" + id +
+				", identifier='" + identifier + '\'' +
+				'}';
+	}
 }

@@ -68,7 +68,6 @@ public class OAIMetadata implements Persistable<String> {
 	}
 
 
-
 	/**
 	 * This is part of Persistable interface, and allows to Hibernate not to look for this id in the database, speeds ups persistences by avoiding unesesary queries for existint UUID.
 	 */
