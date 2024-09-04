@@ -21,13 +21,11 @@
 package org.lareferencia.core.validation;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.springframework.context.ApplicationContext;
 
 @Getter
 @Setter
