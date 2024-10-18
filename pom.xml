@@ -63,12 +63,25 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
 		</dependency>
+
 		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-solr</artifactId>
+			<groupId>javax.persistence</groupId>
+			<artifactId>javax.persistence-api</artifactId>
+			<version>2.2</version>
 		</dependency>
 
+		<dependency>
+    		<groupId>org.hibernate.orm</groupId>
+    		<artifactId>hibernate-core</artifactId>
+    		<version>6.1.4.Final</version>
+		</dependency>
 
+ 		<dependency>
+			<groupId>org.apache.solr</groupId>
+			<artifactId>solr-solrj</artifactId>
+			<version>9.4.1</version> <!-- Usa la versión más reciente o la que sea compatible con tu servidor Solr -->
+		</dependency>
+    
 
 		<dependency>
 			<groupId>org.junit.vintage</groupId>
@@ -98,7 +111,7 @@
 		<dependency>
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava</artifactId>
-			<version>21.0</version>
+			<version>32.0.1-jre</version>
 		</dependency>
 
 		<dependency>
@@ -158,7 +171,7 @@
 		<dependency>
 			<groupId>commons-beanutils</groupId>
 			<artifactId>commons-beanutils</artifactId>
-			<version>1.9.3</version>
+			<version>1.9.4</version>
 		</dependency>
 
 
@@ -176,17 +189,11 @@
 			<version>0.12</version>
 		</dependency>
 
-		<dependency>
-  			<groupId>com.github.ben-manes.caffeine</groupId>
-  			<artifactId>caffeine</artifactId>
-  			<version>3.0.5</version>
-		</dependency>
-
 
 	</dependencies>
 
 	<build>
-		<plugins>
+		<!--plugins>
 
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -216,7 +223,7 @@
 				</executions>
 			</plugin>
 
-		</plugins>
+		</plugins-->
 	</build>
 
 </project>

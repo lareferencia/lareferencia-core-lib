@@ -20,8 +20,9 @@
 
 package org.lareferencia.core.util;
 
+import org.apache.solr.common.SolrDocument;
 import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.domain.ValidationStatObservation;
+import org.lareferencia.backend.services.ValidationStatObservation;
 
 public interface IRecordFingerprintHelper {
 	
@@ -31,6 +32,8 @@ public interface IRecordFingerprintHelper {
 
 	public String getStatsIDfromRecord(OAIRecord record);
 	public String getStatsIDfromValidationStatObservation(ValidationStatObservation observation);
+
+	public Object getStatsIDfromValidationStatObservation(SolrDocument doc);
 
 
 }

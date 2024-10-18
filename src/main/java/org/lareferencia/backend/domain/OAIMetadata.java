@@ -20,8 +20,6 @@
 
 package org.lareferencia.backend.domain;
 
-import java.util.UUID;
-
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
@@ -31,7 +29,6 @@ import javax.persistence.Transient;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.hibernate.annotations.Type;
 import org.springframework.data.domain.Persistable;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -56,8 +53,7 @@ public class OAIMetadata implements Persistable<String> {
 	private String hash;
 	
 	@Setter
-	@Column(nullable = false)
-	@Type(type = "org.hibernate.type.TextType")
+	@Column(nullable = false, columnDefinition = "TEXT")
 	private String metadata;
 	
 

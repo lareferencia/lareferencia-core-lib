@@ -26,10 +26,10 @@ import java.util.ArrayList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.SnapshotStatus;
-import org.lareferencia.backend.domain.ValidationStatObservation;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
+import org.lareferencia.backend.services.ValidationStatObservation;
 import org.lareferencia.backend.services.ValidationStatisticsException;
 import org.lareferencia.backend.services.ValidationStatisticsService;
 import org.lareferencia.backend.domain.OAIRecord;
@@ -96,7 +96,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	public void preRun() {
 
 
-		if ( ! validationStatisticsService.isServiceAvaliable() ) {
+		if ( ! validationStatisticsService.isServiceAvailable() ) {
 			logError("Validation Statistics Service is not available, can't run validation");
 			this.stop();
 			return;
@@ -351,7 +351,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	@Override
 	public void postPage() {
 		
-		if ( validationStatisticsService.isServiceAvaliable() ) {
+		if ( validationStatisticsService.isServiceAvailable() ) {
 			validationStatisticsService.registerObservations(validationStatsObservations);
 		} 
 		

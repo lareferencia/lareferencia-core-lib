@@ -26,6 +26,7 @@ import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
 import javax.persistence.Id;
 
+import org.apache.jena.shacl.sys.C;
 import org.hibernate.annotations.Type;
 
 import lombok.Getter;
@@ -54,7 +55,7 @@ public class TransformerRule  {
 
 	@Setter
 	@Getter
-	@Type(type = "org.hibernate.type.TextType")
+	@Column(nullable = false, columnDefinition = "TEXT")
 	private String jsonserialization;
 
 

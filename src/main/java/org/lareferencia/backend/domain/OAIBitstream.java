@@ -24,7 +24,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.hibernate.annotations.Type;
 import org.lareferencia.core.metadata.OAIMetadataBitstream;
 
 import javax.persistence.*;
@@ -64,8 +63,7 @@ public class OAIBitstream  {
 	@Column(nullable = false)
 	private OAIBitstreamStatus status;
 	
-	@Column
-	@Type(type = "org.hibernate.type.TextType")
+	@Column(nullable = false, columnDefinition = "TEXT")
 	private String fulltext;
 	
 	public OAIBitstream() {

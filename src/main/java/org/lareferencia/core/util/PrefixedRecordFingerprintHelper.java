@@ -24,11 +24,13 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.solr.common.SolrDocument;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.services.ValidationStatObservation;
+import org.lareferencia.backend.services.ValidationStatisticsService;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.lareferencia.backend.domain.ValidationStatObservation;
 
 public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper {
 
@@ -106,5 +108,31 @@ public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper
 		return observation.getSnapshotID() + "-" + this.getFingerprint(observation);
 	}
 
+	@Override
+	public Object getStatsIDfromValidationStatObservation(SolrDocument doc) {
+		return doc.getFieldValue(ValidationStatisticsService.SNAPSHOT_ID_FIELD) + "-" + this.getFingerprint(doc);
+	}
+
+	private Object getFingerprint(SolrDocument doc) {
+
+		String networkAcronym = (String) doc.getFieldValue(ValidationStatisticsService.NETWORK_ACRONYM_FIELD);
+		String identifier = (String) doc.getFieldValue(ValidationStatisticsService.IDENTIFIER_FIELD);
+
+		if (networkAcronym != null) {
+
+			String new_identifier = prefix + identifier;
+
+			if ( translateMap != null && translateMap.containsKey(networkAcronym) )
+				new_identifier = prefix + "." + translateMap.get(networkAcronym) + ":" + identifier ;
+
+
+			return  networkAcronym + "_" + DigestUtils.md5Hex(new_identifier);
+
+		}
+
+		else
+			return "00" + "_" + DigestUtils.md5Hex(prefix + identifier);		
+
+	}
 
 }

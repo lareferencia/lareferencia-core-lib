@@ -62,7 +62,7 @@ public class ValidatorRule {
 
 	@Setter
 	@Getter
-	@Type(type = "org.hibernate.type.TextType")
+	@Column(nullable = false, columnDefinition = "TEXT")
 	private String jsonserialization;
 
 }

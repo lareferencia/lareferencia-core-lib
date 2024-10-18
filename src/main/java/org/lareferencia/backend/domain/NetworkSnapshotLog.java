@@ -68,10 +68,9 @@ public class NetworkSnapshotLog {
 	@Column(name = "snapshot_id")
 	private Long snapshotId;
 
-	@Column(nullable = false)
+	@Column(nullable = false, columnDefinition = "TEXT")
 	@Lob
 	@Basic(fetch = FetchType.LAZY)
-	@Type(type = "org.hibernate.type.TextType")
 	private String message;
 
 

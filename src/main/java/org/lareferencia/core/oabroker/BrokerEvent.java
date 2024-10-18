@@ -57,8 +57,8 @@ public class BrokerEvent  {
 
 	@Column(nullable = false)
 	private String identifier;
-	
-	@Type(type = "org.hibernate.type.TextType")
+
+	@Column(nullable = false, columnDefinition = "TEXT")
 	private String message;
 	
 	private String topic;
