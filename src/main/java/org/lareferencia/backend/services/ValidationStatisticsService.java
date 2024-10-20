@@ -516,6 +516,7 @@ import org.apache.solr.client.solrj.response.FacetField.Count;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Page;
@@ -555,7 +556,7 @@ public class ValidationStatisticsService {
     public static final String RECORD_IS_TRANSFORMED_FIELD = "record_is_transformed";
     public static final String ID_FIELD = "id";
 
-    @Value("${solr.core.name}")
+    @Value("${vstats.solr.core}")
     private String validationCoreName;
 
 	@Autowired
@@ -565,8 +566,10 @@ public class ValidationStatisticsService {
  	@Getter
  	boolean detailedDiagnose = false;
 
+    // named solr client
     @Autowired
-    SolrClient solrClient;
+    @Qualifier("validationSolrClient")
+    private SolrClient solrClient;
 
     public ValidationStatisticsService() {
     }

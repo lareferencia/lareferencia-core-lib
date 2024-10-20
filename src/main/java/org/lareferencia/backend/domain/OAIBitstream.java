@@ -26,7 +26,7 @@ import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.lareferencia.core.metadata.OAIMetadataBitstream;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 import java.util.Date;
 
 /**

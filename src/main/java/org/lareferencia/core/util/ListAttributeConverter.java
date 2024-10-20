@@ -22,7 +22,7 @@ package org.lareferencia.core.util;
 
 import java.io.IOException;
 import java.util.List;
-import javax.persistence.AttributeConverter;
+import jakarta.persistence.AttributeConverter;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
