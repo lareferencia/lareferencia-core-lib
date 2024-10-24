@@ -25,7 +25,6 @@ import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -43,10 +42,6 @@ public abstract class BaseBatchWorker<I,C extends IRunningContext> extends BaseW
 	
 	@Autowired
 	private PlatformTransactionManager transactionManager;
-
-	@Value("${basebatchworker.page.transaction.timeout-seconds}")
-	private Integer transactionTimeout;
-
 
 	private static final int DEFAULT_PAGE_SIZE = 100;
 	
@@ -85,9 +80,6 @@ public abstract class BaseBatchWorker<I,C extends IRunningContext> extends BaseW
 		
 		DefaultTransactionDefinition definition = new DefaultTransactionDefinition();
 		definition.setIsolationLevel(TransactionDefinition.ISOLATION_DEFAULT);
-		if(transactionTimeout != null) {
-			definition.setTimeout(transactionTimeout);
-		}
 
 		logger.info("WORKER: "+ getName() +" :: START processing: " + runningContext.toString());
 		
