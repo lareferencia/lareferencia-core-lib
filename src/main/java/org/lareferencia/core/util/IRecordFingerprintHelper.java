@@ -21,16 +21,16 @@
 package org.lareferencia.core.util;
 
 import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.domain.ValidationStatObservation;
+import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 
 public interface IRecordFingerprintHelper {
 	
 	public String getFingerprint(OAIRecord record);
 
-	public String getFingerprint(ValidationStatObservation observation);
+	public String getFingerprint(ValidationStatObservationParquet observation);
 
 	public String getStatsIDfromRecord(OAIRecord record);
-	public String getStatsIDfromValidationStatObservation(ValidationStatObservation observation);
+	public String getStatsIDfromValidationStatObservation(ValidationStatObservationParquet observation);
 
 
 }

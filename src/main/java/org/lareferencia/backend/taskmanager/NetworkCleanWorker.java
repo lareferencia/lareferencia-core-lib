@@ -26,7 +26,7 @@ import org.lareferencia.backend.domain.Network;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.repositories.jpa.OAIBitstreamRepository;
 import org.lareferencia.backend.services.ValidationStatisticsException;
-import org.lareferencia.backend.services.ValidationStatisticsService;
+import org.lareferencia.backend.services.parquet.ValidationStatisticsParquetService;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
 import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
@@ -50,7 +50,7 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	}
 
 	@Autowired
-	private ValidationStatisticsService validationStatisticsService;
+	private ValidationStatisticsParquetService validationStatisticsService;
 		
 	@Autowired
 	private IMetadataRecordStoreService metadataStoreService;
