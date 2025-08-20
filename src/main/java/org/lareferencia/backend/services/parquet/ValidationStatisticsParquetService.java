@@ -28,7 +28,7 @@ import org.lareferencia.backend.domain.ValidatorRule;
 
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetRepository;
-import org.lareferencia.backend.services.ValidationStatisticsException;
+import org.lareferencia.backend.services.validation.ValidationStatisticsException;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
 import org.lareferencia.core.util.IRecordFingerprintHelper;
@@ -37,11 +37,12 @@ import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.validation.ValidatorRuleResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.lareferencia.backend.services.validation.IValidationStatisticsService;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
+import org.lareferencia.backend.domain.validation.ValidationStatsQueryResult;
 import org.springframework.context.annotation.Scope;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -49,16 +50,15 @@ import lombok.Setter;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Collectors;
 
 /**
  * Servicio de estadísticas de validación basado en archivos Parquet.
  * Esta implementación reemplaza el uso de Solr con almacenamiento en filesystem
  * usando archivos organizados por snapshot ID para optimizar consultas.
  */
-@Component("ValidationStatisticsParquetService")
+@Service
 @Scope("prototype")
-public class ValidationStatisticsParquetService {
+public class ValidationStatisticsParquetService implements IValidationStatisticsService {
 
     private static Logger logger = LogManager.getLogger(ValidationStatisticsParquetService.class);
 
@@ -80,7 +80,6 @@ public class ValidationStatisticsParquetService {
     @Autowired
     IMetadataRecordStoreService metadataStoreService;
 
-    @Setter
     @Getter
     boolean detailedDiagnose = false;
 
@@ -417,7 +416,8 @@ public class ValidationStatisticsParquetService {
     /**
      * Consulta observaciones de estadísticas de validación por snapshot ID con paginación
      */
-    public Page<ValidationStatObservationParquet> queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) {
+    @Override
+    public ValidationStatsQueryResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
         System.out.println("DEBUG: Consulta Parquet - snapshotID: " + snapshotID + ", filtros: " + fq + ", página: " + pageable.getPageNumber() + ", tamaño: " + pageable.getPageSize());
         
         try {
@@ -445,13 +445,19 @@ public class ValidationStatisticsParquetService {
                 
                 System.out.println("DEBUG: Aplicando paginación - inicio: " + start + ", fin: " + end + ", total: " + parquetObservations.size());
                 
+                List<ValidationStatObservation> observations;
                 if (start >= parquetObservations.size()) {
-                    List<ValidationStatObservationParquet> emptyList = Collections.emptyList();
-                    return new PageImpl<>(emptyList, pageable, parquetObservations.size());
+                    observations = Collections.emptyList();
                 } else {
                     List<ValidationStatObservationParquet> paginatedList = parquetObservations.subList(start, end);
-                    return new PageImpl<>(paginatedList, pageable, parquetObservations.size());
+                    observations = new ArrayList<>(paginatedList);
                 }
+                
+                return new ValidationStatsQueryResult(
+                    observations,
+                    parquetObservations.size(),
+                    pageable
+                );
             } else {
                 parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
                     snapshotID, 
@@ -460,12 +466,18 @@ public class ValidationStatisticsParquetService {
                 );
                 
                 long totalElements = parquetRepository.countBySnapshotId(snapshotID);
-                return new PageImpl<>(parquetObservations, pageable, totalElements);
+                List<ValidationStatObservation> observations = new ArrayList<>(parquetObservations);
+                
+                return new ValidationStatsQueryResult(
+                    observations,
+                    totalElements,
+                    pageable
+                );
             }
 
         } catch (IOException e) {
             logger.error("Error querying validation stats observations by snapshot ID: " + e.getMessage(), e);
-            return new PageImpl<>(Collections.emptyList(), pageable, 0);
+            throw new ValidationStatisticsException("Error consultando observaciones de validación", e);
         }
     }
 
@@ -900,5 +912,107 @@ public class ValidationStatisticsParquetService {
         public String getName() {
             return name;
         }
+    }
+    
+    // Implementación de métodos de la interfaz IValidationStatisticsService
+    
+    @Override
+    public void saveValidationStatObservations(List<ValidationStatObservation> observations) throws ValidationStatisticsException {
+        try {
+            List<ValidationStatObservationParquet> parquetObservations = new ArrayList<>();
+            for (ValidationStatObservation obs : observations) {
+                if (obs instanceof ValidationStatObservationParquet) {
+                    parquetObservations.add((ValidationStatObservationParquet) obs);
+                } else {
+                    // Convertir ValidationStatObservation a ValidationStatObservationParquet
+                    ValidationStatObservationParquet parquetObs = new ValidationStatObservationParquet();
+                    parquetObs.setId(obs.getId());
+                    parquetObs.setIdentifier(obs.getIdentifier());
+                    parquetObs.setSnapshotId(obs.getSnapshotId());
+                    parquetObs.setOrigin(obs.getOrigin());
+                    parquetObs.setSetSpec(obs.getSetSpec());
+                    parquetObs.setMetadataPrefix(obs.getMetadataPrefix());
+                    parquetObs.setNetworkAcronym(obs.getNetworkAcronym());
+                    parquetObs.setRepositoryName(obs.getRepositoryName());
+                    parquetObs.setInstitutionName(obs.getInstitutionName());
+                    parquetObs.setIsValid(obs.getIsValid());
+                    parquetObs.setIsTransformed(obs.getIsTransformed());
+                    parquetObs.setValidOccurrencesByRuleIDJson(obs.getValidOccurrencesByRuleIDJson());
+                    parquetObs.setInvalidOccurrencesByRuleIDJson(obs.getInvalidOccurrencesByRuleIDJson());
+                    parquetObs.setValidRulesID(obs.getValidRulesID());
+                    parquetObs.setInvalidRulesID(obs.getInvalidRulesID());
+                    parquetObservations.add(parquetObs);
+                }
+            }
+            registerObservations(parquetObservations);
+        } catch (Exception e) {
+            throw new ValidationStatisticsException("Error guardando observaciones de validación", e);
+        }
+    }
+
+    @Override
+    public ValidationStatsQueryResult queryValidatorRulesStatsBySnapshot(Long snapshotID, List<String> filters) throws ValidationStatisticsException {
+        try {
+            Map<String, Object> stats = queryValidatorRulesStatsBySnapshot(snapshotID);
+            ValidationStatsQueryResult result = new ValidationStatsQueryResult();
+            result.setAggregations(stats);
+            result.setMetadata(Map.of("snapshotId", snapshotID, "implementationType", "parquet"));
+            return result;
+        } catch (Exception e) {
+            throw new ValidationStatisticsException("Error consultando estadísticas de reglas", e);
+        }
+    }
+
+    @Override
+    public void deleteValidationStatsObservationsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
+        try {
+            parquetRepository.deleteBySnapshotId(snapshotID);
+            logger.info("Observaciones del snapshot {} eliminadas exitosamente", snapshotID);
+        } catch (Exception e) {
+            throw new ValidationStatisticsException("Error eliminando observaciones del snapshot: " + snapshotID, e);
+        }
+    }
+
+    @Override
+    public String getImplementationType() {
+        return "parquet";
+    }
+
+    @Override
+    public Map<String, Object> getPerformanceMetrics() {
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("implementationType", "parquet");
+        metrics.put("available", isServiceAvailable());
+        metrics.put("timestamp", System.currentTimeMillis());
+        
+        try {
+            // Agregar métricas básicas del repositorio si están disponibles
+            metrics.put("repositoryType", "filesystem-parquet");
+            
+        } catch (Exception e) {
+            logger.warn("Error obteniendo métricas de performance: {}", e.getMessage());
+        }
+        
+        return metrics;
+    }
+
+    @Override
+    public boolean validateFilters(List<String> filters) {
+        if (filters == null || filters.isEmpty()) {
+            return true;
+        }
+        
+        // Validar formato de filtros (campo@@valor)
+        for (String filter : filters) {
+            if (!filter.contains("@@")) {
+                return false;
+            }
+            String[] parts = filter.split("@@");
+            if (parts.length != 2) {
+                return false;
+            }
+        }
+        
+        return true;
     }
 }

@@ -25,8 +25,8 @@ import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.Network;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.repositories.jpa.OAIBitstreamRepository;
-import org.lareferencia.backend.services.ValidationStatisticsException;
-import org.lareferencia.backend.services.parquet.ValidationStatisticsParquetService;
+import org.lareferencia.backend.services.validation.ValidationStatisticsException;
+import org.lareferencia.backend.services.validation.IValidationStatisticsService;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
 import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
@@ -50,7 +50,7 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	}
 
 	@Autowired
-	private ValidationStatisticsParquetService validationStatisticsService;
+	private IValidationStatisticsService validationStatisticsService;
 		
 	@Autowired
 	private IMetadataRecordStoreService metadataStoreService;
@@ -129,8 +129,8 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	private void cleanSnapshotStatsData(Long snapshotId) throws ValidationStatisticsException {
 
 		// borra los resultados de validación
-		logger.debug("Deleting validation data for sna{pshot: " + snapshotId);
-		validationStatisticsService.deleteValidationStatsBySnapshotID( snapshotId );
+		logger.debug("Deleting validation data for snapshot: " + snapshotId);
+		validationStatisticsService.deleteValidationStatsObservationsBySnapshotID( snapshotId );
 
 	}
 	

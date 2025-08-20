@@ -30,7 +30,7 @@ import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
-import org.lareferencia.backend.services.ValidationStatisticsException;
+import org.lareferencia.backend.services.validation.ValidationStatisticsException;
 import org.lareferencia.backend.services.parquet.ValidationStatisticsParquetService;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
@@ -140,7 +140,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 			   // delete previous validation results if any
 				try {
-					validationStatisticsService.deleteValidationStatsBySnapshotID(snapshotId);
+					validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
 				} catch (ValidationStatisticsException e) {
 					logError("Error deleting previous validation results: " + e.getMessage());
 					this.stop();

@@ -24,6 +24,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,64 +33,49 @@ import java.util.Map;
 
 /**
  * Representación de ValidationStatObservation para almacenamiento en archivos Parquet.
- * Esta clase es compatible con la estructura original pero optimizada para Parquet.
+ * Esta clase extiende ValidationStatObservation y está optimizada para Parquet.
  */
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class ValidationStatObservationParquet {
+public class ValidationStatObservationParquet extends ValidationStatObservation {
     
-    private String id;
-    private String identifier;
-    private Long snapshotID;
-    private String origin;
-    private String setSpec;
-    private String metadataPrefix;
-    private String networkAcronym;
-    private String repositoryName;
-    private String institutionName;
-    private Boolean isValid;
-    private Boolean isTransformed;
-    
-    // Para facilitar el almacenamiento en Parquet, se almacenan como strings separadas por comas
-    private String validOccurrencesByRuleIDJson;
-    private String invalidOccurrencesByRuleIDJson;
-    private String validRulesID;
-    private String invalidRulesID;
-    
-    // Campos transientes para la conversión
+    // Campos transientes para la conversión (específicos de Parquet)
     private transient Map<String, List<String>> validOccurrencesByRuleID;
     private transient Map<String, List<String>> invalidOccurrencesByRuleID;
     private transient List<String> validRulesIDList;
     private transient List<String> invalidRulesIDList;
     
+    // Métodos de compatibilidad para mantener la interfaz original de Parquet
+    public Long getSnapshotID() {
+        return getSnapshotId();
+    }
+    
+    public void setSnapshotID(Long snapshotID) {
+        setSnapshotId(snapshotID);
+    }
+    
     /**
      * Constructor a partir de los mapas y listas originales
      */
-    public ValidationStatObservationParquet(String id, String identifier, Long snapshotID, String origin,
+    public ValidationStatObservationParquet(String id, String identifier, Long snapshotId, String origin,
                                           String setSpec, String metadataPrefix, String networkAcronym,
                                           String repositoryName, String institutionName, Boolean isValid,
                                           Boolean isTransformed, Map<String, List<String>> validOccurrencesByRuleID,
                                           Map<String, List<String>> invalidOccurrencesByRuleID,
                                           List<String> validRulesIDList, List<String> invalidRulesIDList) {
-        this.id = id;
-        this.identifier = identifier;
-        this.snapshotID = snapshotID;
-        this.origin = origin;
-        this.setSpec = setSpec;
-        this.metadataPrefix = metadataPrefix;
-        this.networkAcronym = networkAcronym;
-        this.repositoryName = repositoryName;
-        this.institutionName = institutionName;
-        this.isValid = isValid;
-        this.isTransformed = isTransformed;
+        
+        // Llamar al constructor padre
+        super(id, identifier, snapshotId, origin, setSpec, metadataPrefix, networkAcronym,
+              repositoryName, institutionName, isValid, isTransformed,
+              "", "", "", ""); // Se actualizan después
         
         // Serializar los mapas y listas a JSON strings
-        this.validOccurrencesByRuleIDJson = serializeMapToJson(validOccurrencesByRuleID);
-        this.invalidOccurrencesByRuleIDJson = serializeMapToJson(invalidOccurrencesByRuleID);
-        this.validRulesID = String.join(",", validRulesIDList != null ? validRulesIDList : new ArrayList<>());
-        this.invalidRulesID = String.join(",", invalidRulesIDList != null ? invalidRulesIDList : new ArrayList<>());
+        setValidOccurrencesByRuleIDJson(serializeMapToJson(validOccurrencesByRuleID));
+        setInvalidOccurrencesByRuleIDJson(serializeMapToJson(invalidOccurrencesByRuleID));
+        setValidRulesID(String.join(",", validRulesIDList != null ? validRulesIDList : new ArrayList<>()));
+        setInvalidRulesID(String.join(",", invalidRulesIDList != null ? invalidRulesIDList : new ArrayList<>()));
         
         // Mantener referencias transientes
         this.validOccurrencesByRuleID = validOccurrencesByRuleID;
@@ -102,8 +88,8 @@ public class ValidationStatObservationParquet {
      * Obtiene el mapa de ocurrencias válidas deserializando del JSON
      */
     public Map<String, List<String>> getValidOccurrencesByRuleID() {
-        if (validOccurrencesByRuleID == null && validOccurrencesByRuleIDJson != null) {
-            validOccurrencesByRuleID = deserializeMapFromJson(validOccurrencesByRuleIDJson);
+        if (validOccurrencesByRuleID == null && getValidOccurrencesByRuleIDJson() != null) {
+            validOccurrencesByRuleID = deserializeMapFromJson(getValidOccurrencesByRuleIDJson());
         }
         return validOccurrencesByRuleID != null ? validOccurrencesByRuleID : new HashMap<>();
     }
@@ -112,8 +98,8 @@ public class ValidationStatObservationParquet {
      * Obtiene el mapa de ocurrencias inválidas deserializando del JSON
      */
     public Map<String, List<String>> getInvalidOccurrencesByRuleID() {
-        if (invalidOccurrencesByRuleID == null && invalidOccurrencesByRuleIDJson != null) {
-            invalidOccurrencesByRuleID = deserializeMapFromJson(invalidOccurrencesByRuleIDJson);
+        if (invalidOccurrencesByRuleID == null && getInvalidOccurrencesByRuleIDJson() != null) {
+            invalidOccurrencesByRuleID = deserializeMapFromJson(getInvalidOccurrencesByRuleIDJson());
         }
         return invalidOccurrencesByRuleID != null ? invalidOccurrencesByRuleID : new HashMap<>();
     }
@@ -122,8 +108,8 @@ public class ValidationStatObservationParquet {
      * Obtiene la lista de reglas válidas deserializando del string
      */
     public List<String> getValidRulesIDList() {
-        if (validRulesIDList == null && validRulesID != null && !validRulesID.trim().isEmpty()) {
-            validRulesIDList = List.of(validRulesID.split(","));
+        if (validRulesIDList == null && getValidRulesID() != null && !getValidRulesID().trim().isEmpty()) {
+            validRulesIDList = List.of(getValidRulesID().split(","));
         }
         return validRulesIDList != null ? validRulesIDList : new ArrayList<>();
     }
@@ -132,8 +118,8 @@ public class ValidationStatObservationParquet {
      * Obtiene la lista de reglas inválidas deserializando del string
      */
     public List<String> getInvalidRulesIDList() {
-        if (invalidRulesIDList == null && invalidRulesID != null && !invalidRulesID.trim().isEmpty()) {
-            invalidRulesIDList = List.of(invalidRulesID.split(","));
+        if (invalidRulesIDList == null && getInvalidRulesID() != null && !getInvalidRulesID().trim().isEmpty()) {
+            invalidRulesIDList = List.of(getInvalidRulesID().split(","));
         }
         return invalidRulesIDList != null ? invalidRulesIDList : new ArrayList<>();
     }
