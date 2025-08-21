@@ -19,8 +19,7 @@ public class ValidationStatObservationMapper {
         ValidationStatObservationDTO dto = new ValidationStatObservationDTO();
         dto.setId(parquet.getId());
         dto.setIdentifier(parquet.getIdentifier());
-        dto.setSnapshotId(parquet.getSnapshotID());
-        // ValidationDate se asigna al momento de crear el DTO
+        dto.setSnapshotID(parquet.getSnapshotID());
         dto.setOrigin(parquet.getOrigin());
         dto.setSetSpec(parquet.getSetSpec());
         dto.setMetadataPrefix(parquet.getMetadataPrefix());
@@ -31,8 +30,8 @@ public class ValidationStatObservationMapper {
         dto.setIsTransformed(parquet.getIsTransformed());
         dto.setValidOccurrencesByRuleIDJson(parquet.getValidOccurrencesByRuleIDJson());
         dto.setInvalidOccurrencesByRuleIDJson(parquet.getInvalidOccurrencesByRuleIDJson());
-        dto.setValidRulesID(parquet.getValidRulesID());
-        dto.setInvalidRulesID(parquet.getInvalidRulesID());
+        dto.setValidRulesID(parquet.getValidRulesIDList());
+        dto.setInvalidRulesID(parquet.getInvalidRulesIDList());
         
         return dto;
     }
@@ -46,7 +45,7 @@ public class ValidationStatObservationMapper {
         ValidationStatObservationParquet parquet = new ValidationStatObservationParquet();
         parquet.setId(dto.getId());
         parquet.setIdentifier(dto.getIdentifier());
-        parquet.setSnapshotID(dto.getSnapshotId());
+        parquet.setSnapshotID(dto.getSnapshotID());
         // ValidationDate no se almacena en Parquet, se maneja a nivel DTO
         parquet.setOrigin(dto.getOrigin());
         parquet.setSetSpec(dto.getSetSpec());
@@ -58,8 +57,8 @@ public class ValidationStatObservationMapper {
         parquet.setIsTransformed(dto.getIsTransformed());
         parquet.setValidOccurrencesByRuleIDJson(dto.getValidOccurrencesByRuleIDJson());
         parquet.setInvalidOccurrencesByRuleIDJson(dto.getInvalidOccurrencesByRuleIDJson());
-        parquet.setValidRulesID(dto.getValidRulesID());
-        parquet.setInvalidRulesID(dto.getInvalidRulesID());
+        parquet.setValidRulesID(dto.getValidRulesID() != null ? String.join(",", dto.getValidRulesID()) : "");
+        parquet.setInvalidRulesID(dto.getInvalidRulesID() != null ? String.join(",", dto.getInvalidRulesID()) : "");
         
         return parquet;
     }
@@ -93,7 +92,7 @@ public class ValidationStatObservationMapper {
         ValidationStatObservationDTO dto = new ValidationStatObservationDTO();
         dto.setId("test-" + identifier);
         dto.setIdentifier(identifier);
-        dto.setSnapshotId(snapshotId);
+        dto.setSnapshotID(snapshotId);
         dto.setOrigin("http://test.com");
         dto.setSetSpec("test:set");
         dto.setMetadataPrefix("oai_dc");
@@ -104,8 +103,8 @@ public class ValidationStatObservationMapper {
         dto.setIsTransformed(false);
         dto.setValidOccurrencesByRuleIDJson("{}");
         dto.setInvalidOccurrencesByRuleIDJson("{}");
-        dto.setValidRulesID(isValid ? "1,2,3" : "");
-        dto.setInvalidRulesID(isValid ? "" : "4,5,6");
+        dto.setValidRulesID(isValid ? List.of("1","2","3") : List.of());
+        dto.setInvalidRulesID(isValid ? List.of() : List.of("4","5","6"));
         
         return dto;
     }

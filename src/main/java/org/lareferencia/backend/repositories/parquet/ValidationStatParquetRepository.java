@@ -47,6 +47,9 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
+import org.lareferencia.backend.repositories.parquet.ValidationStatParquetQueryEngine.AggregationFilter;
+import org.lareferencia.backend.repositories.parquet.ValidationStatParquetQueryEngine.AggregationResult;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
@@ -69,6 +72,9 @@ public class ValidationStatParquetRepository {
 
     @Value("${validation.stats.parquet.path:/tmp/validation-stats-parquet}")
     private String parquetBasePath;
+
+    @Autowired
+    private ValidationStatParquetQueryEngine queryEngine;
 
     private Schema avroSchema;
     private Configuration hadoopConf;
@@ -392,41 +398,133 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Obtiene estadísticas agregadas por snapshot ID
+     * Obtiene estadísticas agregadas por snapshot ID (VERSIÓN OPTIMIZADA)
+     * Utiliza el query engine para evitar cargar todos los registros en memoria
      */
     public Map<String, Object> getAggregatedStats(Long snapshotId) throws IOException {
-        List<ValidationStatObservationParquet> observations = findBySnapshotId(snapshotId);
+        String filePath = getParquetFilePath(snapshotId);
+        File file = new File(filePath);
         
-        Map<String, Object> stats = new HashMap<>();
-        
-        long totalCount = observations.size();
-        long validCount = observations.stream().mapToLong(obs -> obs.getIsValid() ? 1L : 0L).sum();
-        long transformedCount = observations.stream().mapToLong(obs -> obs.getIsTransformed() ? 1L : 0L).sum();
-        
-        // Contar reglas válidas e inválidas
-        Map<String, Long> validRuleCounts = new HashMap<>();
-        Map<String, Long> invalidRuleCounts = new HashMap<>();
-        
-        for (ValidationStatObservationParquet obs : observations) {
-            if (obs.getValidRulesIDList() != null) {
-                for (String ruleId : obs.getValidRulesIDList()) {
-                    validRuleCounts.put(ruleId, validRuleCounts.getOrDefault(ruleId, 0L) + 1);
-                }
-            }
-            if (obs.getInvalidRulesIDList() != null) {
-                for (String ruleId : obs.getInvalidRulesIDList()) {
-                    invalidRuleCounts.put(ruleId, invalidRuleCounts.getOrDefault(ruleId, 0L) + 1);
-                }
-            }
+        if (!file.exists()) {
+            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
+            // Retornar estadísticas vacías
+            Map<String, Object> emptyStats = new HashMap<>();
+            emptyStats.put("totalCount", 0L);
+            emptyStats.put("validCount", 0L);
+            emptyStats.put("transformedCount", 0L);
+            emptyStats.put("validRuleCounts", new HashMap<String, Long>());
+            emptyStats.put("invalidRuleCounts", new HashMap<String, Long>());
+            return emptyStats;
         }
         
-        stats.put("totalCount", totalCount);
-        stats.put("validCount", validCount);
-        stats.put("transformedCount", transformedCount);
-        stats.put("validRuleCounts", validRuleCounts);
-        stats.put("invalidRuleCounts", invalidRuleCounts);
+        // Usar query engine completamente optimizado
+        AggregationFilter filter = new AggregationFilter(); // Sin filtros, procesar todos los registros
+        AggregationResult result = queryEngine.getAggregatedStatsFullyOptimized(filePath, filter);
+        
+        // Convertir resultado a formato compatible
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalCount", result.getTotalCount());
+        stats.put("validCount", result.getValidCount());
+        stats.put("transformedCount", result.getTransformedCount());
+        stats.put("validRuleCounts", result.getValidRuleCounts());
+        stats.put("invalidRuleCounts", result.getInvalidRuleCounts());
+        
+        logger.debug("Estadísticas agregadas optimizadas para snapshot {}: {} registros totales, {} válidos", 
+                snapshotId, result.getTotalCount(), result.getValidCount());
         
         return stats;
+    }
+
+    /**
+     * Obtiene estadísticas agregadas con filtros específicos (NUEVO MÉTODO OPTIMIZADO)
+     * @param snapshotId ID del snapshot
+     * @param filter Filtros a aplicar (isValid, isTransformed, ruleIds, etc.)
+     * @return Estadísticas agregadas filtradas
+     */
+    public Map<String, Object> getAggregatedStatsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
+        String filePath = getParquetFilePath(snapshotId);
+        File file = new File(filePath);
+        
+        if (!file.exists()) {
+            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
+            // Retornar estadísticas vacías
+            Map<String, Object> emptyStats = new HashMap<>();
+            emptyStats.put("totalCount", 0L);
+            emptyStats.put("validCount", 0L);
+            emptyStats.put("transformedCount", 0L);
+            emptyStats.put("validRuleCounts", new HashMap<String, Long>());
+            emptyStats.put("invalidRuleCounts", new HashMap<String, Long>());
+            return emptyStats;
+        }
+        
+        // Usar query engine optimizado con filtros
+        // Usar query engine completamente optimizado con filtros
+        AggregationResult result = queryEngine.getAggregatedStatsFullyOptimized(filePath, filter);
+        
+        // Convertir resultado a formato compatible
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalCount", result.getTotalCount());
+        stats.put("validCount", result.getValidCount());
+        stats.put("transformedCount", result.getTransformedCount());
+        stats.put("validRuleCounts", result.getValidRuleCounts());
+        stats.put("invalidRuleCounts", result.getInvalidRuleCounts());
+        
+        logger.debug("Estadísticas filtradas para snapshot {}: {} registros cumplieron criterios", 
+                snapshotId, result.getTotalCount());
+        
+        return stats;
+    }
+
+    /**
+     * Cuenta registros con filtros específicos sin cargarlos en memoria (MÉTODO OPTIMIZADO)
+     * @param snapshotId ID del snapshot
+     * @param filter Filtros a aplicar
+     * @return Número de registros que cumplen los criterios
+     */
+    public long countRecordsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
+        String filePath = getParquetFilePath(snapshotId);
+        File file = new File(filePath);
+        
+        if (!file.exists()) {
+            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
+            return 0L;
+        }
+        
+        return queryEngine.countRecords(filePath, filter);
+    }
+
+    /**
+     * Búsqueda paginada con filtros (MÉTODO OPTIMIZADO)
+     * @param snapshotId ID del snapshot
+     * @param filter Filtros a aplicar
+     * @param page Número de página (base 0)
+     * @param size Tamaño de página
+     * @return Lista de observaciones que cumplen los criterios
+     */
+    public List<ValidationStatObservationParquet> findWithFilterAndPagination(Long snapshotId, 
+                                                                              AggregationFilter filter, 
+                                                                              int page, int size) throws IOException {
+        String filePath = getParquetFilePath(snapshotId);
+        File file = new File(filePath);
+        
+        if (!file.exists()) {
+            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
+            return Collections.emptyList();
+        }
+        
+        int offset = page * size;
+        List<GenericRecord> records = queryEngine.queryWithPagination(filePath, filter, offset, size);
+        
+        // Convertir GenericRecord a ValidationStatObservationParquet
+        List<ValidationStatObservationParquet> observations = new ArrayList<>();
+        for (GenericRecord record : records) {
+            observations.add(fromGenericRecord(record));
+        }
+        
+        logger.debug("Consulta paginada filtrada para snapshot {}: {} registros en página {}", 
+                snapshotId, observations.size(), page);
+        
+        return observations;
     }
 
     /**
@@ -471,4 +569,77 @@ public class ValidationStatParquetRepository {
         target.setValidRulesIDList(source.getValidRulesIDList());
         target.setInvalidRulesIDList(source.getInvalidRulesIDList());
     }
+    
+    /**
+     * Obtiene la ruta del archivo Parquet para un snapshot
+     */
+    public String getSnapshotFilePath(Long snapshotId) {
+        return parquetBasePath + "/snapshot_" + snapshotId + ".parquet";
+    }
+    
+    /**
+     * Búsqueda optimizada con paginación usando ValidationStatParquetQueryEngine SIN VERIFICACIÓN INDIVIDUAL
+     */
+    public List<ValidationStatObservationParquet> findOptimizedWithPagination(String filePath, 
+            ValidationStatParquetQueryEngine.AggregationFilter filter, 
+            org.springframework.data.domain.Pageable pageable) throws IOException {
+        
+        System.out.println("DEBUG: findOptimizedWithPagination COMPLETAMENTE OPTIMIZADO - archivo: " + filePath);
+        
+        File file = new File(filePath);
+        if (!file.exists()) {
+            System.out.println("DEBUG: Archivo no existe: " + filePath);
+            return Collections.emptyList();
+        }
+        
+        // Usar directamente el query engine optimizado con Row Group Pruning
+        int offset = pageable.getPageNumber() * pageable.getPageSize();
+        int limit = pageable.getPageSize();
+        
+        List<GenericRecord> records = queryEngine.queryWithPagination(filePath, filter, offset, limit);
+        
+        List<ValidationStatObservationParquet> results = new ArrayList<>();
+        for (GenericRecord record : records) {
+            ValidationStatObservationParquet observation = fromGenericRecord(record);
+            results.add(observation);
+        }
+        
+        System.out.println("DEBUG: findOptimizedWithPagination COMPLETAMENTE OPTIMIZADO completado - resultados: " + results.size());
+        return results;
+    }
+    
+    /**
+     * OPTIMIZACIÓN 2+3: Conteo ultra-optimizado con gestión de memoria para millones de registros
+     */
+    public long countOptimized(String filePath, ValidationStatParquetQueryEngine.AggregationFilter filter) throws IOException {
+        System.out.println("DEBUG: countOptimized ULTRA-OPTIMIZADO con streaming por lotes - archivo: " + filePath);
+        
+        File file = new File(filePath);
+        if (!file.exists()) {
+            System.out.println("DEBUG: Archivo no existe: " + filePath);
+            return 0;
+        }
+        
+        // Usar el nuevo método ultra-optimizado para datasets masivos
+        long count = queryEngine.countRecordsUltraOptimized(filePath, filter);
+        
+        System.out.println("DEBUG: countOptimized ULTRA-OPTIMIZADO completado - total: " + count);
+        return count;
+    }
+    
+    /**
+     * OPTIMIZACIÓN 2+3: Método de conteo con fallback para compatibilidad
+     */
+    public long countOptimizedStandard(String filePath, ValidationStatParquetQueryEngine.AggregationFilter filter) throws IOException {
+        System.out.println("DEBUG: countOptimizedStandard - método estándar de fallback");
+        
+        File file = new File(filePath);
+        if (!file.exists()) {
+            return 0;
+        }
+        
+        // Usar método estándar como fallback
+        return queryEngine.countRecords(filePath, filter);
+    }
+    
 }

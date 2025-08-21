@@ -28,6 +28,7 @@ import org.lareferencia.backend.domain.ValidatorRule;
 
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetRepository;
+import org.lareferencia.backend.repositories.parquet.ValidationStatParquetQueryEngine;
 import org.lareferencia.backend.services.validation.ValidationStatisticsException;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
@@ -44,6 +45,7 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -381,9 +383,11 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Consulta observaciones de validación por snapshot ID con paginación
+     * Consulta observaciones de validación por snapshot ID con paginación OPTIMIZADA
      */
     public List<ValidationStatObservationParquet> queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, int page, int size) {
+        System.out.println("DEBUG: Consulta Parquet OPTIMIZADA (método directo) - snapshotID: " + snapshotID + ", filtros: " + fq + ", página: " + page + ", tamaño: " + size);
+        
         try {
             // Aplicar filtros si están presentes
             Map<String, Object> filters = parseFilterQueries(fq);
@@ -391,24 +395,28 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             if (filters.isEmpty()) {
                 return parquetRepository.findBySnapshotIdWithPagination(snapshotID, page, size);
             } else {
-                // Obtener todas las observaciones y aplicar filtros en el servicio
-                List<ValidationStatObservationParquet> allObservations = parquetRepository.findBySnapshotId(snapshotID);
-                List<ValidationStatObservationParquet> filtered = allObservations.stream()
-                    .filter(obs -> matchesFilters(obs, filters))
-                    .collect(Collectors.toList());
+                System.out.println("DEBUG: Aplicando filtros optimizados (método directo): " + filters);
                 
-                // Aplicar paginación manual
-                int start = page * size;
-                int end = Math.min(start + size, filtered.size());
+                // **USAR OPTIMIZACIONES AVANZADAS**: Convertir filtros a AggregationFilter
+                ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
                 
-                if (start >= filtered.size()) {
-                    return new ArrayList<>();
-                }
+                // Usar el query engine optimizado con row group pruning, parallel processing, etc.
+                String filePath = parquetRepository.getSnapshotFilePath(snapshotID);
                 
-                return filtered.subList(start, end);
+                // Para paginación, necesitamos obtener los registros optimizados
+                // Crear un Pageable para el método
+                Pageable pageableRequest = 
+                    org.springframework.data.domain.PageRequest.of(page, size);
+                
+                List<ValidationStatObservationParquet> parquetObservations = 
+                    parquetRepository.findOptimizedWithPagination(filePath, aggregationFilter, pageableRequest);
+                
+                System.out.println("DEBUG: Resultados optimizados (método directo) - encontrados: " + parquetObservations.size());
+                
+                return parquetObservations;
             }
         } catch (IOException e) {
-            logger.error("Error consultando observaciones: " + e.getMessage());
+            logger.error("Error consultando observaciones optimizadas: " + e.getMessage());
             return new ArrayList<>();
         }
     }
@@ -418,58 +426,49 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      */
     @Override
     public ValidationStatsQueryResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
-        System.out.println("DEBUG: Consulta Parquet - snapshotID: " + snapshotID + ", filtros: " + fq + ", página: " + pageable.getPageNumber() + ", tamaño: " + pageable.getPageSize());
+        System.out.println("DEBUG: Consulta Parquet OPTIMIZADA - snapshotID: " + snapshotID + ", filtros: " + fq + ", página: " + pageable.getPageNumber() + ", tamaño: " + pageable.getPageSize());
         
         try {
-            // Obtener observaciones de Parquet con filtros aplicados en el servicio
-            List<ValidationStatObservationParquet> parquetObservations;
-            
             if (fq != null && !fq.isEmpty()) {
                 Map<String, Object> filters = convertFiltersToMap(fq);
-                System.out.println("DEBUG: Aplicando filtros en el servicio: " + filters);
+                System.out.println("DEBUG: Aplicando filtros optimizados: " + filters);
                 
-                // Obtener todas las observaciones del snapshot y aplicar filtros en el servicio
-                List<ValidationStatObservationParquet> allObservations = parquetRepository.findBySnapshotId(snapshotID);
-                System.out.println("DEBUG: Total de observaciones sin filtrar: " + allObservations.size());
+                // **USAR OPTIMIZACIONES AVANZADAS**: Convertir filtros a AggregationFilter
+                ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
                 
-                // Aplicar filtros usando la lógica del servicio
-                parquetObservations = allObservations.stream()
-                    .filter(obs -> matchesFilters(obs, filters))
-                    .collect(Collectors.toList());
+                // Usar el query engine optimizado con row group pruning, parallel processing, etc.
+                String filePath = parquetRepository.getSnapshotFilePath(snapshotID);
                 
-                System.out.println("DEBUG: Observaciones después del filtrado: " + parquetObservations.size());
+                // Para paginación, necesitamos obtener los registros optimizados
+                List<ValidationStatObservationParquet> parquetObservations = 
+                    parquetRepository.findOptimizedWithPagination(filePath, aggregationFilter, pageable);
                 
-                // Aplicar paginación manualmente
-                int start = pageable.getPageNumber() * pageable.getPageSize();
-                int end = Math.min(start + pageable.getPageSize(), parquetObservations.size());
+                // Obtener total count usando optimizaciones (sin cargar todos los datos)
+                long totalElements = parquetRepository.countOptimized(filePath, aggregationFilter);
                 
-                System.out.println("DEBUG: Aplicando paginación - inicio: " + start + ", fin: " + end + ", total: " + parquetObservations.size());
+                System.out.println("DEBUG: Resultados optimizados - encontrados: " + parquetObservations.size() + ", total: " + totalElements);
                 
-                List<ValidationStatObservation> observations;
-                if (start >= parquetObservations.size()) {
-                    observations = Collections.emptyList();
-                } else {
-                    List<ValidationStatObservationParquet> paginatedList = parquetObservations.subList(start, end);
-                    observations = new ArrayList<>(paginatedList);
-                }
+                // Usar directamente los objetos Parquet - el JSON se serializará correctamente
+                // porque hemos configurado @JsonIgnore en los campos problemáticos
                 
                 return new ValidationStatsQueryResult(
-                    observations,
-                    parquetObservations.size(),
+                    parquetObservations,
+                    totalElements,
                     pageable
                 );
             } else {
-                parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
+                // Sin filtros, usar paginación directa
+                List<ValidationStatObservationParquet> parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
                     snapshotID, 
                     pageable.getPageNumber(), 
                     pageable.getPageSize()
                 );
                 
                 long totalElements = parquetRepository.countBySnapshotId(snapshotID);
-                List<ValidationStatObservation> observations = new ArrayList<>(parquetObservations);
+                // Usar directamente los objetos Parquet
                 
                 return new ValidationStatsQueryResult(
-                    observations,
+                    parquetObservations,
                     totalElements,
                     pageable
                 );
@@ -493,9 +492,13 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             for (String filter : fq) {
                 System.out.println("DEBUG: Procesando filtro: '" + filter + "'");
                 
+                // Convertir formato de filtro de "field@@value" a "field:value" (compatibilidad con Solr)
+                String processedFilter = filter.replace("@@", ":");
+                System.out.println("DEBUG: Filtro después de conversión @@: '" + processedFilter + "'");
+                
                 // Convertir filtros de formato "field:value" a map
-                if (filter.contains(":")) {
-                    String[] parts = filter.split(":", 2);
+                if (processedFilter.contains(":")) {
+                    String[] parts = processedFilter.split(":", 2);
                     if (parts.length == 2) {
                         String field = parts[0].trim();
                         String value = parts[1].trim();
@@ -521,7 +524,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                         System.out.println("DEBUG: Agregado al map - campo: '" + field + "', valor: '" + filterValueObject + "'");
                     }
                 } else {
-                    System.out.println("DEBUG: Filtro no contiene ':', ignorando: '" + filter + "'");
+                    System.out.println("DEBUG: Filtro procesado no contiene ':', ignorando: '" + processedFilter + "' (original: '" + filter + "')");
                 }
             }
         }
@@ -1014,5 +1017,76 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         }
         
         return true;
+    }
+    
+    /**
+     * Convierte filtros del formato fq a AggregationFilter optimizado
+     */
+    private ValidationStatParquetQueryEngine.AggregationFilter convertToAggregationFilter(Map<String, Object> filters, Long snapshotId) {
+        ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = new ValidationStatParquetQueryEngine.AggregationFilter();
+        
+        // Configurar snapshot como rango fijo
+        aggregationFilter.setMinSnapshotId(snapshotId);
+        aggregationFilter.setMaxSnapshotId(snapshotId);
+        
+        for (Map.Entry<String, Object> entry : filters.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            
+            switch (key) {
+                case "isValid":
+                    if (value instanceof Boolean) {
+                        aggregationFilter.setIsValid((Boolean) value);
+                    } else if (value instanceof String) {
+                        aggregationFilter.setIsValid(Boolean.parseBoolean((String) value));
+                    }
+                    break;
+                    
+                case "isTransformed":
+                    if (value instanceof Boolean) {
+                        aggregationFilter.setIsTransformed((Boolean) value);
+                    } else if (value instanceof String) {
+                        aggregationFilter.setIsTransformed(Boolean.parseBoolean((String) value));
+                    }
+                    break;
+                    
+                case "identifier":
+                    if (value != null) {
+                        aggregationFilter.setRecordOAIId(value.toString());
+                        System.out.println("DEBUG: Convertido filtro identifier '" + value + "' a recordOAIId en AggregationFilter");
+                    }
+                    break;
+                    
+                case "ruleId":
+                    if (value != null) {
+                        aggregationFilter.setRuleIds(Arrays.asList(value.toString()));
+                    }
+                    break;
+                    
+                case "valid_rules":
+                    if (value != null) {
+                        // Para filtros de reglas válidas, usar el campo ruleIds
+                        aggregationFilter.setRuleIds(Arrays.asList(value.toString()));
+                        aggregationFilter.setValidRulesFilter(value.toString());
+                        System.out.println("DEBUG: Convertido filtro valid_rules '" + value + "' a AggregationFilter");
+                    }
+                    break;
+                    
+                case "invalid_rules":
+                    if (value != null) {
+                        aggregationFilter.setInvalidRulesFilter(value.toString());
+                        System.out.println("DEBUG: Convertido filtro invalid_rules '" + value + "' a AggregationFilter");
+                    }
+                    break;
+            }
+        }
+        
+        System.out.println("DEBUG: AggregationFilter creado - isValid: " + aggregationFilter.getIsValid() + 
+                          ", isTransformed: " + aggregationFilter.getIsTransformed() + 
+                          ", recordOAIId: " + aggregationFilter.getRecordOAIId() + 
+                          ", ruleIds: " + aggregationFilter.getRuleIds() + 
+                          ", snapshotRange: " + aggregationFilter.getMinSnapshotId() + "-" + aggregationFilter.getMaxSnapshotId());
+        
+        return aggregationFilter;
     }
 }

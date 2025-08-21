@@ -1,6 +1,7 @@
 package org.lareferencia.backend.domain.validation;
 
 import org.springframework.data.domain.Pageable;
+import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 
 import java.util.List;
 import java.util.Map;
@@ -11,7 +12,7 @@ import java.util.Map;
  */
 public class ValidationStatsQueryResult {
     
-    private List<ValidationStatObservation> content;
+    private List<ValidationStatObservationParquet> content;
     private long totalElements;
     private int totalPages;
     private int currentPage;
@@ -26,7 +27,7 @@ public class ValidationStatsQueryResult {
     public ValidationStatsQueryResult() {}
     
     // Constructor para consultas paginadas
-    public ValidationStatsQueryResult(List<ValidationStatObservation> content, 
+    public ValidationStatsQueryResult(List<ValidationStatObservationParquet> content, 
             long totalElements, Pageable pageable) {
         this.content = content;
         this.totalElements = totalElements;
@@ -38,7 +39,7 @@ public class ValidationStatsQueryResult {
     }
     
     // Constructor completo
-    public ValidationStatsQueryResult(List<ValidationStatObservation> content,
+    public ValidationStatsQueryResult(List<ValidationStatObservationParquet> content,
             long totalElements, int totalPages, int currentPage, int pageSize,
             boolean hasNext, boolean hasPrevious, Map<String, Object> aggregations,
             Map<String, Object> metadata, long executionTimeMs) {
@@ -55,8 +56,8 @@ public class ValidationStatsQueryResult {
     }
     
     // Getters y Setters
-    public List<ValidationStatObservation> getContent() { return content; }
-    public void setContent(List<ValidationStatObservation> content) { 
+    public List<ValidationStatObservationParquet> getContent() { return content; }
+    public void setContent(List<ValidationStatObservationParquet> content) { 
         this.content = content; 
     }
     

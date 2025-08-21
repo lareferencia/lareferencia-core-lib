@@ -23,6 +23,8 @@ package org.lareferencia.backend.domain.parquet;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 
@@ -44,7 +46,9 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     // Campos transientes para la conversión (específicos de Parquet)
     private transient Map<String, List<String>> validOccurrencesByRuleID;
     private transient Map<String, List<String>> invalidOccurrencesByRuleID;
+    @JsonIgnore
     private transient List<String> validRulesIDList;
+    @JsonIgnore
     private transient List<String> invalidRulesIDList;
     
     // Métodos de compatibilidad para mantener la interfaz original de Parquet
@@ -107,6 +111,7 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     /**
      * Obtiene la lista de reglas válidas deserializando del string
      */
+    @JsonIgnore
     public List<String> getValidRulesIDList() {
         if (validRulesIDList == null && getValidRulesID() != null && !getValidRulesID().trim().isEmpty()) {
             validRulesIDList = List.of(getValidRulesID().split(","));
@@ -117,11 +122,64 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     /**
      * Obtiene la lista de reglas inválidas deserializando del string
      */
+    @JsonIgnore
     public List<String> getInvalidRulesIDList() {
         if (invalidRulesIDList == null && getInvalidRulesID() != null && !getInvalidRulesID().trim().isEmpty()) {
             invalidRulesIDList = List.of(getInvalidRulesID().split(","));
         }
         return invalidRulesIDList != null ? invalidRulesIDList : new ArrayList<>();
+    }
+
+    /**
+     * Método para JSON - retorna la lista de reglas válidas directamente como array
+     */
+    @JsonProperty("validRulesID")
+    public List<String> getValidRulesIDForJson() {
+        return getValidRulesIDList();
+    }
+
+    /**
+     * Método para JSON - retorna la lista de reglas inválidas directamente como array
+     */
+    @JsonProperty("invalidRulesID")
+    public List<String> getInvalidRulesIDForJson() {
+        return getInvalidRulesIDList();
+    }
+
+    /**
+     * Ignora el método original de string para evitar duplicación
+     */
+    @JsonIgnore
+    @Override
+    public String getValidRulesID() {
+        return super.getValidRulesID();
+    }
+
+    /**
+     * Ignora el método original de string para evitar duplicación
+     */
+    @JsonIgnore
+    @Override
+    public String getInvalidRulesID() {
+        return super.getInvalidRulesID();
+    }
+
+    /**
+     * Ignora el método de lista de reglas válidas para evitar duplicación
+     */
+    @JsonIgnore
+    @Override
+    public List<String> getValidRulesList() {
+        return super.getValidRulesList();
+    }
+
+    /**
+     * Ignora el método de lista de reglas inválidas para evitar duplicación
+     */
+    @JsonIgnore
+    @Override
+    public List<String> getInvalidRulesList() {
+        return super.getInvalidRulesList();
     }
     
     /**

@@ -75,6 +75,28 @@
 			<artifactId>parquet-avro</artifactId>
 			<version>1.12.3</version>
 		</dependency>
+		
+		<!-- Dependencias adicionales para optimizaciones avanzadas de Parquet -->
+		<dependency>
+			<groupId>org.apache.parquet</groupId>
+			<artifactId>parquet-column</artifactId>
+			<version>1.12.3</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.parquet</groupId>
+			<artifactId>parquet-common</artifactId>
+			<version>1.12.3</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.parquet</groupId>
+			<artifactId>parquet-encoding</artifactId>
+			<version>1.12.3</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.parquet</groupId>
+			<artifactId>parquet-format-structures</artifactId>
+			<version>1.12.3</version>
+		</dependency>
 		<dependency>
 			<groupId>org.apache.hadoop</groupId>
 			<artifactId>hadoop-client</artifactId>

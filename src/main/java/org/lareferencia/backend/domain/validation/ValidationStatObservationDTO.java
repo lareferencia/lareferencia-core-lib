@@ -1,6 +1,5 @@
 package org.lareferencia.backend.domain.validation;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 
@@ -12,8 +11,7 @@ public class ValidationStatObservationDTO {
     
     private String id;
     private String identifier;
-    private Long snapshotId;
-    private LocalDateTime validationDate;
+    private Long snapshotID;
     private String origin;
     private String setSpec;
     private String metadataPrefix;
@@ -24,30 +22,20 @@ public class ValidationStatObservationDTO {
     private Boolean isTransformed;
     private String validOccurrencesByRuleIDJson;
     private String invalidOccurrencesByRuleIDJson;
-    private String validRulesID;
-    private String invalidRulesID;
+    private List<String> validRulesID;
+    private List<String> invalidRulesID;
     
     // Constructor por defecto
     public ValidationStatObservationDTO() {}
     
     // Constructor completo
-    public ValidationStatObservationDTO(String id, String identifier, Long snapshotId, 
-            String origin, String setSpec, String metadataPrefix, String networkAcronym,
-            String repositoryName, String institutionName, Boolean isValid, Boolean isTransformed,
-            String validOccurrencesByRuleIDJson, String invalidOccurrencesByRuleIDJson,
-            String validRulesID, String invalidRulesID) {
-        this.id = id;
-        this.identifier = identifier;
-        this.snapshotId = snapshotId;
-        this.validationDate = LocalDateTime.now();
-        this.origin = origin;
-        this.setSpec = setSpec;
-        this.metadataPrefix = metadataPrefix;
-        this.networkAcronym = networkAcronym;
+    public ValidationStatObservationDTO(String snapshotId, String repositoryName, 
+                                      int occurrencesByRuleID, int occurrencesByRecordID, 
+                                      int transformationCount, String validOccurrencesByRuleIDJson, 
+                                      String invalidOccurrencesByRuleIDJson, List<String> validRulesID, 
+                                      List<String> invalidRulesID) {
+        this.snapshotID = Long.parseLong(snapshotId);
         this.repositoryName = repositoryName;
-        this.institutionName = institutionName;
-        this.isValid = isValid;
-        this.isTransformed = isTransformed;
         this.validOccurrencesByRuleIDJson = validOccurrencesByRuleIDJson;
         this.invalidOccurrencesByRuleIDJson = invalidOccurrencesByRuleIDJson;
         this.validRulesID = validRulesID;
@@ -61,11 +49,8 @@ public class ValidationStatObservationDTO {
     public String getIdentifier() { return identifier; }
     public void setIdentifier(String identifier) { this.identifier = identifier; }
     
-    public Long getSnapshotId() { return snapshotId; }
-    public void setSnapshotId(Long snapshotId) { this.snapshotId = snapshotId; }
-    
-    public LocalDateTime getValidationDate() { return validationDate; }
-    public void setValidationDate(LocalDateTime validationDate) { this.validationDate = validationDate; }
+    public Long getSnapshotID() { return snapshotID; }
+    public void setSnapshotID(Long snapshotID) { this.snapshotID = snapshotID; }
     
     public String getOrigin() { return origin; }
     public void setOrigin(String origin) { this.origin = origin; }
@@ -101,26 +86,12 @@ public class ValidationStatObservationDTO {
         this.invalidOccurrencesByRuleIDJson = invalidOccurrencesByRuleIDJson; 
     }
     
-    public String getValidRulesID() { return validRulesID; }
-    public void setValidRulesID(String validRulesID) { this.validRulesID = validRulesID; }
+    public List<String> getValidRulesID() { return validRulesID; }
+    public void setValidRulesID(List<String> validRulesID) { this.validRulesID = validRulesID; }
     
-    public String getInvalidRulesID() { return invalidRulesID; }
-    public void setInvalidRulesID(String invalidRulesID) { this.invalidRulesID = invalidRulesID; }
+    public List<String> getInvalidRulesID() { return invalidRulesID; }
+    public void setInvalidRulesID(List<String> invalidRulesID) { this.invalidRulesID = invalidRulesID; }
     
-    // Métodos de utilidad
-    public List<String> getValidRulesList() {
-        if (validRulesID == null || validRulesID.trim().isEmpty()) {
-            return List.of();
-        }
-        return List.of(validRulesID.split(","));
-    }
-    
-    public List<String> getInvalidRulesList() {
-        if (invalidRulesID == null || invalidRulesID.trim().isEmpty()) {
-            return List.of();
-        }
-        return List.of(invalidRulesID.split(","));
-    }
     
     @Override
     public boolean equals(Object o) {
@@ -140,7 +111,7 @@ public class ValidationStatObservationDTO {
         return "ValidationStatObservationDTO{" +
                 "id='" + id + '\'' +
                 ", identifier='" + identifier + '\'' +
-                ", snapshotId=" + snapshotId +
+                ", snapshotID=" + snapshotID +
                 ", isValid=" + isValid +
                 ", isTransformed=" + isTransformed +
                 '}';
