@@ -45,18 +45,17 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-import java.util.Arrays;
-import lombok.Getter;
-import lombok.Setter;
-
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import lombok.Getter;
+import lombok.Setter;
+
 /**
- * Servicio de estadísticas de validación basado en archivos Parquet.
- * Esta implementación reemplaza el uso de Solr con almacenamiento en filesystem
- * usando archivos organizados por snapshot ID para optimizar consultas.
+ * Validation statistics service based on Parquet files.
+ * This implementation replaces Solr usage with filesystem storage
+ * using files organized by snapshot ID to optimize queries.
  */
 @Service
 @Scope("prototype")
@@ -86,28 +85,28 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     boolean detailedDiagnose = false;
 
     /**
-     * Configura si se debe realizar un diagnóstico detallado
+     * Configures whether detailed diagnosis should be performed
      */
     public void setDetailedDiagnose(boolean detailedDiagnose) {
         this.detailedDiagnose = detailedDiagnose;
-        logger.info("ValidationStatisticsParquetService detailedDiagnose configurado a: {}", detailedDiagnose);
+        logger.info("ValidationStatisticsParquetService detailedDiagnose set to: {}", detailedDiagnose);
     }
 
     @Autowired
     private IRecordFingerprintHelper fingerprintHelper;
 
-    // Constantes similares al servicio original
+    // Constants similar to the original service
     public static final String[] FACET_FIELDS = { "record_is_valid", "record_is_transformed", "valid_rules", "invalid_rules", "institution_name", "repository_name" };
     public static final String SNAPSHOT_ID_FIELD = "snapshot_id";
     public static final String INVALID_RULE_SUFFIX = "_rule_invalid_occrs";
     public static final String VALID_RULE_SUFFIX = "_rule_valid_occrs";
 
     /**
-     * Construye una observación de validación a partir del resultado del validador
+     * Builds a validation observation from validator result
      */
     public ValidationStatObservationParquet buildObservation(OAIRecord record, ValidatorResult validationResult) {
 
-        logger.debug("Building validation result record ID: " + record.getId().toString());
+        logger.debug("Building validation result record ID: {}", record.getId().toString());
 
         String id = fingerprintHelper.getStatsIDfromRecord(record);
         String identifier = record.getIdentifier();
@@ -118,7 +117,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         Boolean isTransformed = record.getTransformed();
         Boolean isValid = validationResult.isValid();
 
-        // Mapas para las ocurrencias
+        // Maps for occurrences
         Map<String, List<String>> validOccurrencesByRuleID = new HashMap<>();
         Map<String, List<String>> invalidOccurrencesByRuleID = new HashMap<>();
         List<String> validRulesID = new ArrayList<>();
@@ -132,7 +131,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             List<String> validOccr = new ArrayList<>();
 
             if (detailedDiagnose) {
-                logger.debug("Detailed validation report - Rule ID: " + ruleID);
+                logger.debug("Detailed validation report - Rule ID: {}", ruleID);
 
                 for (ContentValidatorResult contentResult : ruleResult.getResults()) {
                     if (contentResult.isValid())
@@ -145,7 +144,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 invalidOccurrencesByRuleID.put(ruleID, invalidOccr);
             }
 
-            // Agregar las reglas válidas e inválidas
+            // Add valid and invalid rules
             if (ruleResult.getValid())
                 validRulesID.add(ruleID);
             else
@@ -160,24 +159,45 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Registra una lista de observaciones de validación
+     * Registers a list of validation observations with IMMEDIATE streaming writes
+     * 
+     * OPTIMIZED FOR ValidationWorker pattern:
+     * - ValidationWorker calls prePage() -> processItem() (1000x) -> postPage()
+     * - postPage() calls this method with exactly 1000 observations per batch
+     * - We use immediate streaming writes to minimize memory accumulation
+     * - No size-based optimization needed - all batches use the same fast path
+     * 
+     * PERFORMANCE CHARACTERISTICS:
+     * - For new files: Direct write (fastest path)
+     * - For existing files: Read + merge + write (limitation of Parquet format)
+     * - Memory usage: O(existing_file_size + 1000) instead of O(massive_dataset)
+     * - CPU usage: Optimized for frequent small writes vs. rare large writes
      */
     public void registerObservations(List<ValidationStatObservationParquet> validationStatsObservations) {
-        logger.info("Registrando {} observaciones en Parquet", validationStatsObservations.size());
-        try {
-            parquetRepository.saveAll(validationStatsObservations);
-            logger.info("Observaciones registradas exitosamente en Parquet");
-        } catch (IOException e) {
-            logger.error("Error en registro de stats (parquet): " + e.getMessage());
+        if (validationStatsObservations == null || validationStatsObservations.isEmpty()) {
+            return;
         }
-    }
-
-    /**
-     * Consulta estadísticas de reglas de validación por snapshot (versión simplificada)
+        
+        try {
+            int observationCount = validationStatsObservations.size();
+            logger.debug("Processing {} observations with immediate streaming", observationCount);
+            
+            // Always use immediate streaming writes for all batch sizes
+            // This is optimized for frequent 1000-record batches from ValidationWorker
+            parquetRepository.saveAllImmediate(validationStatsObservations);
+            
+            logger.debug("Successfully streamed {} observations to Parquet", observationCount);
+            
+        } catch (Exception e) {
+            logger.error("Error streaming observations: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to stream validation observations", e);
+        }
+    }    /**
+     * Query validation rule statistics by snapshot (simplified version)
      */
     public Map<String, Object> queryValidatorRulesStatsBySnapshot(Long snapshotId) throws Exception {
         try {
-            // Obtener estadísticas agregadas del repositorio
+            // Get aggregated statistics from repository
             Map<String, Object> aggregatedStats = parquetRepository.getAggregatedStats(snapshotId);
             
             Map<String, Object> result = new HashMap<>();
@@ -190,10 +210,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             @SuppressWarnings("unchecked")
             Map<String, Long> invalidRuleCounts = (Map<String, Long>) aggregatedStats.get("invalidRuleCounts");
             
-            // Construir mapas de reglas simplificados
+            // Build simplified rule maps
             Map<String, Map<String, Object>> rulesByID = new HashMap<>();
             
-            // Combinar todas las reglas encontradas
+            // Combine all found rules
             Set<String> allRuleIds = new HashSet<>();
             if (validRuleCounts != null) allRuleIds.addAll(validRuleCounts.keySet());
             if (invalidRuleCounts != null) allRuleIds.addAll(invalidRuleCounts.keySet());
@@ -207,68 +227,52 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             }
             
             result.put("rulesByID", rulesByID);
-            result.put("facets", new HashMap<String, Object>()); // Facetas vacías por simplicidad
+            result.put("facets", new HashMap<String, Object>()); // Empty facets for simplicity
             
             return result;
             
         } catch (IOException e) {
-            logger.error("Error querying validation stats for snapshot " + snapshotId, e);
+            logger.error("Error querying validation stats for snapshot {}", snapshotId, e);
             throw new Exception("Error querying validation statistics", e);
         }
     }
 
     /**
-     * Consulta estadísticas de reglas de validación por snapshot
+     * Query validation rule statistics by snapshot
      */
     public ValidationStats queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws Exception {
 
         ValidationStats result = new ValidationStats();
 
         try {
-            // Si hay filtros, aplicarlos tanto a las estadísticas como a las facetas
+            // If there are filters, apply them to both statistics and facets
             if (fq != null && !fq.isEmpty()) {
-                logger.info("Aplicando filtros a las estadísticas principales: {}", fq);
+                logger.debug("Applying filters to main statistics: {}", fq);
                 
-                // Procesar filtros
+                // Process filters
                 Map<String, Object> filters = parseFilterQueries(fq);
+                ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshot.getId());
                 
-                // Obtener observaciones filtradas
-                List<ValidationStatObservationParquet> filteredObservations = parquetRepository.findBySnapshotId(snapshot.getId())
-                    .stream()
-                    .filter(obs -> matchesFilters(obs, filters))
-                    .collect(Collectors.toList());
+                // Use OPTIMIZED repository methods - NO memory loading
+                Map<String, Object> filteredStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
                 
-                logger.info("Observaciones filtradas para estadísticas: {} (de {} totales)", 
-                    filteredObservations.size(), parquetRepository.findBySnapshotId(snapshot.getId()).size());
+                result.size = ((Number) filteredStats.getOrDefault("totalCount", 0L)).intValue();
+                result.validSize = ((Number) filteredStats.getOrDefault("validCount", 0L)).intValue();
+                result.transformedSize = ((Number) filteredStats.getOrDefault("transformedCount", 0L)).intValue();
                 
-                // Calcular estadísticas agregadas a partir de las observaciones filtradas
-                result.size = filteredObservations.size();
-                result.validSize = (int) filteredObservations.stream().filter(obs -> obs.getIsValid()).count();
-                result.transformedSize = (int) filteredObservations.stream().filter(obs -> obs.getIsTransformed()).count();
+                logger.debug("OPTIMIZED filtered statistics: {} total, {} valid, {} transformed", 
+                    result.size, result.validSize, result.transformedSize);
                 
-                // Calcular conteos de reglas válidas e inválidas a partir de observaciones filtradas
-                Map<String, Long> validRuleCounts = new HashMap<>();
-                Map<String, Long> invalidRuleCounts = new HashMap<>();
-                
-                for (ValidationStatObservationParquet obs : filteredObservations) {
-                    // Contar reglas válidas
-                    if (obs.getValidRulesIDList() != null) {
-                        for (String ruleId : obs.getValidRulesIDList()) {
-                            validRuleCounts.put(ruleId, validRuleCounts.getOrDefault(ruleId, 0L) + 1);
-                        }
-                    }
-                    // Contar reglas inválidas
-                    if (obs.getInvalidRulesIDList() != null) {
-                        for (String ruleId : obs.getInvalidRulesIDList()) {
-                            invalidRuleCounts.put(ruleId, invalidRuleCounts.getOrDefault(ruleId, 0L) + 1);
-                        }
-                    }
-                }
-                
-                // Construir facetas con filtros
+                // Build facets with filters using optimized method
                 result.facets = buildSimulatedFacets(snapshot.getId(), fq);
                 
-                // Construir estadísticas por regla usando los conteos filtrados
+                // Get rule counts from filtered stats for building rule statistics
+                @SuppressWarnings("unchecked")
+                Map<String, Long> validRuleCounts = (Map<String, Long>) filteredStats.getOrDefault("validRuleCounts", new HashMap<>());
+                @SuppressWarnings("unchecked")
+                Map<String, Long> invalidRuleCounts = (Map<String, Long>) filteredStats.getOrDefault("invalidRuleCounts", new HashMap<>());
+                
+                // Build rule statistics using filtered counts
                 if (snapshot.getNetwork().getValidator() != null) {
                     for (ValidatorRule rule : snapshot.getNetwork().getValidator().getRules()) {
 
@@ -289,8 +293,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 }
                 
             } else {
-                // Sin filtros, usar estadísticas agregadas (comportamiento original)
-                logger.info("Sin filtros - usando estadísticas agregadas completas");
+                // Without filters, use aggregated statistics (original behavior)
+                logger.info("No filters - using complete aggregated statistics");
                 
                 Map<String, Object> aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
                 
@@ -303,7 +307,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 @SuppressWarnings("unchecked")
                 Map<String, Long> invalidRuleCounts = (Map<String, Long>) aggregatedStats.get("invalidRuleCounts");
 
-                // Construir facetas sin filtros
+                // Build facets without filters
                 result.facets = buildSimulatedFacets(snapshot.getId(), fq);
 
                 if (snapshot.getNetwork().getValidator() != null) {
@@ -327,27 +331,27 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             }
 
         } catch (IOException e) {
-            throw new Exception("Error consultando estadísticas de validación: " + e.getMessage());
+            throw new Exception("Error querying validation statistics: " + e.getMessage());
         }
 
         return result;
     }
 
     /**
-     * Verifica si el servicio está disponible
+     * Checks if the service is available
      */
     public boolean isServiceAvailable() {
         try {
-            // Verificar que el directorio base existe y es accesible
+            // Check that the base directory exists and is accessible
             return parquetRepository != null;
         } catch (Exception e) {
-            logger.error("Error verificando disponibilidad del servicio parquet: " + e.getMessage());
+            logger.error("Error checking parquet service availability", e);
             return false;
         }
     }
 
     /**
-     * Consulta conteos de ocurrencias de reglas válidas por snapshot ID y regla ID
+     * Query valid rule occurrences count by snapshot ID and rule ID
      */
     public ValidationRuleOccurrencesCount queryValidRuleOccurrencesCountBySnapshotID(Long snapshotID, Long ruleID, List<String> fq) {
 
@@ -356,25 +360,25 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         try {
             String ruleIdStr = ruleID.toString();
             
-            // Obtener conteos de ocurrencias válidas e inválidas
+            // Get valid and invalid occurrence counts
             Map<String, Long> validOccurrences = parquetRepository.getRuleOccurrenceCounts(snapshotID, ruleIdStr, true);
             Map<String, Long> invalidOccurrences = parquetRepository.getRuleOccurrenceCounts(snapshotID, ruleIdStr, false);
 
             List<OccurrenceCount> validRuleOccurrence = validOccurrences.entrySet().stream()
                     .map(entry -> new OccurrenceCount(entry.getKey(), entry.getValue().intValue()))
-                    .sorted((a, b) -> Integer.compare(b.count, a.count)) // Ordenar por conteo descendente
+                    .sorted((a, b) -> Integer.compare(b.count, a.count)) // Sort by count descending
                     .collect(Collectors.toList());
 
             List<OccurrenceCount> invalidRuleOccurrence = invalidOccurrences.entrySet().stream()
                     .map(entry -> new OccurrenceCount(entry.getKey(), entry.getValue().intValue()))
-                    .sorted((a, b) -> Integer.compare(b.count, a.count)) // Ordenar por conteo descendente
+                    .sorted((a, b) -> Integer.compare(b.count, a.count)) // Sort by count descending
                     .collect(Collectors.toList());
 
             result.setValidRuleOccrs(validRuleOccurrence);
             result.setInvalidRuleOccrs(invalidRuleOccurrence);
 
         } catch (IOException e) {
-            logger.error("Error consultando ocurrencias de reglas: " + e.getMessage());
+            logger.error("Error querying rule occurrences", e);
             result.setValidRuleOccrs(new ArrayList<>());
             result.setInvalidRuleOccrs(new ArrayList<>());
         }
@@ -383,81 +387,63 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Consulta observaciones de validación por snapshot ID con paginación OPTIMIZADA
+     * Query validation observations by snapshot ID with OPTIMIZED pagination (never loads all records in memory)
      */
     public List<ValidationStatObservationParquet> queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, int page, int size) {
-        System.out.println("DEBUG: Consulta Parquet OPTIMIZADA (método directo) - snapshotID: " + snapshotID + ", filtros: " + fq + ", página: " + page + ", tamaño: " + size);
+        logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, page, size);
         
         try {
-            // Aplicar filtros si están presentes
+            // Apply filters if present
             Map<String, Object> filters = parseFilterQueries(fq);
             
             if (filters.isEmpty()) {
                 return parquetRepository.findBySnapshotIdWithPagination(snapshotID, page, size);
             } else {
-                System.out.println("DEBUG: Aplicando filtros optimizados (método directo): " + filters);
+                logger.debug("Applying optimized filters: {}", filters);
                 
-                // **USAR OPTIMIZACIONES AVANZADAS**: Convertir filtros a AggregationFilter
+                // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
                 
-                // Usar el query engine optimizado con row group pruning, parallel processing, etc.
-                String filePath = parquetRepository.getSnapshotFilePath(snapshotID);
-                
-                // Para paginación, necesitamos obtener los registros optimizados
-                // Crear un Pageable para el método
-                Pageable pageableRequest = 
-                    org.springframework.data.domain.PageRequest.of(page, size);
-                
-                List<ValidationStatObservationParquet> parquetObservations = 
-                    parquetRepository.findOptimizedWithPagination(filePath, aggregationFilter, pageableRequest);
-                
-                System.out.println("DEBUG: Resultados optimizados (método directo) - encontrados: " + parquetObservations.size());
-                
-                return parquetObservations;
+                return parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, page, size);
             }
         } catch (IOException e) {
-            logger.error("Error consultando observaciones optimizadas: " + e.getMessage());
+            logger.error("Error querying optimized observations", e);
             return new ArrayList<>();
         }
     }
 
     /**
-     * Consulta observaciones de estadísticas de validación por snapshot ID con paginación
+     * Query validation statistics observations by snapshot ID with pagination (never loads all records in memory)
      */
     @Override
     public ValidationStatsQueryResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
-        System.out.println("DEBUG: Consulta Parquet OPTIMIZADA - snapshotID: " + snapshotID + ", filtros: " + fq + ", página: " + pageable.getPageNumber() + ", tamaño: " + pageable.getPageSize());
+        logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, pageable.getPageNumber(), pageable.getPageSize());
         
         try {
             if (fq != null && !fq.isEmpty()) {
-                Map<String, Object> filters = convertFiltersToMap(fq);
-                System.out.println("DEBUG: Aplicando filtros optimizados: " + filters);
+                Map<String, Object> filters = parseFilterQueries(fq);
+                logger.debug("Applying optimized filters: {}", filters);
                 
-                // **USAR OPTIMIZACIONES AVANZADAS**: Convertir filtros a AggregationFilter
+                // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
                 
-                // Usar el query engine optimizado con row group pruning, parallel processing, etc.
-                String filePath = parquetRepository.getSnapshotFilePath(snapshotID);
+                // Use optimized methods with pagination - never loads all data
+                List<ValidationStatObservationParquet> pageResults = 
+                    parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
                 
-                // Para paginación, necesitamos obtener los registros optimizados
-                List<ValidationStatObservationParquet> parquetObservations = 
-                    parquetRepository.findOptimizedWithPagination(filePath, aggregationFilter, pageable);
+                // Get total count using optimizations (without loading all data)
+                long totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
                 
-                // Obtener total count usando optimizaciones (sin cargar todos los datos)
-                long totalElements = parquetRepository.countOptimized(filePath, aggregationFilter);
+                logger.debug("OPTIMIZED results - found: {} total, {} in page", totalElements, pageResults.size());
                 
-                System.out.println("DEBUG: Resultados optimizados - encontrados: " + parquetObservations.size() + ", total: " + totalElements);
-                
-                // Usar directamente los objetos Parquet - el JSON se serializará correctamente
-                // porque hemos configurado @JsonIgnore en los campos problemáticos
-                
+                // Return Parquet objects directly - JSON serialization will work correctly
                 return new ValidationStatsQueryResult(
-                    parquetObservations,
+                    pageResults,
                     totalElements,
                     pageable
                 );
             } else {
-                // Sin filtros, usar paginación directa
+                // Without filters, use direct pagination
                 List<ValidationStatObservationParquet> parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
                     snapshotID, 
                     pageable.getPageNumber(), 
@@ -465,8 +451,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 );
                 
                 long totalElements = parquetRepository.countBySnapshotId(snapshotID);
-                // Usar directamente los objetos Parquet
                 
+                // Return Parquet objects directly
                 return new ValidationStatsQueryResult(
                     parquetObservations,
                     totalElements,
@@ -475,77 +461,56 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             }
 
         } catch (IOException e) {
-            logger.error("Error querying validation stats observations by snapshot ID: " + e.getMessage(), e);
-            throw new ValidationStatisticsException("Error consultando observaciones de validación", e);
+            logger.error("Error querying Parquet with pagination for snapshot {}", snapshotID, e);
+            throw new ValidationStatisticsException("Error querying validation observations", e);
         }
     }
 
     /**
-     * Convierte los filtros de formato String a Map para el repositorio Parquet
+     * Converts filters from String format to Map for Parquet repository (no System.out)
      */
-    private Map<String, Object> convertFiltersToMap(List<String> fq) {
+    private Map<String, Object> parseFilterQueries(List<String> fq) {
         Map<String, Object> filters = new HashMap<>();
         
-        System.out.println("DEBUG: Convirtiendo filtros de lista: " + fq);
+        if (fq == null || fq.isEmpty()) {
+            return filters;
+        }
         
-        if (fq != null) {
-            for (String filter : fq) {
-                System.out.println("DEBUG: Procesando filtro: '" + filter + "'");
+        logger.debug("Processing filters: {}", fq);
+        
+        for (String fqTerm : fq) {
+            if (fqTerm.contains(":")) {
+                String[] parts = fqTerm.split(":", 2);
+                String key = parts[0].trim();
+                String value = parts[1].trim();
                 
-                // Convertir formato de filtro de "field@@value" a "field:value" (compatibilidad con Solr)
-                String processedFilter = filter.replace("@@", ":");
-                System.out.println("DEBUG: Filtro después de conversión @@: '" + processedFilter + "'");
-                
-                // Convertir filtros de formato "field:value" a map
-                if (processedFilter.contains(":")) {
-                    String[] parts = processedFilter.split(":", 2);
-                    if (parts.length == 2) {
-                        String field = parts[0].trim();
-                        String value = parts[1].trim();
-                        
-                        System.out.println("DEBUG: Campo: '" + field + "', valor original: '" + value + "'");
-                        
-                        // Manejar valores entre comillas
-                        if (value.startsWith("\"") && value.endsWith("\"")) {
-                            value = value.substring(1, value.length() - 1);
-                            System.out.println("DEBUG: Valor después de quitar comillas: '" + value + "'");
-                        }
-                        
-                        // Convertir valores boolean string a boolean si es necesario
-                        Object filterValueObject = value;
-                        if ("isValid".equals(field) || "isTransformed".equals(field)) {
-                            if ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)) {
-                                filterValueObject = Boolean.parseBoolean(value);
-                                System.out.println("DEBUG: Convertido a boolean: " + filterValueObject);
-                            }
-                        }
-                        
-                        filters.put(field, filterValueObject);
-                        System.out.println("DEBUG: Agregado al map - campo: '" + field + "', valor: '" + filterValueObject + "'");
-                    }
+                if (value.equals("true") || value.equals("false")) {
+                    filters.put(key, Boolean.parseBoolean(value));
                 } else {
-                    System.out.println("DEBUG: Filtro procesado no contiene ':', ignorando: '" + processedFilter + "' (original: '" + filter + "')");
+                    filters.put(key, value);
                 }
             }
         }
         
-        System.out.println("DEBUG: Map de filtros final: " + filters);
+        logger.debug("Final filter map: {}", filters);
         return filters;
     }
 
     /**
-     * Elimina observaciones de validación por snapshot ID
+     * Deletes validation observations by snapshot ID
      */
     public void deleteValidationStatsObservationsByRecordIDsAndSnapshotID(Long snapshotID) throws ValidationStatisticsException {
         try {
             parquetRepository.deleteBySnapshotId(snapshotID);
+            logger.info("Deleted validation observations for snapshot {}", snapshotID);
         } catch (IOException e) {
-            throw new ValidationStatisticsException("Error eliminando información de validación | snapshot:" + snapshotID + " :: " + e.getMessage());
+            logger.error("Error deleting observations for snapshot {}", snapshotID, e);
+            throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " :: " + e.getMessage());
         }
     }
 
     /**
-     * Elimina observaciones de validación por lista de registros
+     * Deletes validation observations by record list
      */
     public void deleteValidationStatsObservationsByRecordsAndSnapshotID(Long snapshotID, Collection<OAIRecord> records) throws ValidationStatisticsException {
         for (OAIRecord record : records) {
@@ -553,100 +518,106 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 String id = fingerprintHelper.getStatsIDfromRecord(record);
                 parquetRepository.deleteById(id, snapshotID);
             } catch (IOException e) {
-                throw new ValidationStatisticsException("Error eliminando información de validación | snapshot:" + snapshotID + " recordID:" + record.getIdentifier() + " :: " + e.getMessage());
+                throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " recordID:" + record.getIdentifier() + " :: " + e.getMessage());
             }
         }
     }
 
     /**
-     * Elimina observación de validación por registro
+     * Deletes validation observation by record
      */
     public void deleteValidationStatsObservationByRecordAndSnapshotID(Long snapshotID, OAIRecord record) throws ValidationStatisticsException {
         try {
             String id = fingerprintHelper.getStatsIDfromRecord(record);
             parquetRepository.deleteById(id, snapshotID);
         } catch (IOException e) {
-            throw new ValidationStatisticsException("Error eliminando información de validación | snapshot:" + snapshotID + " recordID:" + record.getIdentifier() + " :: " + e.getMessage());
+            throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " recordID:" + record.getIdentifier() + " :: " + e.getMessage());
         }
     }
 
     /**
-     * Copia observaciones de validación de un snapshot a otro
+     * Copies validation observations from one snapshot to another
      */
     public boolean copyValidationStatsObservationsFromTo(Long originalSnapshotId, Long newSnapshotId) throws ValidationStatisticsException {
         try {
             parquetRepository.copySnapshotData(originalSnapshotId, newSnapshotId);
             return true;
         } catch (IOException e) {
-            throw new ValidationStatisticsException("Error copiando información de validación | snapshot:" + originalSnapshotId + " a snapshot:" + newSnapshotId + " :: " + e.getMessage());
+            throw new ValidationStatisticsException("Error copying validation information | snapshot:" + originalSnapshotId + " to snapshot:" + newSnapshotId + " :: " + e.getMessage());
         }
     }
 
     /**
-     * Elimina estadísticas de validación por snapshot ID
+     * Deletes validation statistics by snapshot ID
      */
     public void deleteValidationStatsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
         try {
             parquetRepository.deleteBySnapshotId(snapshotID);
         } catch (IOException e) {
-            throw new ValidationStatisticsException("Error eliminando información de validación | snapshot:" + snapshotID + " :: " + e.getMessage());
+            throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " :: " + e.getMessage());
         }
     }
 
-    // Métodos auxiliares privados
+    // Private helper methods
 
-    private Map<String, Object> parseFilterQueries(List<String> fq) {
-        Map<String, Object> filters = new HashMap<>();
+    private ValidationStatObservation convertToValidationStatObservation(ValidationStatObservationParquet parquetObs) {
+        ValidationStatObservation obs = new ValidationStatObservation();
+        obs.setId(parquetObs.getId());
+        obs.setIdentifier(parquetObs.getIdentifier());
+        // Note: ValidationStatObservation may not have all setters - using compatible ones
+        obs.setOrigin(parquetObs.getOrigin());
+        obs.setSetSpec(parquetObs.getSetSpec());
+        obs.setMetadataPrefix(parquetObs.getMetadataPrefix());
+        obs.setNetworkAcronym(parquetObs.getNetworkAcronym());
+        obs.setRepositoryName(parquetObs.getRepositoryName());
+        obs.setInstitutionName(parquetObs.getInstitutionName());
+        obs.setIsValid(parquetObs.getIsValid());
+        obs.setIsTransformed(parquetObs.getIsTransformed());
+        // Note: Some fields may not be compatible - skipping them for now
+        return obs;
+    }
+
+    /**
+     * Converts filters from fq format to optimized AggregationFilter
+     */
+    private ValidationStatParquetQueryEngine.AggregationFilter convertToAggregationFilter(Map<String, Object> filters, Long snapshotId) {
+        ValidationStatParquetQueryEngine.AggregationFilter aggFilter = new ValidationStatParquetQueryEngine.AggregationFilter();
+        aggFilter.setSnapshotId(snapshotId);
         
-        if (fq == null || fq.isEmpty()) {
-            logger.info("No hay filtros para procesar");
-            return filters;
+        for (Map.Entry<String, Object> entry : filters.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            
+            switch (key) {
+                case "record_is_valid":
+                    if (value instanceof Boolean) {
+                        aggFilter.setIsValid((Boolean) value);
+                    }
+                    break;
+                case "record_is_transformed":
+                    if (value instanceof Boolean) {
+                        aggFilter.setIsTransformed((Boolean) value);
+                    }
+                    break;
+                case "record_oai_id":
+                    if (value instanceof String) {
+                        aggFilter.setRecordOAIId((String) value);
+                    }
+                    break;
+                case "valid_rules":
+                    if (value instanceof String) {
+                        aggFilter.setValidRulesFilter((String) value);
+                    }
+                    break;
+                case "invalid_rules":
+                    if (value instanceof String) {
+                        aggFilter.setInvalidRulesFilter((String) value);
+                    }
+                    break;
+            }
         }
         
-        logger.info("Procesando filtros: {}", fq);
-        
-        for (String fqTerm : fq) {
-            logger.info("Procesando término de filtro: '{}'", fqTerm);
-            
-            // Intentar decodificar URL si es necesario
-            String decodedTerm = fqTerm;
-            if (fqTerm.contains("%22")) {
-                decodedTerm = fqTerm.replace("%22", "\"");
-                logger.info("Filtro decodificado de URL: '{}'", decodedTerm);
-            }
-            
-            String cleanTerm = decodedTerm.replace("@@", ":");
-            logger.info("Término limpiado: '{}'", cleanTerm);
-            String[] parts = cleanTerm.split(":", 2);
-            
-            if (parts.length == 2) {
-                String field = parts[0];
-                String value = parts[1];
-                logger.info("Campo: '{}', Valor original: '{}'", field, value);
-                
-                // Remover comillas si están presentes
-                if (value.startsWith("\"") && value.endsWith("\"")) {
-                    value = value.substring(1, value.length() - 1);
-                    logger.info("Valor sin comillas: '{}'", value);
-                }
-                
-                // Convertir valores booleanos
-                if ("true".equalsIgnoreCase(value)) {
-                    filters.put(field, Boolean.TRUE);
-                } else if ("false".equalsIgnoreCase(value)) {
-                    filters.put(field, Boolean.FALSE);
-                } else {
-                    filters.put(field, value);
-                }
-                
-                logger.info("Filtro agregado: '{}' = '{}'", field, filters.get(field));
-            } else {
-                logger.warn("Formato de filtro inválido: '{}'", fqTerm);
-            }
-        }
-        
-        logger.info("Filtros finales: {}", filters);
-        return filters;
+        return aggFilter;
     }
 
     private Map<String, List<FacetFieldEntry>> buildSimulatedFacets(Long snapshotId, List<String> fq) throws IOException {
@@ -1017,76 +988,5 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         }
         
         return true;
-    }
-    
-    /**
-     * Convierte filtros del formato fq a AggregationFilter optimizado
-     */
-    private ValidationStatParquetQueryEngine.AggregationFilter convertToAggregationFilter(Map<String, Object> filters, Long snapshotId) {
-        ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = new ValidationStatParquetQueryEngine.AggregationFilter();
-        
-        // Configurar snapshot como rango fijo
-        aggregationFilter.setMinSnapshotId(snapshotId);
-        aggregationFilter.setMaxSnapshotId(snapshotId);
-        
-        for (Map.Entry<String, Object> entry : filters.entrySet()) {
-            String key = entry.getKey();
-            Object value = entry.getValue();
-            
-            switch (key) {
-                case "isValid":
-                    if (value instanceof Boolean) {
-                        aggregationFilter.setIsValid((Boolean) value);
-                    } else if (value instanceof String) {
-                        aggregationFilter.setIsValid(Boolean.parseBoolean((String) value));
-                    }
-                    break;
-                    
-                case "isTransformed":
-                    if (value instanceof Boolean) {
-                        aggregationFilter.setIsTransformed((Boolean) value);
-                    } else if (value instanceof String) {
-                        aggregationFilter.setIsTransformed(Boolean.parseBoolean((String) value));
-                    }
-                    break;
-                    
-                case "identifier":
-                    if (value != null) {
-                        aggregationFilter.setRecordOAIId(value.toString());
-                        System.out.println("DEBUG: Convertido filtro identifier '" + value + "' a recordOAIId en AggregationFilter");
-                    }
-                    break;
-                    
-                case "ruleId":
-                    if (value != null) {
-                        aggregationFilter.setRuleIds(Arrays.asList(value.toString()));
-                    }
-                    break;
-                    
-                case "valid_rules":
-                    if (value != null) {
-                        // Para filtros de reglas válidas, usar el campo ruleIds
-                        aggregationFilter.setRuleIds(Arrays.asList(value.toString()));
-                        aggregationFilter.setValidRulesFilter(value.toString());
-                        System.out.println("DEBUG: Convertido filtro valid_rules '" + value + "' a AggregationFilter");
-                    }
-                    break;
-                    
-                case "invalid_rules":
-                    if (value != null) {
-                        aggregationFilter.setInvalidRulesFilter(value.toString());
-                        System.out.println("DEBUG: Convertido filtro invalid_rules '" + value + "' a AggregationFilter");
-                    }
-                    break;
-            }
-        }
-        
-        System.out.println("DEBUG: AggregationFilter creado - isValid: " + aggregationFilter.getIsValid() + 
-                          ", isTransformed: " + aggregationFilter.getIsTransformed() + 
-                          ", recordOAIId: " + aggregationFilter.getRecordOAIId() + 
-                          ", ruleIds: " + aggregationFilter.getRuleIds() + 
-                          ", snapshotRange: " + aggregationFilter.getMinSnapshotId() + "-" + aggregationFilter.getMaxSnapshotId());
-        
-        return aggregationFilter;
     }
 }

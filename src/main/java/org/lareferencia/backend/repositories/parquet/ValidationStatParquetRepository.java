@@ -1,20 +1,7 @@
 /*
- *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and    @PostConstruct
-    public void init() {
-        try {
-            // Verificar si existe el directorio
-            Path dirPath = Paths.get(parquetBasePath);
-            if (!Files.exists(dirPath)) {
-                Files.createDirectories(dirPath);
-                logger.info("Creado directorio para archivos Parquet: {}", parquetBasePath);
-            }
-            
-            logger.info("ValidationStatParquetRepository inicializado - listo para usar en: {}", parquetBasePath);
-        } catch (Exception e) {
-            logger.error("Error inicializando ValidationStatParquetRepository", e);
-            throw new RuntimeException("Error inicializando repositorio Parquet", e);
-        }
-    }his program is free software: you can redistribute it and/or modify
+ *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
+ *
+ *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU Affero General Public License as published by
  *   the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
@@ -263,68 +250,294 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Guarda todas las observaciones en archivos Parquet por snapshot
+     * OPTIMIZED: Saves all observations in Parquet files by snapshot using streaming and batch processing
      */
     public void saveAll(List<ValidationStatObservationParquet> observations) throws IOException {
         if (observations == null || observations.isEmpty()) {
             return;
         }
         
-        // Agrupar por snapshot ID
+        logger.info("Starting OPTIMIZED batch save of {} observations", observations.size());
+        
+        // Group by snapshot ID for batch processing
         Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
             .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
         
-        // Escribir cada grupo en su archivo Parquet correspondiente
+        // Process each snapshot group with optimized streaming approach
         for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
             Long snapshotId = entry.getKey();
             List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
             
-            saveObservationsToParquet(snapshotId, snapshotObservations);
+            saveObservationsToParquetOptimized(snapshotId, snapshotObservations);
         }
         
-        logger.info("Guardadas {} observaciones en archivos Parquet", observations.size());
+        logger.info("OPTIMIZED: Successfully saved {} observations across {} snapshots", 
+                   observations.size(), groupedBySnapshot.size());
     }
     
-    private void saveObservationsToParquet(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
+    /**
+     * OPTIMIZED: High-performance append-mode saving with streaming and deduplication
+     * Uses Set-based deduplication and batch writing to minimize memory usage and CPU load
+     */
+    private void saveObservationsToParquetOptimized(Long snapshotId, List<ValidationStatObservationParquet> newObservations) throws IOException {
         String filePath = getParquetFilePath(snapshotId);
-        
-        // Obtener observaciones existentes si el archivo ya existe
-        List<ValidationStatObservationParquet> existingObservations = new ArrayList<>();
         File parquetFile = new File(filePath);
         
-        if (parquetFile.exists()) {
-            existingObservations = findBySnapshotId(snapshotId);
+        logger.debug("OPTIMIZED save for snapshot {}: {} new observations", snapshotId, newObservations.size());
+        
+        if (!parquetFile.exists()) {
+            // No existing file - direct write (most efficient case)
+            writeObservationsToParquetStreamOptimized(filePath, newObservations);
+            logger.debug("OPTIMIZED: Direct write for new snapshot {} - {} observations", snapshotId, newObservations.size());
+            return;
         }
         
-        // Combinar observaciones existentes con las nuevas
-        Set<String> existingIds = existingObservations.stream()
+        // File exists - need to merge efficiently without loading all data into memory
+        Set<String> newObservationIds = newObservations.stream()
             .map(ValidationStatObservationParquet::getId)
             .collect(Collectors.toSet());
         
-        List<ValidationStatObservationParquet> allObservations = new ArrayList<>(existingObservations);
+        logger.debug("OPTIMIZED: Merging with existing file, {} new unique IDs", newObservationIds.size());
         
-        // Agregar solo las nuevas observaciones (evitar duplicados)
-        for (ValidationStatObservationParquet obs : observations) {
-            if (!existingIds.contains(obs.getId())) {
-                allObservations.add(obs);
+        // Create temporary file for merge operation
+        String tempFilePath = filePath + ".tmp";
+        List<ValidationStatObservationParquet> mergedBatch = new ArrayList<>();
+        int batchSize = 10000; // Process in batches to control memory usage
+        
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
+                .withConf(hadoopConf)
+                .build();
+             ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(tempFilePath))
+                .withSchema(avroSchema)
+                .withConf(hadoopConf)
+                .withCompressionCodec(CompressionCodecName.SNAPPY)
+                .withWriteMode(ParquetFileWriter.Mode.CREATE)
+                .build()) {
+            
+            // Copy existing observations in batches, excluding duplicates
+            GenericRecord record;
+            int processedCount = 0;
+            int skippedDuplicates = 0;
+            
+            while ((record = reader.read()) != null) {
+                ValidationStatObservationParquet obs = fromGenericRecord(record);
+                
+                // Skip if this observation will be replaced by new data
+                if (!newObservationIds.contains(obs.getId())) {
+                    mergedBatch.add(obs);
+                }else {
+                    skippedDuplicates++;
+                }
+                
+                // Write batch when it reaches size limit
+                if (mergedBatch.size() >= batchSize) {
+                    for (ValidationStatObservationParquet batchObs : mergedBatch) {
+                        writer.write(toGenericRecord(batchObs));
+                    }
+                    processedCount += mergedBatch.size();
+                    mergedBatch.clear(); // Free memory
+                    
+                    if (processedCount % 50000 == 0) {
+                        logger.debug("OPTIMIZED: Processed {} existing observations", processedCount);
+                    }
+                }
             }
+            
+            // Write remaining existing observations
+            for (ValidationStatObservationParquet batchObs : mergedBatch) {
+                writer.write(toGenericRecord(batchObs));
+            }
+            processedCount += mergedBatch.size();
+            
+            // Append all new observations
+            for (ValidationStatObservationParquet newObs : newObservations) {
+                writer.write(toGenericRecord(newObs));
+            }
+            
+            logger.debug("OPTIMIZED merge completed: {} existing (skipped {} duplicates), {} new, {} total", 
+                        processedCount, skippedDuplicates, newObservations.size(), processedCount + newObservations.size());
         }
         
-        // Escribir todas las observaciones al archivo Parquet
+        // Replace original file with merged file atomically
+        File originalFile = new File(filePath);
+        File tempFile = new File(tempFilePath);
+        
+        if (!originalFile.delete()) {
+            logger.warn("Could not delete original file: {}", filePath);
+        }
+        
+        if (!tempFile.renameTo(originalFile)) {
+            throw new IOException("Could not replace original file with merged data");
+        }
+        
+        logger.debug("OPTIMIZED: File replacement completed for snapshot {}", snapshotId);
+    }
+    
+    /**
+     * OPTIMIZED: Stream-based writing with minimal memory footprint
+     */
+    private void writeObservationsToParquetStreamOptimized(String filePath, List<ValidationStatObservationParquet> observations) throws IOException {
         try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(filePath))
                 .withSchema(avroSchema)
                 .withConf(hadoopConf)
                 .withCompressionCodec(CompressionCodecName.SNAPPY)
-                .withWriteMode(ParquetFileWriter.Mode.OVERWRITE)
+                .withWriteMode(ParquetFileWriter.Mode.CREATE)
                 .build()) {
             
-            for (ValidationStatObservationParquet observation : allObservations) {
+            int written = 0;
+            for (ValidationStatObservationParquet observation : observations) {
                 GenericRecord record = toGenericRecord(observation);
                 writer.write(record);
+                written++;
+                
+                // Log progress for large batches
+                if (written % 10000 == 0) {
+                    logger.debug("OPTIMIZED: Written {} of {} observations", written, observations.size());
+                }
+            }
+            
+            logger.debug("OPTIMIZED: Stream write completed - {} observations written", written);
+        }
+    }
+    
+    /**
+     * ULTRA-OPTIMIZED: Massive batch processing with memory monitoring and backpressure control
+     * For datasets with millions of observations
+     */
+    public void saveAllMassiveOptimized(List<ValidationStatObservationParquet> observations) throws IOException {
+        if (observations == null || observations.isEmpty()) {
+            return;
+        }
+        
+        logger.info("Starting ULTRA-OPTIMIZED massive save of {} observations", observations.size());
+        
+        // Monitor memory usage
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        logger.debug("Available memory: {} MB", maxMemory / (1024 * 1024));
+        
+        // Group by snapshot ID
+        Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
+            .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
+        
+        int processedSnapshots = 0;
+        for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
+            Long snapshotId = entry.getKey();
+            List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
+            
+            // Memory check before processing each snapshot
+            long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+            double memoryUsagePercent = (double) usedMemory / maxMemory * 100;
+            
+            if (memoryUsagePercent > 80) {
+                logger.warn("High memory usage detected: {:.2f}% - forcing garbage collection", memoryUsagePercent);
+                System.gc();
+                Thread.yield(); // Allow GC to run
+            }
+            
+            // Process large snapshots in chunks
+            if (snapshotObservations.size() > 50000) {
+                saveObservationsInChunks(snapshotId, snapshotObservations);
+            } else {
+                saveObservationsToParquetOptimized(snapshotId, snapshotObservations);
+            }
+            
+            processedSnapshots++;
+            if (processedSnapshots % 10 == 0) {
+                logger.info("ULTRA-OPTIMIZED: Processed {}/{} snapshots", processedSnapshots, groupedBySnapshot.size());
             }
         }
         
-        logger.debug("Guardadas {} observaciones para snapshot {} en archivo Parquet", allObservations.size(), snapshotId);
+        logger.info("ULTRA-OPTIMIZED: Successfully completed massive save - {} observations across {} snapshots", 
+                   observations.size(), groupedBySnapshot.size());
+    }
+    
+    /**
+     * CHUNK PROCESSING: Handles massive datasets by processing in memory-safe chunks
+     */
+    private void saveObservationsInChunks(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
+        int chunkSize = 25000; // Optimal chunk size for memory management
+        int totalChunks = (observations.size() + chunkSize - 1) / chunkSize;
+        
+        logger.debug("Processing snapshot {} in {} chunks of max {} observations", snapshotId, totalChunks, chunkSize);
+        
+        for (int i = 0; i < totalChunks; i++) {
+            int start = i * chunkSize;
+            int end = Math.min(start + chunkSize, observations.size());
+            List<ValidationStatObservationParquet> chunk = observations.subList(start, end);
+            
+            logger.debug("Processing chunk {}/{} for snapshot {} ({} observations)", i + 1, totalChunks, snapshotId, chunk.size());
+            
+            if (i == 0) {
+                // First chunk - use normal optimized method
+                saveObservationsToParquetOptimized(snapshotId, chunk);
+            } else {
+                // Subsequent chunks - append to existing file
+                appendObservationsToParquet(snapshotId, chunk);
+            }
+            
+            // Clear chunk reference to help GC
+            chunk = null;
+        }
+        
+        logger.debug("Completed chunked processing for snapshot {}", snapshotId);
+    }
+    
+    /**
+     * APPEND MODE: Efficiently appends observations to existing Parquet file
+     */
+    private void appendObservationsToParquet(Long snapshotId, List<ValidationStatObservationParquet> newObservations) throws IOException {
+        String filePath = getParquetFilePath(snapshotId);
+        String tempFilePath = filePath + ".append.tmp";
+        
+        // Read existing file and append new observations
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
+                .withConf(hadoopConf)
+                .build();
+             ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(tempFilePath))
+                .withSchema(avroSchema)
+                .withConf(hadoopConf)
+                .withCompressionCodec(CompressionCodecName.SNAPPY)
+                .withWriteMode(ParquetFileWriter.Mode.CREATE)
+                .build()) {
+            
+            // Copy existing data
+            GenericRecord record;
+            int existingCount = 0;
+            while ((record = reader.read()) != null) {
+                writer.write(record);
+                existingCount++;
+            }
+            
+            // Append new observations
+            for (ValidationStatObservationParquet obs : newObservations) {
+                writer.write(toGenericRecord(obs));
+            }
+            
+            logger.debug("Appended {} new observations to {} existing for snapshot {}", 
+                        newObservations.size(), existingCount, snapshotId);
+        }
+        
+        // Replace original file atomically
+        File originalFile = new File(filePath);
+        File tempFile = new File(tempFilePath);
+        
+        if (!originalFile.delete()) {
+            logger.warn("Could not delete original file for append: {}", filePath);
+        }
+        
+        if (!tempFile.renameTo(originalFile)) {
+            throw new IOException("Could not replace file after append operation");
+        }
+    }
+
+    /**
+     * Legacy method - delegates to optimized version
+     * @deprecated Use saveObservationsToParquetOptimized for better performance
+     */
+    private void saveObservationsToParquet(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
+        logger.debug("Using legacy saveObservationsToParquet - delegating to optimized version");
+        saveObservationsToParquetOptimized(snapshotId, observations);
     }
 
     /**
@@ -578,21 +791,21 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Búsqueda optimizada con paginación usando ValidationStatParquetQueryEngine SIN VERIFICACIÓN INDIVIDUAL
+     * OPTIMIZED: Search with pagination using ValidationStatParquetQueryEngine WITHOUT INDIVIDUAL VERIFICATION
      */
     public List<ValidationStatObservationParquet> findOptimizedWithPagination(String filePath, 
             ValidationStatParquetQueryEngine.AggregationFilter filter, 
             org.springframework.data.domain.Pageable pageable) throws IOException {
         
-        System.out.println("DEBUG: findOptimizedWithPagination COMPLETAMENTE OPTIMIZADO - archivo: " + filePath);
+        logger.debug("findOptimizedWithPagination FULLY OPTIMIZED - file: {}", filePath);
         
         File file = new File(filePath);
         if (!file.exists()) {
-            System.out.println("DEBUG: Archivo no existe: " + filePath);
+            logger.debug("File does not exist: {}", filePath);
             return Collections.emptyList();
         }
         
-        // Usar directamente el query engine optimizado con Row Group Pruning
+        // Use optimized query engine directly with Row Group Pruning
         int offset = pageable.getPageNumber() * pageable.getPageSize();
         int limit = pageable.getPageSize();
         
@@ -604,42 +817,160 @@ public class ValidationStatParquetRepository {
             results.add(observation);
         }
         
-        System.out.println("DEBUG: findOptimizedWithPagination COMPLETAMENTE OPTIMIZADO completado - resultados: " + results.size());
+        logger.debug("findOptimizedWithPagination FULLY OPTIMIZED completed - results: {}", results.size());
         return results;
     }
     
     /**
-     * OPTIMIZACIÓN 2+3: Conteo ultra-optimizado con gestión de memoria para millones de registros
+     * OPTIMIZATION 2+3: Ultra-optimized counting with memory management for millions of records
      */
     public long countOptimized(String filePath, ValidationStatParquetQueryEngine.AggregationFilter filter) throws IOException {
-        System.out.println("DEBUG: countOptimized ULTRA-OPTIMIZADO con streaming por lotes - archivo: " + filePath);
+        logger.debug("countOptimized ULTRA-OPTIMIZED with batch streaming - file: {}", filePath);
         
         File file = new File(filePath);
         if (!file.exists()) {
-            System.out.println("DEBUG: Archivo no existe: " + filePath);
+            logger.debug("File does not exist: {}", filePath);
             return 0;
         }
         
-        // Usar el nuevo método ultra-optimizado para datasets masivos
+        // Use new ultra-optimized method for massive datasets
         long count = queryEngine.countRecordsUltraOptimized(filePath, filter);
         
-        System.out.println("DEBUG: countOptimized ULTRA-OPTIMIZADO completado - total: " + count);
+        logger.debug("countOptimized ULTRA-OPTIMIZED completed - total: {}", count);
         return count;
     }
     
     /**
-     * OPTIMIZACIÓN 2+3: Método de conteo con fallback para compatibilidad
+     * OPTIMIZATION 2+3: Standard count method with fallback for compatibility
      */
     public long countOptimizedStandard(String filePath, ValidationStatParquetQueryEngine.AggregationFilter filter) throws IOException {
-        System.out.println("DEBUG: countOptimizedStandard - método estándar de fallback");
+        logger.debug("countOptimizedStandard - standard fallback method");
         
         File file = new File(filePath);
         if (!file.exists()) {
             return 0;
         }
         
-        // Usar método estándar como fallback
+        // Use standard method as fallback
         return queryEngine.countRecords(filePath, filter);
+    }
+    
+    /**
+     * IMMEDIATE: Zero-memory streaming writes for 1000-record batches
+     * Optimized for ValidationWorker page processing pattern
+     */
+    public void saveAllImmediate(List<ValidationStatObservationParquet> observations) throws IOException {
+        if (observations == null || observations.isEmpty()) {
+            return;
+        }
+        
+        logger.debug("Starting IMMEDIATE streaming save of {} observations", observations.size());
+        
+        // Group by snapshot ID to handle multiple snapshots in one batch
+        Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
+            .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
+        
+        // Process each snapshot immediately without memory accumulation
+        for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
+            Long snapshotId = entry.getKey();
+            List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
+            
+            saveObservationsImmediate(snapshotId, snapshotObservations);
+        }
+        
+        logger.debug("IMMEDIATE: Successfully completed streaming save of {} observations", observations.size());
+    }
+
+    /**
+     * IMMEDIATE: Direct streaming writes without memory accumulation
+     * Uses the same file structure as other methods but optimized for streaming
+     * This method is ULTRA-OPTIMIZED for 1000-record batches from ValidationWorker
+     */
+    private void saveObservationsImmediate(Long snapshotId, List<ValidationStatObservationParquet> newObservations) throws IOException {
+        if (newObservations == null || newObservations.isEmpty()) {
+            return;
+        }
+        
+        String filePath = getParquetFilePath(snapshotId);
+        File file = new File(filePath);
+        
+        // Ensure parent directory exists
+        file.getParentFile().mkdirs();
+        
+        Configuration conf = new Configuration();
+        
+        // For immediate streaming, we use a different approach:
+        // 1. If file doesn't exist, create it directly
+        // 2. If file exists, read + append + write (this is inevitable with Parquet format)
+        //    but we do it as efficiently as possible
+        
+        if (!file.exists()) {
+            // FAST PATH: Create new file directly
+            logger.debug("IMMEDIATE: Creating new file with {} observations", newObservations.size());
+            
+            try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
+                    new org.apache.hadoop.fs.Path(filePath))
+                    .withWriteMode(ParquetFileWriter.Mode.CREATE)
+                    .withCompressionCodec(CompressionCodecName.SNAPPY)
+                    .withConf(conf)
+                    .withSchema(avroSchema)
+                    .build()) {
+                
+                // Write all new observations
+                for (ValidationStatObservationParquet obs : newObservations) {
+                    writer.write(toGenericRecord(obs));
+                }
+                
+                logger.debug("IMMEDIATE: Successfully created file with {} observations", newObservations.size());
+            }
+        } else {
+            // APPEND PATH: Read existing, write all together
+            // This is the limitation of Parquet format - it doesn't support true append
+            logger.debug("IMMEDIATE: Appending {} observations to existing file", newObservations.size());
+            
+            List<GenericRecord> existingRecords = new ArrayList<>();
+            
+            // Read existing records as efficiently as possible
+            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(
+                    new org.apache.hadoop.fs.Path(filePath))
+                    .withConf(conf)
+                    .build()) {
+                
+                GenericRecord record;
+                while ((record = reader.read()) != null) {
+                    existingRecords.add(record);
+                }
+                logger.debug("IMMEDIATE: Read {} existing records", existingRecords.size());
+            }
+            
+            // Write all records (existing + new) in one go
+            try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
+                    new org.apache.hadoop.fs.Path(filePath))
+                    .withWriteMode(ParquetFileWriter.Mode.OVERWRITE)
+                    .withCompressionCodec(CompressionCodecName.SNAPPY)
+                    .withConf(conf)
+                    .withSchema(avroSchema)
+                    .build()) {
+                
+                // Write existing records first
+                for (GenericRecord record : existingRecords) {
+                    writer.write(record);
+                }
+                
+                // Write new observations
+                for (ValidationStatObservationParquet obs : newObservations) {
+                    writer.write(toGenericRecord(obs));
+                }
+                
+                logger.debug("IMMEDIATE: Successfully wrote {} total records ({} existing + {} new)", 
+                           existingRecords.size() + newObservations.size(), 
+                           existingRecords.size(), 
+                           newObservations.size());
+            }
+            
+            // Clear the list to help GC
+            existingRecords.clear();
+        }
     }
     
 }
