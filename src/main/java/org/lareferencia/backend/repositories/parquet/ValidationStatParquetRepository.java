@@ -41,6 +41,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -76,6 +77,9 @@ public class ValidationStatParquetRepository {
     // Counter to track next file index per snapshot
     private final Map<Long, Integer> snapshotFileCounters = new HashMap<>();
     
+    // BUFFER SYSTEM: Accumulate records until reaching recordsPerFile limit
+    private final Map<Long, List<ValidationStatObservationParquet>> snapshotBuffers = new HashMap<>();
+    
     @PostConstruct
     public void init() throws IOException {
         logger.info("Initializing ValidationStatParquetRepository with {} records per file", recordsPerFile);
@@ -94,6 +98,19 @@ public class ValidationStatParquetRepository {
         initializeFileCounters();
         
         logger.info("ValidationStatParquetRepository initialized - ready to use at: {}", parquetBasePath);
+    }
+    
+    /**
+     * CLEANUP: Flush any remaining buffered data before shutdown
+     */
+    @PreDestroy
+    public void shutdown() {
+        try {
+            logger.info("SHUTDOWN: Flushing remaining buffers before shutdown");
+            flushAllBuffers();
+        } catch (IOException e) {
+            logger.error("SHUTDOWN: Error flushing buffers during shutdown", e);
+        }
     }
     
     /**
@@ -986,42 +1003,79 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * REVOLUTIONARY: Multi-file streaming writes - NO MORE READ-MERGE-WRITE!
-     * Each file contains exactly recordsPerFile records (default: 10000)
-     * Structure: /base-path/snapshot-{id}/data-{index}.parquet
+     * BUFFERED: Multi-file streaming with intelligent buffering
+     * Accumulates records until reaching recordsPerFile limit (e.g., 10000)
+     * Only writes when buffer is full or explicitly flushed
      * 
-     * This completely eliminates the performance issues we saw in logs:
-     * - No reading existing files
-     * - No memory accumulation  
-     * - Pure append-only writes
+     * CORRECTED BEHAVIOR:
+     * - 1000 records arrive → stored in buffer
+     * - 1000 more arrive → buffer has 2000, still waiting
+     * - ... continues until buffer reaches 10000
+     * - At 10000 → writes one file and clears buffer
      */
     public void saveAllImmediate(List<ValidationStatObservationParquet> observations) throws IOException {
         if (observations == null || observations.isEmpty()) {
             return;
         }
         
-        logger.info("MULTI-FILE: Starting revolutionary streaming save of {} observations", observations.size());
+        logger.info("BUFFERED: Processing {} observations with intelligent buffering", observations.size());
         
         // Group by snapshot ID to handle multiple snapshots in one batch
         Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
             .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
         
-        // Process each snapshot with new multi-file approach
+        // Process each snapshot with buffering approach
         for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
             Long snapshotId = entry.getKey();
             List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
             
-            saveObservationsMultiFile(snapshotId, snapshotObservations);
+            addToBufferAndFlushIfNeeded(snapshotId, snapshotObservations);
         }
         
-        logger.info("MULTI-FILE: Successfully completed revolutionary save of {} observations", observations.size());
+        logger.debug("BUFFERED: Completed processing {} observations", observations.size());
     }
 
     /**
-     * CORE: Multi-file save implementation
-     * Writes observations to separate files, never reading existing data
+     * BUFFER MANAGEMENT: Adds observations to buffer and flushes when reaching recordsPerFile limit
+     * This ensures exactly recordsPerFile records per file (e.g., 10000)
      */
-    private void saveObservationsMultiFile(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
+    private synchronized void addToBufferAndFlushIfNeeded(Long snapshotId, List<ValidationStatObservationParquet> newObservations) throws IOException {
+        // Get or create buffer for this snapshot
+        List<ValidationStatObservationParquet> buffer = snapshotBuffers.computeIfAbsent(snapshotId, k -> new ArrayList<>());
+        
+        // Add new observations to buffer
+        buffer.addAll(newObservations);
+        
+        logger.debug("BUFFER: Added {} observations to snapshot {} buffer (now {} total)", 
+                   newObservations.size(), snapshotId, buffer.size());
+        
+        // Check if buffer should be flushed
+        while (buffer.size() >= recordsPerFile) {
+            // Extract exactly recordsPerFile records for writing
+            List<ValidationStatObservationParquet> recordsToWrite = new ArrayList<>(buffer.subList(0, recordsPerFile));
+            
+            // Remove these records from buffer
+            buffer.subList(0, recordsPerFile).clear();
+            
+            // Write the file
+            writeBufferToFile(snapshotId, recordsToWrite);
+            
+            logger.info("BUFFER: Flushed {} records for snapshot {} (buffer remaining: {})", 
+                       recordsToWrite.size(), snapshotId, buffer.size());
+        }
+        
+        // Log current buffer state
+        if (buffer.size() > 0) {
+            logger.debug("BUFFER: Snapshot {} has {} records waiting for flush threshold ({})", 
+                       snapshotId, buffer.size(), recordsPerFile);
+        }
+    }
+
+    /**
+     * CORE: Write exactly recordsPerFile records to a new file
+     * This creates files with exactly the configured number of records
+     */
+    private void writeBufferToFile(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
         if (observations == null || observations.isEmpty()) {
             return;
         }
@@ -1032,47 +1086,48 @@ public class ValidationStatParquetRepository {
         
         // Get next file index for this snapshot
         int nextFileIndex = snapshotFileCounters.getOrDefault(snapshotId, 0);
+        String filePath = getDataFilePath(snapshotId, nextFileIndex);
         
-        // Split observations into chunks of recordsPerFile
-        List<List<ValidationStatObservationParquet>> chunks = new ArrayList<>();
-        for (int i = 0; i < observations.size(); i += recordsPerFile) {
-            int end = Math.min(i + recordsPerFile, observations.size());
-            chunks.add(observations.subList(i, end));
-        }
+        logger.info("BUFFER: Writing {} records to file: {}", observations.size(), filePath);
         
-        logger.info("MULTI-FILE: Writing {} observations to {} files for snapshot {}", 
-                   observations.size(), chunks.size(), snapshotId);
-        
-        // Write each chunk to its own file
-        for (List<ValidationStatObservationParquet> chunk : chunks) {
-            String filePath = getDataFilePath(snapshotId, nextFileIndex);
+        try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
+                new org.apache.hadoop.fs.Path(filePath))
+                .withWriteMode(ParquetFileWriter.Mode.CREATE)
+                .withCompressionCodec(CompressionCodecName.SNAPPY)
+                .withConf(hadoopConf)
+                .withSchema(avroSchema)
+                .build()) {
             
-            logger.debug("MULTI-FILE: Writing {} records to file: {}", chunk.size(), filePath);
-            
-            try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
-                    new org.apache.hadoop.fs.Path(filePath))
-                    .withWriteMode(ParquetFileWriter.Mode.CREATE)
-                    .withCompressionCodec(CompressionCodecName.SNAPPY)
-                    .withConf(hadoopConf)
-                    .withSchema(avroSchema)
-                    .build()) {
-                
-                // Write all observations in this chunk
-                for (ValidationStatObservationParquet obs : chunk) {
-                    writer.write(toGenericRecord(obs));
-                }
-                
-                logger.debug("MULTI-FILE: Successfully wrote {} records to {}", chunk.size(), filePath);
+            // Write all observations in this batch
+            for (ValidationStatObservationParquet obs : observations) {
+                writer.write(toGenericRecord(obs));
             }
             
-            nextFileIndex++;
+            logger.info("BUFFER: Successfully wrote {} records to {}", observations.size(), filePath);
         }
         
         // Update file counter for this snapshot
-        snapshotFileCounters.put(snapshotId, nextFileIndex);
+        snapshotFileCounters.put(snapshotId, nextFileIndex + 1);
+    }
+    
+    /**
+     * FORCE FLUSH: Write any remaining buffered records (useful for shutdown or testing)
+     */
+    public synchronized void flushAllBuffers() throws IOException {
+        logger.info("BUFFER: Force flushing all snapshot buffers");
         
-        logger.info("MULTI-FILE: Completed writing for snapshot {} - next file index: {}", 
-                   snapshotId, nextFileIndex);
+        for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : snapshotBuffers.entrySet()) {
+            Long snapshotId = entry.getKey();
+            List<ValidationStatObservationParquet> buffer = entry.getValue();
+            
+            if (!buffer.isEmpty()) {
+                logger.info("BUFFER: Force flushing {} remaining records for snapshot {}", buffer.size(), snapshotId);
+                writeBufferToFile(snapshotId, new ArrayList<>(buffer));
+                buffer.clear();
+            }
+        }
+        
+        logger.info("BUFFER: All buffers flushed");
     }
     
 }
