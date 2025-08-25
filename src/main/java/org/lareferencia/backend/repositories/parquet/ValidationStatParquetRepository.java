@@ -967,7 +967,7 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Cuenta registros con filtros específicos sin cargarlos en memoria (MULTI-ARCHIVO OPTIMIZADO)
+     * Cuenta registros con filtros específicos (MULTI-ARCHIVO STREAMING - Sin cargar en memoria)
      * @param snapshotId ID del snapshot
      * @param filter Filtros a aplicar
      * @return Número de registros que cumplen los criterios
@@ -977,7 +977,7 @@ public class ValidationStatParquetRepository {
         File dir = new File(snapshotDir);
         
         if (!dir.exists()) {
-            logger.debug("MULTI-FILE COUNT: Snapshot directory does not exist: {}", snapshotId);
+            logger.debug("MULTI-FILE STREAMING COUNT: Snapshot directory does not exist: {}", snapshotId);
             return 0L;
         }
         
@@ -985,30 +985,66 @@ public class ValidationStatParquetRepository {
         File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
         
         if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("MULTI-FILE COUNT: No data files found for snapshot: {}", snapshotId);
+            logger.debug("MULTI-FILE STREAMING COUNT: No data files found for snapshot: {}", snapshotId);
             return 0L;
         }
         
+        logger.debug("MULTI-FILE STREAMING COUNT: Counting in {} data files for snapshot {}", dataFiles.length, snapshotId);
+        
         long totalCount = 0;
         
-        // Count records from all data files
+        // Count records from all data files using streaming
         for (File dataFile : dataFiles) {
             try {
-                long fileCount = queryEngine.countRecords(dataFile.getAbsolutePath(), filter);
+                long fileCount = countFileWithFilter(dataFile.getAbsolutePath(), filter);
                 totalCount += fileCount;
-                logger.debug("MULTI-FILE COUNT: File {} has {} matching records", dataFile.getName(), fileCount);
+                logger.debug("MULTI-FILE STREAMING COUNT: File {} has {} matching records", dataFile.getName(), fileCount);
             } catch (Exception e) {
-                logger.error("MULTI-FILE COUNT: Error counting records in file {} for snapshot {}", dataFile.getName(), snapshotId, e);
+                logger.error("MULTI-FILE STREAMING COUNT: Error counting records in file {} for snapshot {}", 
+                           dataFile.getName(), snapshotId, e);
                 // Continue with other files
             }
         }
         
-        logger.debug("MULTI-FILE COUNT: Total matching records for snapshot {}: {}", snapshotId, totalCount);
+        logger.debug("MULTI-FILE STREAMING COUNT: Total matching records for snapshot {}: {}", snapshotId, totalCount);
         return totalCount;
+    }
+    
+    /**
+     * Count records in a single file that match the filter, without loading all data in memory
+     */
+    private long countFileWithFilter(String filePath, AggregationFilter filter) throws IOException {
+        File file = new File(filePath);
+        if (!file.exists()) {
+            logger.debug("COUNT FILE: File does not exist: {}", filePath);
+            return 0L;
+        }
+        
+        logger.debug("COUNT FILE: Counting matches in {}", file.getName());
+        
+        long count = 0;
+        
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
+                .withConf(hadoopConf)
+                .build()) {
+            
+            GenericRecord record;
+            while ((record = reader.read()) != null) {
+                ValidationStatObservationParquet observation = fromGenericRecord(record);
+                
+                // Apply filter and count matches
+                if (matchesAggregationFilter(observation, filter)) {
+                    count++;
+                }
+            }
+        }
+        
+        logger.debug("COUNT FILE: File {} has {} matching records", file.getName(), count);
+        return count;
     }
 
     /**
-     * Búsqueda paginada con filtros (MULTI-ARCHIVO OPTIMIZADO)
+     * Búsqueda paginada con filtros (MULTI-ARCHIVO STREAMING - Sin cargar en memoria)
      * @param snapshotId ID del snapshot
      * @param filter Filtros a aplicar
      * @param page Número de página (base 0)
@@ -1022,7 +1058,7 @@ public class ValidationStatParquetRepository {
         File dir = new File(snapshotDir);
         
         if (!dir.exists()) {
-            logger.debug("MULTI-FILE PAGINATION: Snapshot directory does not exist: {}", snapshotId);
+            logger.debug("MULTI-FILE STREAMING: Snapshot directory does not exist: {}", snapshotId);
             return Collections.emptyList();
         }
         
@@ -1030,47 +1066,155 @@ public class ValidationStatParquetRepository {
         File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
         
         if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("MULTI-FILE PAGINATION: No data files found for snapshot: {}", snapshotId);
+            logger.debug("MULTI-FILE STREAMING: No data files found for snapshot: {}", snapshotId);
             return Collections.emptyList();
         }
         
-        // For pagination across multiple files, we need to collect all matching records first
-        // This is not optimal for very large datasets, but necessary for proper pagination
-        List<ValidationStatObservationParquet> allMatchingRecords = new ArrayList<>();
+        // Sort files to ensure consistent ordering
+        Arrays.sort(dataFiles, (f1, f2) -> f1.getName().compareTo(f2.getName()));
         
-        // Collect all matching records from all files
+        logger.debug("MULTI-FILE STREAMING: Processing {} data files for snapshot {} with pagination streaming", 
+                   dataFiles.length, snapshotId);
+        
+        List<ValidationStatObservationParquet> results = new ArrayList<>();
+        int currentOffset = page * size;
+        int collected = 0;
+        int totalProcessed = 0;
+        
+        // Process each file with streaming until we have enough results
         for (File dataFile : dataFiles) {
+            if (collected >= size) {
+                break; // We have enough results
+            }
+            
             try {
-                List<GenericRecord> records = queryEngine.queryWithPagination(dataFile.getAbsolutePath(), filter, 0, Integer.MAX_VALUE);
+                logger.debug("MULTI-FILE STREAMING: Processing file {} (collected: {}, needed: {})", 
+                           dataFile.getName(), collected, size);
                 
-                // Convert GenericRecord to ValidationStatObservationParquet
-                for (GenericRecord record : records) {
-                    allMatchingRecords.add(fromGenericRecord(record));
+                // Stream through this file with filters applied
+                List<ValidationStatObservationParquet> fileResults = streamFileWithFilter(
+                    dataFile.getAbsolutePath(), filter, currentOffset, size - collected, totalProcessed);
+                
+                // Adjust offset for next file (only if we haven't satisfied it yet)
+                if (currentOffset > 0) {
+                    int fileContribution = Math.min(currentOffset, fileResults.size());
+                    currentOffset = Math.max(0, currentOffset - fileContribution);
+                    
+                    // If offset was satisfied by this file, start collecting from the remaining results
+                    if (currentOffset == 0 && fileResults.size() > fileContribution) {
+                        results.addAll(fileResults.subList(fileContribution, fileResults.size()));
+                        collected = results.size();
+                    }
+                } else {
+                    // We're in collection mode, add results
+                    results.addAll(fileResults);
+                    collected = results.size();
                 }
                 
-                logger.debug("MULTI-FILE PAGINATION: File {} contributed {} matching records", dataFile.getName(), records.size());
+                totalProcessed += fileResults.size();
                 
+                logger.debug("MULTI-FILE STREAMING: File {} contributed {} results (total collected: {})", 
+                           dataFile.getName(), fileResults.size(), collected);
+                           
             } catch (Exception e) {
-                logger.error("MULTI-FILE PAGINATION: Error querying file {} for snapshot {}", dataFile.getName(), snapshotId, e);
+                logger.error("MULTI-FILE STREAMING: Error processing file {} for snapshot {}", 
+                           dataFile.getName(), snapshotId, e);
                 // Continue with other files
             }
         }
         
-        // Apply pagination to the combined results
-        int offset = page * size;
-        int endIndex = Math.min(offset + size, allMatchingRecords.size());
+        logger.debug("MULTI-FILE STREAMING: Final results - {} records from page {} for snapshot {}", 
+                   results.size(), page, snapshotId);
         
-        if (offset >= allMatchingRecords.size()) {
-            logger.debug("MULTI-FILE PAGINATION: Page {} is beyond available data for snapshot {}", page, snapshotId);
-            return Collections.emptyList();
+        return results;
+    }
+    
+    /**
+     * Helper method to check if an observation matches the aggregation filter
+     */
+    private boolean matchesAggregationFilter(ValidationStatObservationParquet obs, AggregationFilter filter) {
+        if (filter == null) {
+            return true;
         }
         
-        List<ValidationStatObservationParquet> pagedResults = allMatchingRecords.subList(offset, endIndex);
+        // Check isValid filter
+        if (filter.getIsValid() != null && !filter.getIsValid().equals(obs.getIsValid())) {
+            return false;
+        }
         
-        logger.debug("MULTI-FILE PAGINATION: Returning {} records from page {} (total matching: {}) for snapshot {}", 
-                   pagedResults.size(), page, allMatchingRecords.size(), snapshotId);
+        // Check isTransformed filter
+        if (filter.getIsTransformed() != null && !filter.getIsTransformed().equals(obs.getIsTransformed())) {
+            return false;
+        }
         
-        return pagedResults;
+        // Check identifier filter
+        if (filter.getRecordOAIId() != null && !filter.getRecordOAIId().equals(obs.getIdentifier())) {
+            return false;
+        }
+        
+        // Check valid rules filter
+        if (filter.getValidRulesFilter() != null) {
+            List<String> validRules = obs.getValidRulesIDList();
+            if (validRules == null || !validRules.contains(filter.getValidRulesFilter())) {
+                return false;
+            }
+        }
+        
+        // Check invalid rules filter
+        if (filter.getInvalidRulesFilter() != null) {
+            List<String> invalidRules = obs.getInvalidRulesIDList();
+            if (invalidRules == null || !invalidRules.contains(filter.getInvalidRulesFilter())) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Stream a single file with filters applied, without loading all data in memory
+     * Efficiently processes large files by reading record by record
+     */
+    private List<ValidationStatObservationParquet> streamFileWithFilter(String filePath, AggregationFilter filter, 
+                                                                       int offset, int limit, int globalOffset) throws IOException {
+        List<ValidationStatObservationParquet> results = new ArrayList<>();
+        
+        File file = new File(filePath);
+        if (!file.exists()) {
+            logger.debug("STREAM FILE: File does not exist: {}", filePath);
+            return results;
+        }
+        
+        logger.debug("STREAM FILE: Processing {} with offset={}, limit={}, globalOffset={}", 
+                   file.getName(), offset, limit, globalOffset);
+        
+        int currentIndex = 0;
+        int collected = 0;
+        
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
+                .withConf(hadoopConf)
+                .build()) {
+            
+            GenericRecord record;
+            while ((record = reader.read()) != null && collected < limit) {
+                ValidationStatObservationParquet observation = fromGenericRecord(record);
+                
+                // Apply filter
+                if (matchesAggregationFilter(observation, filter)) {
+                    // Check if we're still in the offset phase
+                    if (currentIndex >= offset) {
+                        results.add(observation);
+                        collected++;
+                    }
+                    currentIndex++;
+                }
+            }
+        }
+        
+        logger.debug("STREAM FILE: File {} returned {} results (read {} matching records)", 
+                   file.getName(), results.size(), currentIndex);
+        
+        return results;
     }
 
     /**

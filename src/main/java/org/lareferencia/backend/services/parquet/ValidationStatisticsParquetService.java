@@ -604,38 +604,56 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         ValidationStatParquetQueryEngine.AggregationFilter aggFilter = new ValidationStatParquetQueryEngine.AggregationFilter();
         aggFilter.setSnapshotId(snapshotId);
         
+        logger.debug("FILTER CONVERSION: Converting filters to AggregationFilter: {}", filters);
+        
         for (Map.Entry<String, Object> entry : filters.entrySet()) {
             String key = entry.getKey();
             Object value = entry.getValue();
             
+            logger.debug("FILTER CONVERSION: Processing filter - key: {}, value: {}", key, value);
+            
             switch (key) {
                 case "record_is_valid":
+                case "isValid":  // Support both formats
                     if (value instanceof Boolean) {
                         aggFilter.setIsValid((Boolean) value);
+                        logger.debug("FILTER CONVERSION: Set isValid filter to: {}", value);
                     }
                     break;
                 case "record_is_transformed":
+                case "isTransformed":  // Support both formats
                     if (value instanceof Boolean) {
                         aggFilter.setIsTransformed((Boolean) value);
+                        logger.debug("FILTER CONVERSION: Set isTransformed filter to: {}", value);
                     }
                     break;
                 case "record_oai_id":
+                case "identifier":  // Support both formats
                     if (value instanceof String) {
                         aggFilter.setRecordOAIId((String) value);
+                        logger.debug("FILTER CONVERSION: Set identifier filter to: {}", value);
                     }
                     break;
                 case "valid_rules":
                     if (value instanceof String) {
                         aggFilter.setValidRulesFilter((String) value);
+                        logger.debug("FILTER CONVERSION: Set valid rules filter to: {}", value);
                     }
                     break;
                 case "invalid_rules":
                     if (value instanceof String) {
                         aggFilter.setInvalidRulesFilter((String) value);
+                        logger.debug("FILTER CONVERSION: Set invalid rules filter to: {}", value);
                     }
+                    break;
+                default:
+                    logger.debug("FILTER CONVERSION: Unrecognized filter key: {}", key);
                     break;
             }
         }
+        
+        logger.info("FILTER CONVERSION: Final AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
+                   aggFilter.getIsValid(), aggFilter.getIsTransformed(), aggFilter.getRecordOAIId());
         
         return aggFilter;
     }
