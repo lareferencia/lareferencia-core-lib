@@ -54,6 +54,15 @@ public interface IValidationStatisticsService {
     void deleteValidationStatsObservationsBySnapshotID(Long snapshotID) throws ValidationStatisticsException;
     
     /**
+     * Inicializa una nueva validación para un snapshot específico
+     * Este método debe ser llamado al iniciar un nuevo proceso de validación
+     * para garantizar un estado limpio y eliminar datos previos de validación
+     * @param snapshotId ID del snapshot para el cual inicializar la validación
+     * @throws ValidationStatisticsException Si ocurre un error durante la inicialización
+     */
+    void initializeValidationForSnapshot(Long snapshotId) throws ValidationStatisticsException;
+    
+    /**
      * Verifica si el servicio está disponible y funcionando
      * @return true si el servicio está disponible
      */

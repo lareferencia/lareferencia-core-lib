@@ -102,6 +102,26 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     public static final String VALID_RULE_SUFFIX = "_rule_valid_occrs";
 
     /**
+     * INITIALIZATION: Initialize a new validation for a snapshot
+     * This method should be called when starting a new validation process
+     * to ensure clean state and remove any previous validation data
+     */
+    public void initializeValidationForSnapshot(Long snapshotId) {
+        try {
+            logger.info("INIT VALIDATION: Starting new validation for snapshot {}", snapshotId);
+            
+            // Clean the snapshot directory and reset all state
+            parquetRepository.cleanSnapshot(snapshotId);
+            
+            logger.info("INIT VALIDATION: Successfully initialized validation for snapshot {}", snapshotId);
+            
+        } catch (Exception e) {
+            logger.error("INIT VALIDATION: Error initializing validation for snapshot {}", snapshotId, e);
+            throw new RuntimeException("Failed to initialize validation for snapshot: " + snapshotId, e);
+        }
+    }
+
+    /**
      * Builds a validation observation from validator result
      */
     public ValidationStatObservationParquet buildObservation(OAIRecord record, ValidatorResult validationResult) {

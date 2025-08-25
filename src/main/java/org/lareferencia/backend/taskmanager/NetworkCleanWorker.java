@@ -128,9 +128,10 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	
 	private void cleanSnapshotStatsData(Long snapshotId) throws ValidationStatisticsException {
 
-		// borra los resultados de validación
-		logger.debug("Deleting validation data for snapshot: " + snapshotId);
+		// Delete validation results using new multi-file architecture
+		logger.info("CLEAN WORKER: Deleting validation data for snapshot: " + snapshotId);
 		validationStatisticsService.deleteValidationStatsObservationsBySnapshotID( snapshotId );
+		logger.info("CLEAN WORKER: Successfully deleted validation data for snapshot: " + snapshotId);
 
 	}
 	

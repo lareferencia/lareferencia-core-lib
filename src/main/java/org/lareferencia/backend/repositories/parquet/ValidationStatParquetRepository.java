@@ -688,20 +688,55 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Elimina observaciones por snapshot ID (elimina el archivo Parquet)
+     * NEW: Deletes all observations for a snapshot (removes entire snapshot directory)
+     * This works with the new multi-file architecture
      */
     public void deleteBySnapshotId(Long snapshotId) throws IOException {
-        String filePath = getParquetFilePath(snapshotId);
-        File file = new File(filePath);
+        logger.info("CLEANUP: Deleting all data for snapshot {}", snapshotId);
         
-        if (file.exists()) {
-            boolean deleted = file.delete();
-            if (deleted) {
-                logger.info("Eliminado archivo Parquet para snapshot: {}", snapshotId);
-            } else {
-                logger.warn("No se pudo eliminar archivo Parquet para snapshot: {}", snapshotId);
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
+        
+        if (!dir.exists()) {
+            logger.info("CLEANUP: Snapshot directory does not exist: {}", snapshotDir);
+            return;
+        }
+        
+        // Find and delete all data files
+        File[] dataFiles = dir.listFiles(file -> 
+            file.isFile() && file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+        
+        int deletedCount = 0;
+        if (dataFiles != null) {
+            for (File file : dataFiles) {
+                if (file.delete()) {
+                    deletedCount++;
+                    logger.debug("CLEANUP: Deleted data file: {}", file.getName());
+                } else {
+                    logger.warn("CLEANUP: Failed to delete data file: {}", file.getAbsolutePath());
+                }
             }
         }
+        
+        // Try to remove the directory if it's empty
+        if (dir.list() == null || dir.list().length == 0) {
+            if (dir.delete()) {
+                logger.info("CLEANUP: Deleted empty snapshot directory: {}", snapshotDir);
+            } else {
+                logger.warn("CLEANUP: Failed to delete snapshot directory: {}", snapshotDir);
+            }
+        }
+        
+        // Clear any buffered data and reset counters
+        List<ValidationStatObservationParquet> buffer = snapshotBuffers.get(snapshotId);
+        if (buffer != null && !buffer.isEmpty()) {
+            logger.info("CLEANUP: Clearing {} buffered records for snapshot {}", buffer.size(), snapshotId);
+            buffer.clear();
+        }
+        snapshotBuffers.remove(snapshotId);
+        snapshotFileCounters.remove(snapshotId);
+        
+        logger.info("CLEANUP: Successfully deleted {} data files for snapshot {}", deletedCount, snapshotId);
     }
 
     /**
@@ -1111,6 +1146,44 @@ public class ValidationStatParquetRepository {
     }
     
     /**
+     * CLEANUP: Clean snapshot directory when starting a new collection
+     * Removes all existing data files to prevent mixing old and new data
+     */
+    private void cleanSnapshotDirectory(Long snapshotId) throws IOException {
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
+        
+        if (!dir.exists()) {
+            logger.debug("CLEANUP: Snapshot directory does not exist, creating: {}", snapshotDir);
+            Files.createDirectories(Paths.get(snapshotDir));
+            return;
+        }
+        
+        // Find and remove all existing data files
+        File[] existingFiles = dir.listFiles(file -> 
+            file.isFile() && file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+        
+        if (existingFiles != null && existingFiles.length > 0) {
+            logger.info("CLEANUP: Removing {} existing data files from snapshot {} directory", 
+                       existingFiles.length, snapshotId);
+            
+            for (File file : existingFiles) {
+                if (file.delete()) {
+                    logger.debug("CLEANUP: Deleted existing file: {}", file.getName());
+                } else {
+                    logger.warn("CLEANUP: Failed to delete file: {}", file.getAbsolutePath());
+                }
+            }
+        } else {
+            logger.debug("CLEANUP: No existing data files found in snapshot {} directory", snapshotId);
+        }
+        
+        // Reset file counter for this snapshot
+        snapshotFileCounters.put(snapshotId, 0);
+        logger.info("CLEANUP: Cleaned snapshot {} directory and reset file counter", snapshotId);
+    }
+    
+    /**
      * FORCE FLUSH: Write any remaining buffered records (useful for shutdown or testing)
      */
     public synchronized void flushAllBuffers() throws IOException {
@@ -1128,6 +1201,26 @@ public class ValidationStatParquetRepository {
         }
         
         logger.info("BUFFER: All buffers flushed");
+    }
+    
+    /**
+     * PUBLIC API: Manually clean a snapshot directory (useful for starting new validation)
+     * This will remove all existing data files and reset counters for the specified snapshot
+     */
+    public synchronized void cleanSnapshot(Long snapshotId) throws IOException {
+        logger.info("MANUAL CLEANUP: Cleaning snapshot {} by user request", snapshotId);
+        
+        // Clear any buffered data for this snapshot
+        List<ValidationStatObservationParquet> buffer = snapshotBuffers.get(snapshotId);
+        if (buffer != null && !buffer.isEmpty()) {
+            logger.warn("MANUAL CLEANUP: Discarding {} buffered records for snapshot {}", buffer.size(), snapshotId);
+            buffer.clear();
+        }
+        
+        // Clean the directory
+        cleanSnapshotDirectory(snapshotId);
+        
+        logger.info("MANUAL CLEANUP: Completed cleaning snapshot {}", snapshotId);
     }
     
 }

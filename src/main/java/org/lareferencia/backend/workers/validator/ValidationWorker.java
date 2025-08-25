@@ -113,6 +113,11 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			Long previousSnapshotId = metadataStoreService.getPreviousSnapshotId(snapshotId);
 
 			logInfo("Starting Validation/Tranformation " + runningContext.toString() + "  -  snapshot: " + snapshotId + (isIncremental() ? " (incremental)" : " (full)"));
+			
+			// INITIALIZE: Clean validation statistics for new validation run
+			logInfo("Initializing validation statistics for snapshot: " + snapshotId);
+			validationStatisticsService.initializeValidationForSnapshot(snapshotId);
+			
 			/***
 			 * Si es una validación incremental se crea un paginado que solo considera los untested, 
 			 * para la validacion full se considera los no deleted, eso asegura que se vuelvan a evaluar los valid e invalid
