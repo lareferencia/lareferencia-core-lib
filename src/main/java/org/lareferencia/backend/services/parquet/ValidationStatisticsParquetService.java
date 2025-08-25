@@ -442,7 +442,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         try {
             if (fq != null && !fq.isEmpty()) {
                 Map<String, Object> filters = parseFilterQueries(fq);
-                logger.debug("Applying optimized filters: {}", filters);
+                logger.debug("FILTER STATS: Applying optimized filters: {}", filters);
                 
                 // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
@@ -454,16 +454,19 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 // Get total count using optimizations (without loading all data)
                 long totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
                 
+                // **IMPORTANT**: Get filtered aggregated statistics that reflect the applied filters
+                Map<String, Object> filteredAggregations = parquetRepository.getAggregatedStatsWithFilter(snapshotID, aggregationFilter);
+                logger.debug("FILTER STATS: Calculated filtered aggregations: {}", filteredAggregations);
+                
                 logger.debug("OPTIMIZED results - found: {} total, {} in page", totalElements, pageResults.size());
                 
-                // Return Parquet objects directly - JSON serialization will work correctly
-                return new ValidationStatsQueryResult(
-                    pageResults,
-                    totalElements,
-                    pageable
-                );
+                // Create result with filtered aggregations
+                ValidationStatsQueryResult result = new ValidationStatsQueryResult(pageResults, totalElements, pageable);
+                result.setAggregations(filteredAggregations);
+                
+                return result;
             } else {
-                // Without filters, use direct pagination
+                // Without filters, use direct pagination and get all stats
                 List<ValidationStatObservationParquet> parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
                     snapshotID, 
                     pageable.getPageNumber(), 
@@ -472,12 +475,15 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 
                 long totalElements = parquetRepository.countBySnapshotId(snapshotID);
                 
-                // Return Parquet objects directly
-                return new ValidationStatsQueryResult(
-                    parquetObservations,
-                    totalElements,
-                    pageable
-                );
+                // Get complete aggregated statistics (no filters)
+                Map<String, Object> allAggregations = parquetRepository.getAggregatedStats(snapshotID);
+                logger.debug("FILTER STATS: Calculated complete aggregations: {}", allAggregations);
+                
+                // Create result with complete aggregations
+                ValidationStatsQueryResult result = new ValidationStatsQueryResult(parquetObservations, totalElements, pageable);
+                result.setAggregations(allAggregations);
+                
+                return result;
             }
 
         } catch (IOException e) {
