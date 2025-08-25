@@ -51,6 +51,10 @@ import java.util.stream.Collectors;
 /**
  * Repositorio para datos de validación en Parquet con persistencia real.
  * Utiliza Apache Parquet para almacenamiento eficiente en disco.
+ * 
+ * NEW ARCHITECTURE: Multiple parquet files per snapshot to avoid read-merge-write cycles
+ * Each file contains a configurable number of records (default: 10000)
+ * Structure: /base-path/snapshot-{id}/data-{index}.parquet
  */
 @Repository
 public class ValidationStatParquetRepository {
@@ -59,6 +63,9 @@ public class ValidationStatParquetRepository {
 
     @Value("${validation.stats.parquet.path:/tmp/validation-stats-parquet}")
     private String parquetBasePath;
+    
+    @Value("${parquet.validation.records-per-file:10000}")
+    private int recordsPerFile;
 
     @Autowired
     private ValidationStatParquetQueryEngine queryEngine;
@@ -66,23 +73,72 @@ public class ValidationStatParquetRepository {
     private Schema avroSchema;
     private Configuration hadoopConf;
     
+    // Counter to track next file index per snapshot
+    private final Map<Long, Integer> snapshotFileCounters = new HashMap<>();
+    
     @PostConstruct
     public void init() throws IOException {
-        // Inicializar configuración de Hadoop
+        logger.info("Initializing ValidationStatParquetRepository with {} records per file", recordsPerFile);
+        
+        // Initialize Hadoop configuration
         hadoopConf = new Configuration();
         hadoopConf.set("fs.defaultFS", "file:///");
         
-        // Crear directorio base si no existe
+        // Create base directory if it doesn't exist
         Files.createDirectories(Paths.get(parquetBasePath));
         
-        // Definir el esquema Avro para los datos de validación
+        // Initialize Avro schema for validation data
         initializeAvroSchema();
         
-        logger.info("ValidationStatParquetRepository inicializado - listo para usar en: {}", parquetBasePath);
+        // Initialize file counters for existing snapshots
+        initializeFileCounters();
+        
+        logger.info("ValidationStatParquetRepository initialized - ready to use at: {}", parquetBasePath);
+    }
+    
+    /**
+     * Initialize file counters for existing snapshots to avoid file conflicts
+     */
+    private void initializeFileCounters() throws IOException {
+        File baseDir = new File(parquetBasePath);
+        if (!baseDir.exists()) {
+            return;
+        }
+        
+        File[] snapshotDirs = baseDir.listFiles(file -> file.isDirectory() && file.getName().startsWith("snapshot-"));
+        if (snapshotDirs != null) {
+            for (File snapshotDir : snapshotDirs) {
+                try {
+                    String dirName = snapshotDir.getName();
+                    Long snapshotId = Long.parseLong(dirName.substring("snapshot-".length()));
+                    
+                    // Count existing data files in this snapshot directory
+                    File[] dataFiles = snapshotDir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+                    int maxIndex = -1;
+                    if (dataFiles != null) {
+                        for (File dataFile : dataFiles) {
+                            String fileName = dataFile.getName();
+                            String indexStr = fileName.substring("data-".length(), fileName.indexOf(".parquet"));
+                            try {
+                                int index = Integer.parseInt(indexStr);
+                                maxIndex = Math.max(maxIndex, index);
+                            } catch (NumberFormatException e) {
+                                logger.warn("Invalid data file name format: {}", fileName);
+                            }
+                        }
+                    }
+                    
+                    snapshotFileCounters.put(snapshotId, maxIndex + 1);
+                    logger.debug("Initialized file counter for snapshot {}: next index = {}", snapshotId, maxIndex + 1);
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid snapshot directory name: {}", snapshotDir.getName());
+                }
+            }
+        }
     }
     
     private void initializeAvroSchema() {
-        // Definir el esquema Avro para ValidationStatObservation
+        // Define Avro schema for ValidationStatObservation
         String schemaJson = "{\n" +
             "  \"type\": \"record\",\n" +
             "  \"name\": \"ValidationStatObservation\",\n" +
@@ -109,6 +165,62 @@ public class ValidationStatParquetRepository {
         avroSchema = new Schema.Parser().parse(schemaJson);
     }
     
+    /**
+     * NEW: Get snapshot directory path
+     */
+    private String getSnapshotDirectoryPath(Long snapshotId) {
+        return parquetBasePath + "/snapshot-" + snapshotId;
+    }
+    
+    /**
+     * NEW: Get specific data file path within snapshot directory
+     */
+    private String getDataFilePath(Long snapshotId, int fileIndex) {
+        return getSnapshotDirectoryPath(snapshotId) + "/data-" + fileIndex + ".parquet";
+    }
+    
+    /**
+     * NEW: Get all existing data file paths for a snapshot
+     */
+    private List<String> getAllDataFilePaths(Long snapshotId) throws IOException {
+        List<String> filePaths = new ArrayList<>();
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
+        
+        if (!dir.exists() || !dir.isDirectory()) {
+            logger.debug("Snapshot directory does not exist: {}", snapshotDir);
+            return filePaths;
+        }
+        
+        File[] dataFiles = dir.listFiles(file -> 
+            file.isFile() && file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+        
+        if (dataFiles != null) {
+            // Sort files by index to ensure consistent ordering
+            Arrays.sort(dataFiles, (f1, f2) -> {
+                try {
+                    String name1 = f1.getName();
+                    String name2 = f2.getName();
+                    int index1 = Integer.parseInt(name1.substring("data-".length(), name1.indexOf(".parquet")));
+                    int index2 = Integer.parseInt(name2.substring("data-".length(), name2.indexOf(".parquet")));
+                    return Integer.compare(index1, index2);
+                } catch (NumberFormatException e) {
+                    return f1.getName().compareTo(f2.getName());
+                }
+            });
+            
+            for (File file : dataFiles) {
+                filePaths.add(file.getAbsolutePath());
+            }
+        }
+        
+        logger.debug("Found {} data files for snapshot {}", filePaths.size(), snapshotId);
+        return filePaths;
+    }
+    
+    /**
+     * OLD: Legacy method for backward compatibility with existing queries
+     */
     private String getParquetFilePath(Long snapshotId) {
         return parquetBasePath + "/snapshot_" + snapshotId + ".parquet";
     }
@@ -199,31 +311,49 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Busca todas las observaciones por snapshot ID desde archivo Parquet
+     * NEW: Find all observations by snapshot ID - supports multi-file architecture
+     * Reads from all data files in snapshot directory
      */
     public List<ValidationStatObservationParquet> findBySnapshotId(Long snapshotId) throws IOException {
-        String filePath = getParquetFilePath(snapshotId);
-        File file = new File(filePath);
+        logger.debug("MULTI-FILE: Finding observations for snapshot {}", snapshotId);
         
-        if (!file.exists()) {
-            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
+        List<String> filePaths = getAllDataFilePaths(snapshotId);
+        if (filePaths.isEmpty()) {
+            logger.debug("MULTI-FILE: No data files found for snapshot {}", snapshotId);
             return Collections.emptyList();
         }
         
-        List<ValidationStatObservationParquet> observations = new ArrayList<>();
+        List<ValidationStatObservationParquet> allResults = new ArrayList<>();
         
-        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
-                .withConf(hadoopConf)
-                .build()) {
+        // Read from all data files for this snapshot
+        for (String filePath : filePaths) {
+            File file = new File(filePath);
+            if (!file.exists()) {
+                logger.warn("MULTI-FILE: Data file does not exist: {}", filePath);
+                continue;
+            }
             
-            GenericRecord record;
-            while ((record = reader.read()) != null) {
-                observations.add(fromGenericRecord(record));
+            logger.debug("MULTI-FILE: Reading from file: {}", filePath);
+            
+            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
+                    .withConf(hadoopConf)
+                    .build()) {
+                
+                GenericRecord record;
+                int fileRecordCount = 0;
+                while ((record = reader.read()) != null) {
+                    ValidationStatObservationParquet observation = fromGenericRecord(record);
+                    allResults.add(observation);
+                    fileRecordCount++;
+                }
+                
+                logger.debug("MULTI-FILE: Read {} records from file: {}", fileRecordCount, filePath);
             }
         }
         
-        logger.debug("Leídas {} observaciones para snapshot: {}", observations.size(), snapshotId);
-        return observations;
+        logger.info("MULTI-FILE: Found {} total observations for snapshot {} across {} files", 
+                   allResults.size(), snapshotId, filePaths.size());
+        return allResults;
     }
 
     /**
@@ -856,121 +986,93 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * IMMEDIATE: Zero-memory streaming writes for 1000-record batches
-     * Optimized for ValidationWorker page processing pattern
+     * REVOLUTIONARY: Multi-file streaming writes - NO MORE READ-MERGE-WRITE!
+     * Each file contains exactly recordsPerFile records (default: 10000)
+     * Structure: /base-path/snapshot-{id}/data-{index}.parquet
+     * 
+     * This completely eliminates the performance issues we saw in logs:
+     * - No reading existing files
+     * - No memory accumulation  
+     * - Pure append-only writes
      */
     public void saveAllImmediate(List<ValidationStatObservationParquet> observations) throws IOException {
         if (observations == null || observations.isEmpty()) {
             return;
         }
         
-        logger.debug("Starting IMMEDIATE streaming save of {} observations", observations.size());
+        logger.info("MULTI-FILE: Starting revolutionary streaming save of {} observations", observations.size());
         
         // Group by snapshot ID to handle multiple snapshots in one batch
         Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
             .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
         
-        // Process each snapshot immediately without memory accumulation
+        // Process each snapshot with new multi-file approach
         for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
             Long snapshotId = entry.getKey();
             List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
             
-            saveObservationsImmediate(snapshotId, snapshotObservations);
+            saveObservationsMultiFile(snapshotId, snapshotObservations);
         }
         
-        logger.debug("IMMEDIATE: Successfully completed streaming save of {} observations", observations.size());
+        logger.info("MULTI-FILE: Successfully completed revolutionary save of {} observations", observations.size());
     }
 
     /**
-     * IMMEDIATE: Direct streaming writes without memory accumulation
-     * Uses the same file structure as other methods but optimized for streaming
-     * This method is ULTRA-OPTIMIZED for 1000-record batches from ValidationWorker
+     * CORE: Multi-file save implementation
+     * Writes observations to separate files, never reading existing data
      */
-    private void saveObservationsImmediate(Long snapshotId, List<ValidationStatObservationParquet> newObservations) throws IOException {
-        if (newObservations == null || newObservations.isEmpty()) {
+    private void saveObservationsMultiFile(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
+        if (observations == null || observations.isEmpty()) {
             return;
         }
         
-        String filePath = getParquetFilePath(snapshotId);
-        File file = new File(filePath);
+        // Ensure snapshot directory exists
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        Files.createDirectories(Paths.get(snapshotDir));
         
-        // Ensure parent directory exists
-        file.getParentFile().mkdirs();
+        // Get next file index for this snapshot
+        int nextFileIndex = snapshotFileCounters.getOrDefault(snapshotId, 0);
         
-        Configuration conf = new Configuration();
+        // Split observations into chunks of recordsPerFile
+        List<List<ValidationStatObservationParquet>> chunks = new ArrayList<>();
+        for (int i = 0; i < observations.size(); i += recordsPerFile) {
+            int end = Math.min(i + recordsPerFile, observations.size());
+            chunks.add(observations.subList(i, end));
+        }
         
-        // For immediate streaming, we use a different approach:
-        // 1. If file doesn't exist, create it directly
-        // 2. If file exists, read + append + write (this is inevitable with Parquet format)
-        //    but we do it as efficiently as possible
+        logger.info("MULTI-FILE: Writing {} observations to {} files for snapshot {}", 
+                   observations.size(), chunks.size(), snapshotId);
         
-        if (!file.exists()) {
-            // FAST PATH: Create new file directly
-            logger.debug("IMMEDIATE: Creating new file with {} observations", newObservations.size());
+        // Write each chunk to its own file
+        for (List<ValidationStatObservationParquet> chunk : chunks) {
+            String filePath = getDataFilePath(snapshotId, nextFileIndex);
+            
+            logger.debug("MULTI-FILE: Writing {} records to file: {}", chunk.size(), filePath);
             
             try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
                     new org.apache.hadoop.fs.Path(filePath))
                     .withWriteMode(ParquetFileWriter.Mode.CREATE)
                     .withCompressionCodec(CompressionCodecName.SNAPPY)
-                    .withConf(conf)
+                    .withConf(hadoopConf)
                     .withSchema(avroSchema)
                     .build()) {
                 
-                // Write all new observations
-                for (ValidationStatObservationParquet obs : newObservations) {
+                // Write all observations in this chunk
+                for (ValidationStatObservationParquet obs : chunk) {
                     writer.write(toGenericRecord(obs));
                 }
                 
-                logger.debug("IMMEDIATE: Successfully created file with {} observations", newObservations.size());
-            }
-        } else {
-            // APPEND PATH: Read existing, write all together
-            // This is the limitation of Parquet format - it doesn't support true append
-            logger.debug("IMMEDIATE: Appending {} observations to existing file", newObservations.size());
-            
-            List<GenericRecord> existingRecords = new ArrayList<>();
-            
-            // Read existing records as efficiently as possible
-            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(
-                    new org.apache.hadoop.fs.Path(filePath))
-                    .withConf(conf)
-                    .build()) {
-                
-                GenericRecord record;
-                while ((record = reader.read()) != null) {
-                    existingRecords.add(record);
-                }
-                logger.debug("IMMEDIATE: Read {} existing records", existingRecords.size());
+                logger.debug("MULTI-FILE: Successfully wrote {} records to {}", chunk.size(), filePath);
             }
             
-            // Write all records (existing + new) in one go
-            try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
-                    new org.apache.hadoop.fs.Path(filePath))
-                    .withWriteMode(ParquetFileWriter.Mode.OVERWRITE)
-                    .withCompressionCodec(CompressionCodecName.SNAPPY)
-                    .withConf(conf)
-                    .withSchema(avroSchema)
-                    .build()) {
-                
-                // Write existing records first
-                for (GenericRecord record : existingRecords) {
-                    writer.write(record);
-                }
-                
-                // Write new observations
-                for (ValidationStatObservationParquet obs : newObservations) {
-                    writer.write(toGenericRecord(obs));
-                }
-                
-                logger.debug("IMMEDIATE: Successfully wrote {} total records ({} existing + {} new)", 
-                           existingRecords.size() + newObservations.size(), 
-                           existingRecords.size(), 
-                           newObservations.size());
-            }
-            
-            // Clear the list to help GC
-            existingRecords.clear();
+            nextFileIndex++;
         }
+        
+        // Update file counter for this snapshot
+        snapshotFileCounters.put(snapshotId, nextFileIndex);
+        
+        logger.info("MULTI-FILE: Completed writing for snapshot {} - next file index: {}", 
+                   snapshotId, nextFileIndex);
     }
     
 }
