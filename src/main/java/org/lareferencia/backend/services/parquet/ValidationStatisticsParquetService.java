@@ -442,10 +442,13 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         try {
             if (fq != null && !fq.isEmpty()) {
                 Map<String, Object> filters = parseFilterQueries(fq);
-                logger.debug("FILTER STATS: Applying optimized filters: {}", filters);
+                logger.info("FILTER STATS DEBUG: Parsed filters from fq: {}", filters);
+                logger.info("FILTER STATS DEBUG: Original fq list: {}", fq);
                 
                 // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
+                logger.info("FILTER STATS DEBUG: Converted AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
+                           aggregationFilter.getIsValid(), aggregationFilter.getIsTransformed(), aggregationFilter.getRecordOAIId());
                 
                 // Use optimized methods with pagination - never loads all data
                 List<ValidationStatObservationParquet> pageResults = 
@@ -453,10 +456,11 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 
                 // Get total count using optimizations (without loading all data)
                 long totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
+                logger.info("FILTER STATS DEBUG: Total filtered elements: {}", totalElements);
                 
                 // **IMPORTANT**: Get filtered aggregated statistics that reflect the applied filters
                 Map<String, Object> filteredAggregations = parquetRepository.getAggregatedStatsWithFilter(snapshotID, aggregationFilter);
-                logger.debug("FILTER STATS: Calculated filtered aggregations: {}", filteredAggregations);
+                logger.info("FILTER STATS DEBUG: Calculated filtered aggregations: {}", filteredAggregations);
                 
                 logger.debug("OPTIMIZED results - found: {} total, {} in page", totalElements, pageResults.size());
                 

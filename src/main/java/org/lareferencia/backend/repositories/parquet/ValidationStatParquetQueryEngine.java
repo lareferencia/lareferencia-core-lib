@@ -154,11 +154,13 @@ public class ValidationStatParquetQueryEngine {
     public AggregationResult getAggregatedStatsOptimized(String filePath, AggregationFilter filter) throws IOException {
         logger.debug("Consulta optimizada HÍBRIDA para: {}", filePath);
         
-        String cacheKey = filePath + "_" + filter.hashCode();
-        if (cache.containsKey(cacheKey)) {
-            logger.debug("Resultado desde cache");
-            return cache.get(cacheKey);
-        }
+        // TEMP: Disable cache to debug filter issues
+        //String cacheKey = filePath + "_" + filter.hashCode();
+        //if (cache.containsKey(cacheKey)) {
+        //    logger.debug("Resultado desde cache");
+        //    return cache.get(cacheKey);
+        //}
+        logger.debug("CACHE DISABLED: Computing fresh results for filter debugging");
         
         AggregationResult result = new AggregationResult();
         
@@ -171,9 +173,15 @@ public class ValidationStatParquetQueryEngine {
                 .build()) {
             
             GenericRecord record;
+            int totalRecords = 0;
+            int filteredRecords = 0;
+            
             while ((record = reader.read()) != null) {
+                totalRecords++;
+                
                 // Aplicar filtros si los hay
                 if (filter == null || matchesSpecificFilter(record, filter)) {
+                    filteredRecords++;
                     result.incrementTotalCount();
                     
                     // Procesar estadísticas básicas
@@ -195,9 +203,15 @@ public class ValidationStatParquetQueryEngine {
                     processRuleStatistics(record, result);
                 }
             }
+            
+            logger.debug("FILTER DEBUG: File: {}, Total records: {}, Filtered records: {}, Filter: isValid={}, isTransformed={}", 
+                        filePath, totalRecords, filteredRecords, 
+                        filter != null ? filter.getIsValid() : "null",
+                        filter != null ? filter.getIsTransformed() : "null");
         }
         
-        cache.put(cacheKey, result);
+        // TEMP: Don't cache while debugging
+        //cache.put(cacheKey, result);
         logger.debug("Consulta híbrida completada: {} registros, {} reglas válidas, {} reglas inválidas", 
                     result.getTotalCount(), result.getValidRuleCounts().size(), result.getInvalidRuleCounts().size());
         return result;
