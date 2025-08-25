@@ -793,16 +793,16 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Obtiene estadísticas agregadas por snapshot ID (VERSIÓN OPTIMIZADA)
+     * Obtiene estadísticas agregadas por snapshot ID (VERSIÓN OPTIMIZADA MULTI-ARCHIVO)
      * Utiliza el query engine para evitar cargar todos los registros en memoria
      */
     public Map<String, Object> getAggregatedStats(Long snapshotId) throws IOException {
-        String filePath = getParquetFilePath(snapshotId);
-        File file = new File(filePath);
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
         
-        if (!file.exists()) {
-            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
-            // Retornar estadísticas vacías
+        if (!dir.exists()) {
+            logger.debug("MULTI-FILE STATS: Snapshot directory does not exist: {}", snapshotId);
+            // Return empty statistics
             Map<String, Object> emptyStats = new HashMap<>();
             emptyStats.put("totalCount", 0L);
             emptyStats.put("validCount", 0L);
@@ -812,37 +812,88 @@ public class ValidationStatParquetRepository {
             return emptyStats;
         }
         
-        // Usar query engine completamente optimizado
-        AggregationFilter filter = new AggregationFilter(); // Sin filtros, procesar todos los registros
-        AggregationResult result = queryEngine.getAggregatedStatsFullyOptimized(filePath, filter);
+        // Get all data files in the snapshot directory
+        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
         
-        // Convertir resultado a formato compatible
+        if (dataFiles == null || dataFiles.length == 0) {
+            logger.debug("MULTI-FILE STATS: No data files found for snapshot: {}", snapshotId);
+            // Return empty statistics
+            Map<String, Object> emptyStats = new HashMap<>();
+            emptyStats.put("totalCount", 0L);
+            emptyStats.put("validCount", 0L);
+            emptyStats.put("transformedCount", 0L);
+            emptyStats.put("validRuleCounts", new HashMap<String, Long>());
+            emptyStats.put("invalidRuleCounts", new HashMap<String, Long>());
+            return emptyStats;
+        }
+        
+        // Aggregate statistics from all files
+        AggregationFilter filter = new AggregationFilter(); // No filters, process all records
+        
+        // Initialize combined results
+        long totalCount = 0;
+        long validCount = 0;
+        long transformedCount = 0;
+        Map<String, Long> combinedValidRuleCounts = new HashMap<>();
+        Map<String, Long> combinedInvalidRuleCounts = new HashMap<>();
+        
+        logger.debug("MULTI-FILE STATS: Processing {} data files for snapshot {}", dataFiles.length, snapshotId);
+        
+        // Process each data file and combine results
+        for (File dataFile : dataFiles) {
+            try {
+                AggregationResult result = queryEngine.getAggregatedStatsFullyOptimized(dataFile.getAbsolutePath(), filter);
+                
+                // Combine counts
+                totalCount += result.getTotalCount();
+                validCount += result.getValidCount();
+                transformedCount += result.getTransformedCount();
+                
+                // Combine rule counts
+                for (Map.Entry<String, Long> entry : result.getValidRuleCounts().entrySet()) {
+                    combinedValidRuleCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
+                }
+                
+                for (Map.Entry<String, Long> entry : result.getInvalidRuleCounts().entrySet()) {
+                    combinedInvalidRuleCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
+                }
+                
+                logger.debug("MULTI-FILE STATS: Processed {} - {} records, {} valid", 
+                           dataFile.getName(), result.getTotalCount(), result.getValidCount());
+                           
+            } catch (Exception e) {
+                logger.error("MULTI-FILE STATS: Error processing file {} for snapshot {}", dataFile.getName(), snapshotId, e);
+                // Continue with other files, don't fail completely
+            }
+        }
+        
+        // Convert result to compatible format
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalCount", result.getTotalCount());
-        stats.put("validCount", result.getValidCount());
-        stats.put("transformedCount", result.getTransformedCount());
-        stats.put("validRuleCounts", result.getValidRuleCounts());
-        stats.put("invalidRuleCounts", result.getInvalidRuleCounts());
+        stats.put("totalCount", totalCount);
+        stats.put("validCount", validCount);
+        stats.put("transformedCount", transformedCount);
+        stats.put("validRuleCounts", combinedValidRuleCounts);
+        stats.put("invalidRuleCounts", combinedInvalidRuleCounts);
         
-        logger.debug("Estadísticas agregadas optimizadas para snapshot {}: {} registros totales, {} válidos", 
-                snapshotId, result.getTotalCount(), result.getValidCount());
+        logger.info("MULTI-FILE STATS: Combined statistics for snapshot {}: {} total records, {} valid, {} transformed from {} files", 
+                   snapshotId, totalCount, validCount, transformedCount, dataFiles.length);
         
         return stats;
     }
 
     /**
-     * Obtiene estadísticas agregadas con filtros específicos (NUEVO MÉTODO OPTIMIZADO)
+     * Obtiene estadísticas agregadas con filtros específicos (MULTI-ARCHIVO OPTIMIZADO)
      * @param snapshotId ID del snapshot
      * @param filter Filtros a aplicar (isValid, isTransformed, ruleIds, etc.)
      * @return Estadísticas agregadas filtradas
      */
     public Map<String, Object> getAggregatedStatsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
-        String filePath = getParquetFilePath(snapshotId);
-        File file = new File(filePath);
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
         
-        if (!file.exists()) {
-            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
-            // Retornar estadísticas vacías
+        if (!dir.exists()) {
+            logger.debug("MULTI-FILE FILTER: Snapshot directory does not exist: {}", snapshotId);
+            // Return empty statistics
             Map<String, Object> emptyStats = new HashMap<>();
             emptyStats.put("totalCount", 0L);
             emptyStats.put("validCount", 0L);
@@ -852,44 +903,112 @@ public class ValidationStatParquetRepository {
             return emptyStats;
         }
         
-        // Usar query engine optimizado con filtros
-        // Usar query engine completamente optimizado con filtros
-        AggregationResult result = queryEngine.getAggregatedStatsFullyOptimized(filePath, filter);
+        // Get all data files in the snapshot directory
+        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
         
-        // Convertir resultado a formato compatible
+        if (dataFiles == null || dataFiles.length == 0) {
+            logger.debug("MULTI-FILE FILTER: No data files found for snapshot: {}", snapshotId);
+            // Return empty statistics
+            Map<String, Object> emptyStats = new HashMap<>();
+            emptyStats.put("totalCount", 0L);
+            emptyStats.put("validCount", 0L);
+            emptyStats.put("transformedCount", 0L);
+            emptyStats.put("validRuleCounts", new HashMap<String, Long>());
+            emptyStats.put("invalidRuleCounts", new HashMap<String, Long>());
+            return emptyStats;
+        }
+        
+        // Aggregate filtered statistics from all files
+        long totalCount = 0;
+        long validCount = 0;
+        long transformedCount = 0;
+        Map<String, Long> combinedValidRuleCounts = new HashMap<>();
+        Map<String, Long> combinedInvalidRuleCounts = new HashMap<>();
+        
+        logger.debug("MULTI-FILE FILTER: Processing {} data files for snapshot {} with filters", dataFiles.length, snapshotId);
+        
+        // Process each data file and combine filtered results
+        for (File dataFile : dataFiles) {
+            try {
+                AggregationResult result = queryEngine.getAggregatedStatsFullyOptimized(dataFile.getAbsolutePath(), filter);
+                
+                // Combine counts
+                totalCount += result.getTotalCount();
+                validCount += result.getValidCount();
+                transformedCount += result.getTransformedCount();
+                
+                // Combine rule counts
+                for (Map.Entry<String, Long> entry : result.getValidRuleCounts().entrySet()) {
+                    combinedValidRuleCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
+                }
+                
+                for (Map.Entry<String, Long> entry : result.getInvalidRuleCounts().entrySet()) {
+                    combinedInvalidRuleCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
+                }
+                
+            } catch (Exception e) {
+                logger.error("MULTI-FILE FILTER: Error processing file {} for snapshot {}", dataFile.getName(), snapshotId, e);
+                // Continue with other files, don't fail completely
+            }
+        }
+        
+        // Convert result to compatible format
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalCount", result.getTotalCount());
-        stats.put("validCount", result.getValidCount());
-        stats.put("transformedCount", result.getTransformedCount());
-        stats.put("validRuleCounts", result.getValidRuleCounts());
-        stats.put("invalidRuleCounts", result.getInvalidRuleCounts());
+        stats.put("totalCount", totalCount);
+        stats.put("validCount", validCount);
+        stats.put("transformedCount", transformedCount);
+        stats.put("validRuleCounts", combinedValidRuleCounts);
+        stats.put("invalidRuleCounts", combinedInvalidRuleCounts);
         
-        logger.debug("Estadísticas filtradas para snapshot {}: {} registros cumplieron criterios", 
-                snapshotId, result.getTotalCount());
+        logger.debug("MULTI-FILE FILTER: Combined filtered statistics for snapshot {}: {} records matched criteria from {} files", 
+                   snapshotId, totalCount, dataFiles.length);
         
         return stats;
     }
 
     /**
-     * Cuenta registros con filtros específicos sin cargarlos en memoria (MÉTODO OPTIMIZADO)
+     * Cuenta registros con filtros específicos sin cargarlos en memoria (MULTI-ARCHIVO OPTIMIZADO)
      * @param snapshotId ID del snapshot
      * @param filter Filtros a aplicar
      * @return Número de registros que cumplen los criterios
      */
     public long countRecordsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
-        String filePath = getParquetFilePath(snapshotId);
-        File file = new File(filePath);
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
         
-        if (!file.exists()) {
-            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
+        if (!dir.exists()) {
+            logger.debug("MULTI-FILE COUNT: Snapshot directory does not exist: {}", snapshotId);
             return 0L;
         }
         
-        return queryEngine.countRecords(filePath, filter);
+        // Get all data files in the snapshot directory
+        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+        
+        if (dataFiles == null || dataFiles.length == 0) {
+            logger.debug("MULTI-FILE COUNT: No data files found for snapshot: {}", snapshotId);
+            return 0L;
+        }
+        
+        long totalCount = 0;
+        
+        // Count records from all data files
+        for (File dataFile : dataFiles) {
+            try {
+                long fileCount = queryEngine.countRecords(dataFile.getAbsolutePath(), filter);
+                totalCount += fileCount;
+                logger.debug("MULTI-FILE COUNT: File {} has {} matching records", dataFile.getName(), fileCount);
+            } catch (Exception e) {
+                logger.error("MULTI-FILE COUNT: Error counting records in file {} for snapshot {}", dataFile.getName(), snapshotId, e);
+                // Continue with other files
+            }
+        }
+        
+        logger.debug("MULTI-FILE COUNT: Total matching records for snapshot {}: {}", snapshotId, totalCount);
+        return totalCount;
     }
 
     /**
-     * Búsqueda paginada con filtros (MÉTODO OPTIMIZADO)
+     * Búsqueda paginada con filtros (MULTI-ARCHIVO OPTIMIZADO)
      * @param snapshotId ID del snapshot
      * @param filter Filtros a aplicar
      * @param page Número de página (base 0)
@@ -899,35 +1018,69 @@ public class ValidationStatParquetRepository {
     public List<ValidationStatObservationParquet> findWithFilterAndPagination(Long snapshotId, 
                                                                               AggregationFilter filter, 
                                                                               int page, int size) throws IOException {
-        String filePath = getParquetFilePath(snapshotId);
-        File file = new File(filePath);
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
         
-        if (!file.exists()) {
-            logger.debug("Archivo Parquet no existe para snapshot: {}", snapshotId);
+        if (!dir.exists()) {
+            logger.debug("MULTI-FILE PAGINATION: Snapshot directory does not exist: {}", snapshotId);
             return Collections.emptyList();
         }
         
-        int offset = page * size;
-        List<GenericRecord> records = queryEngine.queryWithPagination(filePath, filter, offset, size);
+        // Get all data files in the snapshot directory
+        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
         
-        // Convertir GenericRecord a ValidationStatObservationParquet
-        List<ValidationStatObservationParquet> observations = new ArrayList<>();
-        for (GenericRecord record : records) {
-            observations.add(fromGenericRecord(record));
+        if (dataFiles == null || dataFiles.length == 0) {
+            logger.debug("MULTI-FILE PAGINATION: No data files found for snapshot: {}", snapshotId);
+            return Collections.emptyList();
         }
         
-        logger.debug("Consulta paginada filtrada para snapshot {}: {} registros en página {}", 
-                snapshotId, observations.size(), page);
+        // For pagination across multiple files, we need to collect all matching records first
+        // This is not optimal for very large datasets, but necessary for proper pagination
+        List<ValidationStatObservationParquet> allMatchingRecords = new ArrayList<>();
         
-        return observations;
+        // Collect all matching records from all files
+        for (File dataFile : dataFiles) {
+            try {
+                List<GenericRecord> records = queryEngine.queryWithPagination(dataFile.getAbsolutePath(), filter, 0, Integer.MAX_VALUE);
+                
+                // Convert GenericRecord to ValidationStatObservationParquet
+                for (GenericRecord record : records) {
+                    allMatchingRecords.add(fromGenericRecord(record));
+                }
+                
+                logger.debug("MULTI-FILE PAGINATION: File {} contributed {} matching records", dataFile.getName(), records.size());
+                
+            } catch (Exception e) {
+                logger.error("MULTI-FILE PAGINATION: Error querying file {} for snapshot {}", dataFile.getName(), snapshotId, e);
+                // Continue with other files
+            }
+        }
+        
+        // Apply pagination to the combined results
+        int offset = page * size;
+        int endIndex = Math.min(offset + size, allMatchingRecords.size());
+        
+        if (offset >= allMatchingRecords.size()) {
+            logger.debug("MULTI-FILE PAGINATION: Page {} is beyond available data for snapshot {}", page, snapshotId);
+            return Collections.emptyList();
+        }
+        
+        List<ValidationStatObservationParquet> pagedResults = allMatchingRecords.subList(offset, endIndex);
+        
+        logger.debug("MULTI-FILE PAGINATION: Returning {} records from page {} (total matching: {}) for snapshot {}", 
+                   pagedResults.size(), page, allMatchingRecords.size(), snapshotId);
+        
+        return pagedResults;
     }
 
     /**
-     * Obtiene conteos de ocurrencias de reglas
+     * Obtiene conteos de ocurrencias de reglas (MULTI-ARCHIVO OPTIMIZADO)
      */
     public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, String ruleId, boolean valid) throws IOException {
         List<ValidationStatObservationParquet> observations = findBySnapshotId(snapshotId);
         Map<String, Long> occurrenceCounts = new HashMap<>();
+        
+        logger.debug("RULE OCCURRENCES: Processing {} observations for rule {} (valid: {})", observations.size(), ruleId, valid);
         
         for (ValidationStatObservationParquet obs : observations) {
             Map<String, List<String>> occurrenceMap = valid ? 
@@ -943,6 +1096,8 @@ public class ValidationStatParquetRepository {
                 }
             }
         }
+        
+        logger.debug("RULE OCCURRENCES: Found {} unique occurrences for rule {} (valid: {})", occurrenceCounts.size(), ruleId, valid);
         
         return occurrenceCounts;
     }
