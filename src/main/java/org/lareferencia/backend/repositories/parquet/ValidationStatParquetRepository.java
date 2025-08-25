@@ -62,8 +62,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Repository for validation data in Parquet with real persistence.
- * Uses Apache Parquet for efficient disk storage.
+ * Repositorio para datos de validación en Parquet con persistencia real.
+ * Utiliza Apache Parquet para almacenamiento eficiente en disco.
  */
 @Repository
 public class ValidationStatParquetRepository {
@@ -81,21 +81,21 @@ public class ValidationStatParquetRepository {
     
     @PostConstruct
     public void init() throws IOException {
-        // Initialize Hadoop configuration
+        // Inicializar configuración de Hadoop
         hadoopConf = new Configuration();
         hadoopConf.set("fs.defaultFS", "file:///");
         
-        // Create base directory if it does not exist
+        // Crear directorio base si no existe
         Files.createDirectories(Paths.get(parquetBasePath));
         
-        // Define Avro schema for validation data
+        // Definir el esquema Avro para los datos de validación
         initializeAvroSchema();
         
-        logger.info("ValidationStatParquetRepository initialized - ready to use at: {}", parquetBasePath);
+        logger.info("ValidationStatParquetRepository inicializado - listo para usar en: {}", parquetBasePath);
     }
     
     private void initializeAvroSchema() {
-        // Define Avro schema for ValidationStatObservation
+        // Definir el esquema Avro para ValidationStatObservation
         String schemaJson = "{\n" +
             "  \"type\": \"record\",\n" +
             "  \"name\": \"ValidationStatObservation\",\n" +
@@ -147,7 +147,7 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Converts an Avro object to String (handles Utf8 and String)
+     * Convierte un objeto Avro a String (maneja Utf8 y String)
      */
     private String avroToString(Object obj) {
         if (obj == null) {
@@ -157,7 +157,7 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Converts an Avro list (with possible Utf8 elements) to a List of String
+     * Convierte una lista de Avro (con posibles elementos Utf8) a Lista de String
      */
     @SuppressWarnings("unchecked")
     private List<String> convertStringList(Object obj) {
@@ -171,7 +171,7 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Converts an Avro Map (with Utf8 keys and values) to Map<String, List<String>>
+     * Convierte un Map de Avro (con keys y valores Utf8) a Map<String, List<String>>
      */
     @SuppressWarnings("unchecked")
     private Map<String, List<String>> convertMapWithStringLists(Object obj) {
@@ -212,7 +212,7 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Finds all observations by snapshot ID from Parquet file
+     * Busca todas las observaciones por snapshot ID desde archivo Parquet
      */
     public List<ValidationStatObservationParquet> findBySnapshotId(Long snapshotId) throws IOException {
         String filePath = getParquetFilePath(snapshotId);
@@ -235,12 +235,12 @@ public class ValidationStatParquetRepository {
             }
         }
         
-    logger.debug("Read {} observations for snapshot: {}", observations.size(), snapshotId);
+        logger.debug("Leídas {} observaciones para snapshot: {}", observations.size(), snapshotId);
         return observations;
     }
 
     /**
-     * Implements simple pagination
+     * Implementa paginación simple
      */
     public List<ValidationStatObservationParquet> findBySnapshotIdWithPagination(Long snapshotId, int page, int size) throws IOException {
         List<ValidationStatObservationParquet> observations = findBySnapshotId(snapshotId);
@@ -256,14 +256,14 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Counts observations by snapshot ID
+     * Cuenta observaciones por snapshot ID
      */
     public long countBySnapshotId(Long snapshotId) throws IOException {
         return findBySnapshotId(snapshotId).size();
     }
 
     /**
-     * Saves all observations in Parquet files by snapshot
+     * Guarda todas las observaciones en archivos Parquet por snapshot
      */
     public void saveAll(List<ValidationStatObservationParquet> observations) throws IOException {
         if (observations == null || observations.isEmpty()) {
@@ -282,7 +282,7 @@ public class ValidationStatParquetRepository {
             saveObservationsToParquet(snapshotId, snapshotObservations);
         }
         
-    logger.info("Saved {} observations in Parquet files", observations.size());
+        logger.info("Guardadas {} observaciones en archivos Parquet", observations.size());
     }
     
     private void saveObservationsToParquet(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
@@ -324,11 +324,11 @@ public class ValidationStatParquetRepository {
             }
         }
         
-    logger.debug("Saved {} observations for snapshot {} in Parquet file", allObservations.size(), snapshotId);
+        logger.debug("Guardadas {} observaciones para snapshot {} en archivo Parquet", allObservations.size(), snapshotId);
     }
 
     /**
-     * Deletes observations by snapshot ID (deletes the Parquet file)
+     * Elimina observaciones por snapshot ID (elimina el archivo Parquet)
      */
     public void deleteBySnapshotId(Long snapshotId) throws IOException {
         String filePath = getParquetFilePath(snapshotId);
@@ -345,7 +345,7 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Deletes specific observation by ID
+     * Elimina observación específica por ID
      */
     public void deleteById(String id, Long snapshotId) throws IOException {
         List<ValidationStatObservationParquet> observations = findBySnapshotId(snapshotId);
@@ -363,7 +363,7 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Copies data from one snapshot to another
+     * Copia datos de un snapshot a otro
      */
     public void copySnapshotData(Long originalSnapshotId, Long newSnapshotId) throws IOException {
         List<ValidationStatObservationParquet> originalData = findBySnapshotId(originalSnapshotId);
@@ -571,14 +571,14 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Gets the Parquet file path for a snapshot
+     * Obtiene la ruta del archivo Parquet para un snapshot
      */
     public String getSnapshotFilePath(Long snapshotId) {
         return parquetBasePath + "/snapshot_" + snapshotId + ".parquet";
     }
     
     /**
-     * Optimized search with pagination using ValidationStatParquetQueryEngine WITHOUT individual verification
+     * Búsqueda optimizada con paginación usando ValidationStatParquetQueryEngine SIN VERIFICACIÓN INDIVIDUAL
      */
     public List<ValidationStatObservationParquet> findOptimizedWithPagination(String filePath, 
             ValidationStatParquetQueryEngine.AggregationFilter filter, 
@@ -609,7 +609,7 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * OPTIMIZATION 2+3: Ultra-optimized count with memory management for millions of records
+     * OPTIMIZACIÓN 2+3: Conteo ultra-optimizado con gestión de memoria para millones de registros
      */
     public long countOptimized(String filePath, ValidationStatParquetQueryEngine.AggregationFilter filter) throws IOException {
         System.out.println("DEBUG: countOptimized ULTRA-OPTIMIZADO con streaming por lotes - archivo: " + filePath);
@@ -628,7 +628,7 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * OPTIMIZATION 2+3: Fallback count method for compatibility
+     * OPTIMIZACIÓN 2+3: Método de conteo con fallback para compatibilidad
      */
     public long countOptimizedStandard(String filePath, ValidationStatParquetQueryEngine.AggregationFilter filter) throws IOException {
         System.out.println("DEBUG: countOptimizedStandard - método estándar de fallback");
