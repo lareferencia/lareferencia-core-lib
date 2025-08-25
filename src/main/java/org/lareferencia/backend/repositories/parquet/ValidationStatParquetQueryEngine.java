@@ -15,10 +15,10 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Motor de consultas COMPLETAMENTE OPTIMIZADO con streaming por lotes.
- * Implementa OPTIMIZACIÓN 2: Chunked/Batched Processing para millones de registros.
- * Implementa OPTIMIZACIÓN 3: Paginación inteligente por Row Groups.
- * Evita cargar todos los registros en memoria simultáneamente.
+ * Fully optimized query engine with batch streaming.
+ * Implements OPTIMIZATION 2: Chunked/Batched Processing for millions of records.
+ * Implements OPTIMIZATION 3: Smart pagination by Row Groups.
+ * Avoids loading all records into memory simultaneously.
  */
 @Component
 public class ValidationStatParquetQueryEngine {
@@ -28,7 +28,7 @@ public class ValidationStatParquetQueryEngine {
     private final Configuration hadoopConf;
     private final Map<String, AggregationResult> cache = new ConcurrentHashMap<>();
     
-    // OPTIMIZACIÓN: Configuración para datasets masivos
+    // OPTIMIZATION: Configuration for massive datasets
     private final int DEFAULT_BATCH_SIZE = 10000;
     private final int PAGINATION_BATCH_SIZE = 5000;
     private final int MEMORY_CHECK_INTERVAL = 50000;
@@ -38,10 +38,10 @@ public class ValidationStatParquetQueryEngine {
     }
     
     /**
-     * OPTIMIZACIÓN 2+3: Consulta ultra-eficiente con gestión de memoria para millones de registros
+     * OPTIMIZATION 2+3: Ultra-efficient query with memory management for millions of records
      */
     public long countRecordsUltraOptimized(String filePath, AggregationFilter filter) throws IOException {
-        logger.debug("Conteo ULTRA-OPTIMIZADO para datasets masivos: {}", filePath);
+    logger.debug("ULTRA-OPTIMIZED count for massive datasets: {}", filePath);
         
         long filteredCount = 0;
         int dynamicBatchSize = calculateOptimalBatchSize();
@@ -95,13 +95,14 @@ public class ValidationStatParquetQueryEngine {
         long freeMemory = runtime.freeMemory();
         long availableMemory = maxMemory - (totalMemory - freeMemory);
         
-        // Usar máximo 10% de memoria disponible para lotes
+        // Use max 10% of available memory for batches
         long optimalBatchMemory = availableMemory / 10;
         
         // Estimar ~1KB por registro Avro promedio
         int optimalBatchSize = (int) Math.min(optimalBatchMemory / 1024, DEFAULT_BATCH_SIZE);
         
         return Math.max(1000, optimalBatchSize); // Mínimo 1K registros por lote
+        return Math.max(1000, optimalBatchSize); // Minimum 1K records per batch
     }
     
     /**
@@ -113,11 +114,11 @@ public class ValidationStatParquetQueryEngine {
         long maxMemory = runtime.maxMemory();
         double memoryUsagePercent = (double) usedMemory / maxMemory * 100;
         
-        logger.debug("Progreso: {} registros procesados, {} filtrados, {}% memoria usada", 
+            logger.debug("Progress: {} records processed, {} filtered, {}% memory used", 
                     totalProcessed, filteredCount, String.format("%.1f", memoryUsagePercent));
         
         if (memoryUsagePercent > 80) {
-            logger.warn("ALTA PRESIÓN DE MEMORIA: {}% usada - considerando reducir tamaño de lote", 
+                logger.warn("HIGH MEMORY PRESSURE: {}% used - considering reducing batch size", 
                        String.format("%.1f", memoryUsagePercent));
         }
     }

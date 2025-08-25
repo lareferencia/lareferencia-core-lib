@@ -1,13 +1,19 @@
 /*
  *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
- *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU Affero General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+    /**
+     * Query validation observations by snapshot ID with OPTIMIZED pagination (never loads all records in memory)
+     */
+    public List<ValidationStatObservationParquet> queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, int page, int size) {
+        logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, page, size);
+        try {
+            Map<String, Object> filters = convertFiltersToMap(fq);
+            ValidationStatParquetQueryEngine.AggregationFilter aggFilter = convertToAggregationFilter(filters, snapshotID);
+            return parquetRepository.findWithFilterAndPagination(snapshotID, aggFilter, page, size);
+        } catch (IOException e) {
+            logger.error("Error querying Parquet with pagination", e);
+            return Collections.emptyList();
+        }
+    }
  *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *   GNU Affero General Public License for more details.
  *
@@ -17,15 +23,27 @@
  *   This file is part of LA Referencia software platform LRHarvester v4.x
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
-
-package org.lareferencia.backend.services.parquet;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.lareferencia.backend.domain.NetworkSnapshot;
-import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.domain.ValidatorRule;
-
+    /**
+     * Query validation statistics observations by snapshot ID with pagination (never loads all records in memory)
+     */
+    @Override
+    public ValidationStatsQueryResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
+        logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, pageable.getPageNumber(), pageable.getPageSize());
+        try {
+            Map<String, Object> filters = convertFiltersToMap(fq);
+            ValidationStatParquetQueryEngine.AggregationFilter aggFilter = convertToAggregationFilter(filters, snapshotID);
+            List<ValidationStatObservationParquet> pageResults = parquetRepository.findWithFilterAndPagination(snapshotID, aggFilter, pageable.getPageNumber(), pageable.getPageSize());
+            ValidationStatsQueryResult result = new ValidationStatsQueryResult();
+            result.setObservations(pageResults);
+            // Si necesitas el total, usa el método optimizado:
+            long total = parquetRepository.countRecordsWithFilter(snapshotID, aggFilter);
+            result.setTotalCount(total);
+            return result;
+        } catch (IOException e) {
+            logger.error("Error querying Parquet with pagination", e);
+            throw new ValidationStatisticsException("Error querying Parquet", e);
+        }
+    }
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetRepository;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetQueryEngine;
@@ -137,19 +155,16 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 for (ContentValidatorResult contentResult : ruleResult.getResults()) {
                     if (contentResult.isValid())
                         validOccr.add(contentResult.getReceivedValue());
-                    else
-                        invalidOccr.add(contentResult.getReceivedValue());
-                }
-
-                validOccurrencesByRuleID.put(ruleID, validOccr);
-                invalidOccurrencesByRuleID.put(ruleID, invalidOccr);
-            }
-
-            // Agregar las reglas válidas e inválidas
-            if (ruleResult.getValid())
-                validRulesID.add(ruleID);
-            else
-                invalidRulesID.add(ruleID);
+                    /**
+                     * Converts String format filters to Map for Parquet repository (no System.out)
+                     */
+                    private Map<String, Object> convertFiltersToMap(List<String> fq) {
+                        Map<String, Object> filters = new HashMap<>();
+                        logger.debug("Converting filter list: {}", fq);
+                        if (fq != null) {…}
+                        logger.debug("Final filter map: {}", filters);
+                        return filters;
+                    }
         }
 
         return new ValidationStatObservationParquet(
@@ -386,7 +401,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * Consulta observaciones de validación por snapshot ID con paginación OPTIMIZADA
      */
     public List<ValidationStatObservationParquet> queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, int page, int size) {
-        System.out.println("DEBUG: Consulta Parquet OPTIMIZADA (método directo) - snapshotID: " + snapshotID + ", filtros: " + fq + ", página: " + page + ", tamaño: " + size);
+    logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, page, size);
         
         try {
             // Aplicar filtros si están presentes
@@ -395,7 +410,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             if (filters.isEmpty()) {
                 return parquetRepository.findBySnapshotIdWithPagination(snapshotID, page, size);
             } else {
-                System.out.println("DEBUG: Aplicando filtros optimizados (método directo): " + filters);
+                logger.debug("Applying optimized filters (direct method): {}", filters);
                 
                 // **USAR OPTIMIZACIONES AVANZADAS**: Convertir filtros a AggregationFilter
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
@@ -411,7 +426,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 List<ValidationStatObservationParquet> parquetObservations = 
                     parquetRepository.findOptimizedWithPagination(filePath, aggregationFilter, pageableRequest);
                 
-                System.out.println("DEBUG: Resultados optimizados (método directo) - encontrados: " + parquetObservations.size());
+                logger.debug("Optimized results (direct method) - found: {}", parquetObservations.size());
                 
                 return parquetObservations;
             }
@@ -426,12 +441,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      */
     @Override
     public ValidationStatsQueryResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
-        System.out.println("DEBUG: Consulta Parquet OPTIMIZADA - snapshotID: " + snapshotID + ", filtros: " + fq + ", página: " + pageable.getPageNumber() + ", tamaño: " + pageable.getPageSize());
+    logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, pageable.getPageNumber(), pageable.getPageSize());
         
         try {
             if (fq != null && !fq.isEmpty()) {
                 Map<String, Object> filters = convertFiltersToMap(fq);
-                System.out.println("DEBUG: Aplicando filtros optimizados: " + filters);
+                logger.debug("Applying optimized filters: {}", filters);
                 
                 // **USAR OPTIMIZACIONES AVANZADAS**: Convertir filtros a AggregationFilter
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
