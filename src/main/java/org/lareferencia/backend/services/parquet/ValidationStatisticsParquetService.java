@@ -468,6 +468,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 ValidationStatsQueryResult result = new ValidationStatsQueryResult(pageResults, totalElements, pageable);
                 result.setAggregations(filteredAggregations);
                 
+                logger.info("FILTER STATS FINAL: ValidationStatsQueryResult created with aggregations: {}", result.getAggregations());
+                logger.info("FILTER STATS FINAL: Total elements in result: {}", result.getTotalElements());
+                logger.info("FILTER STATS FINAL: Content size: {}", result.getContent().size());
+                
                 return result;
             } else {
                 // Without filters, use direct pagination and get all stats
