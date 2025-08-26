@@ -33,10 +33,9 @@ import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.util.Utf8;
+import org.apache.parquet.hadoop.util.HadoopInputFile;
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
-import org.lareferencia.backend.repositories.parquet.ValidationStatParquetQueryEngine.AggregationFilter;
-import org.lareferencia.backend.repositories.parquet.ValidationStatParquetQueryEngine.AggregationResult;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
@@ -48,6 +47,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Repositorio para datos de validación en Parquet con persistencia real.
@@ -84,9 +84,6 @@ public class ValidationStatParquetRepository {
     @Value("${parquet.validation.records-per-file:10000}")
     private int recordsPerFile;
 
-    @Autowired
-    private ValidationStatParquetQueryEngine queryEngine;
-
     private Schema avroSchema;
     private Configuration hadoopConf;
     
@@ -95,6 +92,14 @@ public class ValidationStatParquetRepository {
     
     // BUFFER SYSTEM: Accumulate records until reaching recordsPerFile limit
     private final Map<Long, List<ValidationStatObservationParquet>> snapshotBuffers = new HashMap<>();
+    
+    // QUERY OPTIMIZATION: Cache and constants moved from QueryEngine
+    private final Map<String, AggregationResult> queryCache = new ConcurrentHashMap<>();
+    
+    // OPTIMIZACIÓN: Configuración para datasets masivos (from QueryEngine)
+    private final int DEFAULT_BATCH_SIZE = 10000;
+    private final int PAGINATION_BATCH_SIZE = 5000;
+    private final int MEMORY_CHECK_INTERVAL = 50000;
     
     @PostConstruct
     public void init() throws IOException {
@@ -857,7 +862,7 @@ public class ValidationStatParquetRepository {
         // Process each data file and combine results
         for (File dataFile : dataFiles) {
             try {
-                AggregationResult result = queryEngine.getAggregatedStatsFullyOptimized(dataFile.getAbsolutePath(), filter);
+                AggregationResult result = getAggregatedStatsOptimized(dataFile.getAbsolutePath(), filter);
                 
                 // Combine counts
                 totalCount += result.getTotalCount();
@@ -945,7 +950,7 @@ public class ValidationStatParquetRepository {
         // Process each data file and combine filtered results
         for (File dataFile : dataFiles) {
             try {
-                AggregationResult result = queryEngine.getAggregatedStatsFullyOptimized(dataFile.getAbsolutePath(), filter);
+                AggregationResult result = getAggregatedStatsOptimized(dataFile.getAbsolutePath(), filter);
                 
                 // Combine counts
                 totalCount += result.getTotalCount();
@@ -1482,4 +1487,304 @@ public class ValidationStatParquetRepository {
         logger.info("MANUAL CLEANUP: Completed cleaning snapshot {}", snapshotId);
     }
     
+    // ==================== QUERY OPTIMIZATION METHODS ====================
+    // (Moved from ValidationStatParquetQueryEngine for consolidated architecture)
+    
+    /**
+     * Consulta optimizada HÍBRIDA: metadatos para conteos + lectura real para reglas
+     */
+    private AggregationResult getAggregatedStatsOptimized(String filePath, AggregationFilter filter) throws IOException {
+        logger.debug("Consulta optimizada HÍBRIDA para: {}", filePath);
+        
+        String cacheKey = filePath + "_" + filter.hashCode();
+        if (queryCache.containsKey(cacheKey)) {
+            logger.debug("Resultado desde cache");
+            return queryCache.get(cacheKey);
+        }
+        
+        AggregationResult result = new AggregationResult();
+        
+        // CRÍTICO: Para obtener estadísticas de reglas correctas, necesitamos leer registros reales
+        // Los metadatos no contienen información de validRuleCounts/invalidRuleCounts
+        logger.debug("CORRECCIÓN: Usando lectura real de registros para obtener estadísticas de reglas precisas");
+        
+        try (org.apache.parquet.hadoop.ParquetReader<GenericRecord> reader = 
+                org.apache.parquet.avro.AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), new Configuration()))
+                .build()) {
+            
+            GenericRecord record;
+            int totalRecords = 0;
+            int filteredRecords = 0;
+            
+            while ((record = reader.read()) != null) {
+                totalRecords++;
+                
+                // Aplicar filtros si los hay
+                if (filter == null || matchesSpecificFilter(record, filter)) {
+                    filteredRecords++;
+                    result.incrementTotalCount();
+                    
+                    // Procesar estadísticas básicas
+                    Object isValidObj = record.get("isValid");
+                    Boolean isValid = (Boolean) isValidObj;
+                    if (isValid != null && isValid) {
+                        result.incrementValidCount();
+                    } else {
+                        result.incrementInvalidCount();
+                    }
+                    
+                    Object isTransformedObj = record.get("isTransformed");
+                    Boolean isTransformed = (Boolean) isTransformedObj;
+                    if (isTransformed != null && isTransformed) {
+                        result.incrementTransformedCount();
+                    }
+                    
+                    // CRÍTICO: Procesar estadísticas de reglas
+                    processRuleStatistics(record, result);
+                }
+            }
+            
+            logger.debug("FILTER DEBUG: File: {}, Total records: {}, Filtered records: {}, Filter: isValid={}, isTransformed={}", 
+                        filePath, totalRecords, filteredRecords, 
+                        filter != null ? filter.getIsValid() : "null",
+                        filter != null ? filter.getIsTransformed() : "null");
+        }
+        
+        queryCache.put(cacheKey, result);
+        logger.debug("Consulta híbrida completada: {} registros, {} reglas válidas, {} reglas inválidas", 
+                    result.getTotalCount(), result.getValidRuleCounts().size(), result.getInvalidRuleCounts().size());
+        return result;
+    }
+    
+    /**
+     * CORRECCIÓN: Procesa estadísticas de reglas desde registros reales
+     */
+    private void processRuleStatistics(GenericRecord record, AggregationResult result) {
+        try {
+            // Procesar reglas válidas
+            Object validRulesObj = record.get("validRulesIDList");
+            if (validRulesObj != null) {
+                @SuppressWarnings("unchecked")
+                java.util.List<Object> validRulesList = (java.util.List<Object>) validRulesObj;
+                for (Object ruleObj : validRulesList) {
+                    String rule = avroToString(ruleObj);
+                    if (rule != null && !rule.isEmpty()) {
+                        result.addValidRuleCount(rule);
+                    }
+                }
+            }
+            
+            // Procesar reglas inválidas
+            Object invalidRulesObj = record.get("invalidRulesIDList");
+            if (invalidRulesObj != null) {
+                @SuppressWarnings("unchecked")
+                java.util.List<Object> invalidRulesList = (java.util.List<Object>) invalidRulesObj;
+                for (Object ruleObj : invalidRulesList) {
+                    String rule = avroToString(ruleObj);
+                    if (rule != null && !rule.isEmpty()) {
+                        result.addInvalidRuleCount(rule);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Error procesando estadísticas de reglas: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * Verificación específica de registros individuales
+     */
+    private boolean matchesSpecificFilter(GenericRecord record, AggregationFilter filter) {
+        try {
+            // Aplicar filtros específicos
+            if (filter.getSnapshotId() != null) {
+                Object snapshotIdObj = record.get("snapshotID");
+                String snapshotId = avroToString(snapshotIdObj);
+                if (!filter.getSnapshotId().toString().equals(snapshotId)) {
+                    return false;
+                }
+            }
+            
+            if (filter.getRecordOAIId() != null) {
+                Object identifierObj = record.get("identifier");
+                String identifier = avroToString(identifierObj);
+                if (!filter.getRecordOAIId().equals(identifier)) {
+                    return false;
+                }
+            }
+            
+            if (filter.getIsValid() != null) {
+                Object isValidObj = record.get("isValid");
+                Boolean isValid = (Boolean) isValidObj;
+                if (!filter.getIsValid().equals(isValid)) {
+                    return false;
+                }
+            }
+            
+            if (filter.getIsTransformed() != null) {
+                Object isTransformedObj = record.get("isTransformed");
+                Boolean isTransformed = (Boolean) isTransformedObj;
+                if (!filter.getIsTransformed().equals(isTransformed)) {
+                    return false;
+                }
+            }
+            
+            // Filtro de reglas válidas
+            if (filter.getValidRulesFilter() != null) {
+                Object validRulesObj = record.get("validRulesIDList");
+                if (validRulesObj != null) {
+                    @SuppressWarnings("unchecked")
+                    java.util.List<Object> validRulesList = (java.util.List<Object>) validRulesObj;
+                    String targetRule = filter.getValidRulesFilter();
+                    boolean found = false;
+                    for (Object ruleObj : validRulesList) {
+                        String rule = avroToString(ruleObj);
+                        if (targetRule.equals(rule)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        return false;
+                    }
+                }
+            }
+            
+            // Filtro de reglas inválidas
+            if (filter.getInvalidRulesFilter() != null) {
+                Object invalidRulesObj = record.get("invalidRulesIDList");
+                if (invalidRulesObj != null) {
+                    @SuppressWarnings("unchecked")
+                    java.util.List<Object> invalidRulesList = (java.util.List<Object>) invalidRulesObj;
+                    String targetRule = filter.getInvalidRulesFilter();
+                    boolean found = false;
+                    for (Object ruleObj : invalidRulesList) {
+                        String rule = avroToString(ruleObj);
+                        if (targetRule.equals(rule)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        return false;
+                    }
+                }
+            }
+            
+            return true;
+        } catch (Exception e) {
+            logger.warn("Error al verificar filtro específico: {}", e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Obtener estadísticas de cache
+     */
+    public Map<String, Object> getCacheStats() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("size", queryCache.size());
+        stats.put("keys", new ArrayList<>(queryCache.keySet()));
+        return stats;
+    }
+
+    /**
+     * Limpiar cache
+     */
+    public void clearCache() {
+        queryCache.clear();
+        logger.info("Query cache cleared");
+    }
+    
+    // ==================== QUERY OPTIMIZATION CLASSES ====================
+    // (Moved from ValidationStatParquetQueryEngine for consolidated architecture)
+    
+    /**
+     * Clase para filtros de agregación
+     */
+    public static class AggregationFilter {
+        private Boolean isValid;
+        private Boolean isTransformed;
+        private String recordOAIId;
+        private List<String> ruleIds;
+        private Long snapshotId;
+        private String validRulesFilter;
+        private String invalidRulesFilter;
+
+        // Getters y setters
+        public Boolean getIsValid() { return isValid; }
+        public void setIsValid(Boolean isValid) { this.isValid = isValid; }
+
+        public Boolean getIsTransformed() { return isTransformed; }
+        public void setIsTransformed(Boolean isTransformed) { this.isTransformed = isTransformed; }
+
+        public String getRecordOAIId() { return recordOAIId; }
+        public void setRecordOAIId(String recordOAIId) { this.recordOAIId = recordOAIId; }
+
+        public List<String> getRuleIds() { return ruleIds; }
+        public void setRuleIds(List<String> ruleIds) { this.ruleIds = ruleIds; }
+
+        public Long getSnapshotId() { return snapshotId; }
+        public void setSnapshotId(Long snapshotId) { this.snapshotId = snapshotId; }
+
+        public String getValidRulesFilter() { return validRulesFilter; }
+        public void setValidRulesFilter(String validRulesFilter) { this.validRulesFilter = validRulesFilter; }
+
+        public String getInvalidRulesFilter() { return invalidRulesFilter; }
+        public void setInvalidRulesFilter(String invalidRulesFilter) { this.invalidRulesFilter = invalidRulesFilter; }
+
+        // Métodos adicionales para compatibilidad
+        public Long getMinSnapshotId() { return snapshotId; }
+        public void setMinSnapshotId(Long minSnapshotId) { this.snapshotId = minSnapshotId; }
+
+        public Long getMaxSnapshotId() { return snapshotId; }
+        public void setMaxSnapshotId(Long maxSnapshotId) { this.snapshotId = maxSnapshotId; }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(isValid, isTransformed, recordOAIId, ruleIds, snapshotId, validRulesFilter, invalidRulesFilter);
+        }
+    }
+
+    /**
+     * Clase para resultados de agregación
+     */
+    public static class AggregationResult {
+        private long totalCount = 0;
+        private long validCount = 0;
+        private long invalidCount = 0;
+        private long transformedCount = 0;
+        private Map<String, Long> validRuleCounts = new HashMap<>();
+        private Map<String, Long> invalidRuleCounts = new HashMap<>();
+
+        // Getters y setters
+        public long getTotalCount() { return totalCount; }
+        public void setTotalCount(long totalCount) { this.totalCount = totalCount; }
+
+        public long getValidCount() { return validCount; }
+        public void setValidCount(long validCount) { this.validCount = validCount; }
+        public void incrementValidCount() { this.validCount++; }
+
+        public long getInvalidCount() { return invalidCount; }
+        public void setInvalidCount(long invalidCount) { this.invalidCount = invalidCount; }
+        public void incrementInvalidCount() { this.invalidCount++; }
+
+        public long getTransformedCount() { return transformedCount; }
+        public void setTransformedCount(long transformedCount) { this.transformedCount = transformedCount; }
+        public void incrementTransformedCount() { this.transformedCount++; }
+
+        public void incrementTotalCount() { this.totalCount++; }
+
+        public Map<String, Long> getValidRuleCounts() { return validRuleCounts; }
+        public Map<String, Long> getInvalidRuleCounts() { return invalidRuleCounts; }
+
+        public void addValidRuleCount(String rule) {
+            validRuleCounts.merge(rule, 1L, Long::sum);
+        }
+
+        public void addInvalidRuleCount(String rule) {
+            invalidRuleCounts.merge(rule, 1L, Long::sum);
+        }
+    }
+
 }

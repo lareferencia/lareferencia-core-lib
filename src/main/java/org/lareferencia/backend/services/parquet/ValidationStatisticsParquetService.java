@@ -28,7 +28,6 @@ import org.lareferencia.backend.domain.ValidatorRule;
 
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetRepository;
-import org.lareferencia.backend.repositories.parquet.ValidationStatParquetQueryEngine;
 import org.lareferencia.backend.services.validation.ValidationStatisticsException;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
@@ -303,7 +302,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 Map<String, Object> filters = parseFilterQueries(fq);
                 logger.debug("MAIN STATS: Parsed filters: {}", filters);
                 
-                ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshot.getId());
+                ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshot.getId());
                 logger.debug("MAIN STATS: Created aggregation filter: isValid={}, identifier={}", 
                     aggregationFilter.getIsValid(), aggregationFilter.getRecordOAIId());
                 
@@ -457,7 +456,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 logger.debug("Applying optimized filters: {}", filters);
                 
                 // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
-                ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
+                ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
                 
                 return parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, page, size);
             }
@@ -482,7 +481,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 logger.debug("FILTER RECORDS: Original fq list: {}", fq);
                 
                 // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
-                ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
+                ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
                 logger.debug("FILTER RECORDS: Converted AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
                            aggregationFilter.getIsValid(), aggregationFilter.getIsTransformed(), aggregationFilter.getRecordOAIId());
                 
@@ -609,8 +608,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     /**
      * Converts filters from fq format to optimized AggregationFilter
      */
-    private ValidationStatParquetQueryEngine.AggregationFilter convertToAggregationFilter(Map<String, Object> filters, Long snapshotId) {
-        ValidationStatParquetQueryEngine.AggregationFilter aggFilter = new ValidationStatParquetQueryEngine.AggregationFilter();
+    private ValidationStatParquetRepository.AggregationFilter convertToAggregationFilter(Map<String, Object> filters, Long snapshotId) {
+        ValidationStatParquetRepository.AggregationFilter aggFilter = new ValidationStatParquetRepository.AggregationFilter();
         aggFilter.setSnapshotId(snapshotId);
         
         logger.debug("FILTER CONVERSION: Converting filters to AggregationFilter: {}", filters);
@@ -676,7 +675,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         if (fq != null && !fq.isEmpty()) {
             // Apply filters to aggregated statistics (MEMORY EFFICIENT)
             Map<String, Object> filters = parseFilterQueries(fq);
-            ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotId);
+            ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotId);
             aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshotId, aggregationFilter);
             logger.debug("FACETS: Using filtered aggregated stats for snapshot {} with filters: {}", snapshotId, filters);
         } else {
