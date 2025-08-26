@@ -54,8 +54,26 @@ import lombok.Setter;
 
 /**
  * Validation statistics service based on Parquet files.
- * This implementation replaces Solr usage with filesystem storage
- * using files organized by snapshot ID to optimize queries.
+ * 
+ * ARCHITECTURE:
+ * - Replaces Solr usage with efficient filesystem-based Parquet storage
+ * - Multi-file structure per snapshot for optimal performance with large datasets
+ * - Supports memory-efficient streaming for millions of validation records
+ * 
+ * FILTERING SYSTEM:
+ * - Dual format support: "field:value" (standard) and "field@@value" (legacy)
+ * - Boolean and string value conversion with quote handling
+ * - Optimized aggregation filters for multi-file queries
+ * 
+ * DELETION OPERATIONS:
+ * - deleteValidationStatsObservationsBySnapshotID: Removes entire snapshot data
+ * - deleteValidationStatsObservationByRecordAndSnapshotID: Removes specific record
+ * - deleteValidationStatsBySnapshotID: Cleanup operation (same as first one)
+ * 
+ * PERFORMANCE FEATURES:
+ * - Intelligent buffering system for batch operations
+ * - Multi-file pagination with offset/limit optimization  
+ * - Memory-efficient aggregated statistics without full record loading
  */
 @Service
 @Scope("prototype")
@@ -503,7 +521,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Converts filters from String format to Map for Parquet repository (no System.out)
+     * Converts filters from String format to Map for Parquet repository
      * Supports both formats: "field:value" and "field@@value"
      */
     private Map<String, Object> parseFilterQueries(List<String> fq) {
@@ -513,7 +531,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             return filters;
         }
         
-        logger.debug("Processing filters: {}", fq);
+        logger.debug("Processing {} filter queries", fq.size());
         
         for (String fqTerm : fq) {
             String key = null;
@@ -524,12 +542,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 String[] parts = fqTerm.split("@@", 2);
                 key = parts[0].trim();
                 value = parts[1].trim();
-                logger.debug("Parsed @@ format - key: {}, value: {}", key, value);
             } else if (fqTerm.contains(":")) {
                 String[] parts = fqTerm.split(":", 2);
                 key = parts[0].trim();
                 value = parts[1].trim();
-                logger.debug("Parsed : format - key: {}, value: {}", key, value);
             }
             
             if (key != null && value != null) {
@@ -541,45 +557,16 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 // Convert string values to appropriate types
                 if (value.equals("true") || value.equals("false")) {
                     filters.put(key, Boolean.parseBoolean(value));
-                    logger.debug("Added boolean filter: {} = {}", key, Boolean.parseBoolean(value));
                 } else {
                     filters.put(key, value);
-                    logger.debug("Added string filter: {} = {}", key, value);
                 }
             } else {
                 logger.warn("Could not parse filter: {}", fqTerm);
             }
         }
         
-        logger.info("FILTER PARSING: Final filter map: {}", filters);
+        logger.debug("FILTER PARSING: Processed {} filters -> {}", fq.size(), filters);
         return filters;
-    }
-
-    /**
-     * Deletes validation observations by snapshot ID
-     */
-    public void deleteValidationStatsObservationsByRecordIDsAndSnapshotID(Long snapshotID) throws ValidationStatisticsException {
-        try {
-            parquetRepository.deleteBySnapshotId(snapshotID);
-            logger.info("Deleted validation observations for snapshot {}", snapshotID);
-        } catch (IOException e) {
-            logger.error("Error deleting observations for snapshot {}", snapshotID, e);
-            throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " :: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Deletes validation observations by record list
-     */
-    public void deleteValidationStatsObservationsByRecordsAndSnapshotID(Long snapshotID, Collection<OAIRecord> records) throws ValidationStatisticsException {
-        for (OAIRecord record : records) {
-            try {
-                String id = fingerprintHelper.getStatsIDfromRecord(record);
-                parquetRepository.deleteById(id, snapshotID);
-            } catch (IOException e) {
-                throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " recordID:" + record.getIdentifier() + " :: " + e.getMessage());
-            }
-        }
     }
 
     /**
@@ -618,23 +605,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     // Private helper methods
-
-    private ValidationStatObservation convertToValidationStatObservation(ValidationStatObservationParquet parquetObs) {
-        ValidationStatObservation obs = new ValidationStatObservation();
-        obs.setId(parquetObs.getId());
-        obs.setIdentifier(parquetObs.getIdentifier());
-        // Note: ValidationStatObservation may not have all setters - using compatible ones
-        obs.setOrigin(parquetObs.getOrigin());
-        obs.setSetSpec(parquetObs.getSetSpec());
-        obs.setMetadataPrefix(parquetObs.getMetadataPrefix());
-        obs.setNetworkAcronym(parquetObs.getNetworkAcronym());
-        obs.setRepositoryName(parquetObs.getRepositoryName());
-        obs.setInstitutionName(parquetObs.getInstitutionName());
-        obs.setIsValid(parquetObs.getIsValid());
-        obs.setIsTransformed(parquetObs.getIsTransformed());
-        // Note: Some fields may not be compatible - skipping them for now
-        return obs;
-    }
 
     /**
      * Converts filters from fq format to optimized AggregationFilter

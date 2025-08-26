@@ -53,9 +53,25 @@ import java.util.stream.Collectors;
  * Repositorio para datos de validación en Parquet con persistencia real.
  * Utiliza Apache Parquet para almacenamiento eficiente en disco.
  * 
- * NEW ARCHITECTURE: Multiple parquet files per snapshot to avoid read-merge-write cycles
- * Each file contains a configurable number of records (default: 10000)
- * Structure: /base-path/snapshot-{id}/data-{index}.parquet
+ * ARCHITECTURE OVERVIEW:
+ * - NEW: Multiple parquet files per snapshot for optimal performance
+ *   Structure: /base-path/snapshot-{id}/data-{index}.parquet
+ *   Each file contains configurable number of records (default: 10000)
+ *   Enables streaming processing for millions of records without memory overload
+ * 
+ * - LEGACY: Single file per snapshot (compatibility mode)
+ *   Structure: /base-path/snapshot_{id}.parquet  
+ *   Used for backward compatibility with existing data
+ * 
+ * MEMORY MANAGEMENT:
+ * - Intelligent buffering system accumulates records until recordsPerFile limit
+ * - Automatic flush when buffer reaches capacity or validation completes
+ * - Multi-file streaming with offset/limit for efficient pagination
+ * 
+ * PERFORMANCE FEATURES:
+ * - Row group pruning for fast filtering
+ * - Aggregated statistics without full record loading
+ * - Memory-efficient processing of datasets with millions of records
  */
 @Repository
 public class ValidationStatParquetRepository {
@@ -236,7 +252,15 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * OLD: Legacy method for backward compatibility with existing queries
+     * LEGACY PATH SYSTEM: Single file per snapshot (backward compatibility)
+     * Returns: /base-path/snapshot_{id}.parquet
+     * 
+     * Used by methods that still need compatibility with pre-existing single-file data:
+     * - findBySnapshotId() for legacy data access
+     * - deleteBySnapshotId() for cleanup operations  
+     * - existsBySnapshotId() for existence checks
+     * 
+     * @deprecated in favor of multi-file architecture, but maintained for compatibility
      */
     private String getParquetFilePath(Long snapshotId) {
         return parquetBasePath + "/snapshot_" + snapshotId + ".parquet";
@@ -679,15 +703,6 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Legacy method - delegates to optimized version
-     * @deprecated Use saveObservationsToParquetOptimized for better performance
-     */
-    private void saveObservationsToParquet(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
-        logger.debug("Using legacy saveObservationsToParquet - delegating to optimized version");
-        saveObservationsToParquetOptimized(snapshotId, observations);
-    }
-
-    /**
      * NEW: Deletes all observations for a snapshot (removes entire snapshot directory)
      * This works with the new multi-file architecture
      */
@@ -772,7 +787,7 @@ public class ValidationStatParquetRepository {
                 copiedData.add(copy);
             }
             
-            saveObservationsToParquet(newSnapshotId, copiedData);
+            saveObservationsToParquetOptimized(newSnapshotId, copiedData);
             logger.info("Copiados datos del snapshot {} al snapshot {}", originalSnapshotId, newSnapshotId);
         }
     }
@@ -1083,7 +1098,6 @@ public class ValidationStatParquetRepository {
         List<ValidationStatObservationParquet> results = new ArrayList<>();
         int currentOffset = page * size;
         int collected = 0;
-        int totalProcessed = 0;
         
         logger.info("PAGINATION DEBUG: Starting pagination - page: {}, size: {}, currentOffset: {}, totalMatching: {}", 
                    page, size, currentOffset, totalMatchingRecords);
@@ -1101,7 +1115,7 @@ public class ValidationStatParquetRepository {
                 
                 // Stream through this file with filters applied
                 List<ValidationStatObservationParquet> fileResults = streamFileWithFilter(
-                    dataFile.getAbsolutePath(), filter, currentOffset, size - collected, totalProcessed);
+                    dataFile.getAbsolutePath(), filter, currentOffset, size - collected);
                 
                 // Add the results we got
                 results.addAll(fileResults);
@@ -1119,8 +1133,6 @@ public class ValidationStatParquetRepository {
                     logger.info("PAGINATION DEBUG: Collected {} records from {}, total collected: {}", 
                                recordsFromThisFile, dataFile.getName(), collected);
                 }
-                
-                totalProcessed += fileResults.size();
                 
                 logger.debug("MULTI-FILE STREAMING: File {} contributed {} results (total collected: {})", 
                            dataFile.getName(), fileResults.size(), collected);
@@ -1185,7 +1197,7 @@ public class ValidationStatParquetRepository {
      * Only reads what's needed - no memory overload for millions of records
      */
     private List<ValidationStatObservationParquet> streamFileWithFilter(String filePath, AggregationFilter filter, 
-                                                                       int offset, int limit, int globalOffset) throws IOException {
+                                                                       int offset, int limit) throws IOException {
         List<ValidationStatObservationParquet> results = new ArrayList<>();
         
         File file = new File(filePath);
@@ -1278,71 +1290,6 @@ public class ValidationStatParquetRepository {
      */
     public String getSnapshotFilePath(Long snapshotId) {
         return parquetBasePath + "/snapshot_" + snapshotId + ".parquet";
-    }
-    
-    /**
-     * OPTIMIZED: Search with pagination using ValidationStatParquetQueryEngine WITHOUT INDIVIDUAL VERIFICATION
-     */
-    public List<ValidationStatObservationParquet> findOptimizedWithPagination(String filePath, 
-            ValidationStatParquetQueryEngine.AggregationFilter filter, 
-            org.springframework.data.domain.Pageable pageable) throws IOException {
-        
-        logger.debug("findOptimizedWithPagination FULLY OPTIMIZED - file: {}", filePath);
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            logger.debug("File does not exist: {}", filePath);
-            return Collections.emptyList();
-        }
-        
-        // Use optimized query engine directly with Row Group Pruning
-        int offset = pageable.getPageNumber() * pageable.getPageSize();
-        int limit = pageable.getPageSize();
-        
-        List<GenericRecord> records = queryEngine.queryWithPagination(filePath, filter, offset, limit);
-        
-        List<ValidationStatObservationParquet> results = new ArrayList<>();
-        for (GenericRecord record : records) {
-            ValidationStatObservationParquet observation = fromGenericRecord(record);
-            results.add(observation);
-        }
-        
-        logger.debug("findOptimizedWithPagination FULLY OPTIMIZED completed - results: {}", results.size());
-        return results;
-    }
-    
-    /**
-     * OPTIMIZATION 2+3: Ultra-optimized counting with memory management for millions of records
-     */
-    public long countOptimized(String filePath, ValidationStatParquetQueryEngine.AggregationFilter filter) throws IOException {
-        logger.debug("countOptimized ULTRA-OPTIMIZED with batch streaming - file: {}", filePath);
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            logger.debug("File does not exist: {}", filePath);
-            return 0;
-        }
-        
-        // Use new ultra-optimized method for massive datasets
-        long count = queryEngine.countRecordsUltraOptimized(filePath, filter);
-        
-        logger.debug("countOptimized ULTRA-OPTIMIZED completed - total: {}", count);
-        return count;
-    }
-    
-    /**
-     * OPTIMIZATION 2+3: Standard count method with fallback for compatibility
-     */
-    public long countOptimizedStandard(String filePath, ValidationStatParquetQueryEngine.AggregationFilter filter) throws IOException {
-        logger.debug("countOptimizedStandard - standard fallback method");
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            return 0;
-        }
-        
-        // Use standard method as fallback
-        return queryEngine.countRecords(filePath, filter);
     }
     
     /**
