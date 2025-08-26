@@ -154,13 +154,11 @@ public class ValidationStatParquetQueryEngine {
     public AggregationResult getAggregatedStatsOptimized(String filePath, AggregationFilter filter) throws IOException {
         logger.debug("Consulta optimizada HÍBRIDA para: {}", filePath);
         
-        // TEMP: Disable cache to debug filter issues
-        //String cacheKey = filePath + "_" + filter.hashCode();
-        //if (cache.containsKey(cacheKey)) {
-        //    logger.debug("Resultado desde cache");
-        //    return cache.get(cacheKey);
-        //}
-        logger.debug("CACHE DISABLED: Computing fresh results for filter debugging");
+        String cacheKey = filePath + "_" + filter.hashCode();
+        if (cache.containsKey(cacheKey)) {
+            logger.debug("Resultado desde cache");
+            return cache.get(cacheKey);
+        }
         
         AggregationResult result = new AggregationResult();
         
@@ -210,8 +208,7 @@ public class ValidationStatParquetQueryEngine {
                         filter != null ? filter.getIsTransformed() : "null");
         }
         
-        // TEMP: Don't cache while debugging
-        //cache.put(cacheKey, result);
+        cache.put(cacheKey, result);
         logger.debug("Consulta híbrida completada: {} registros, {} reglas válidas, {} reglas inválidas", 
                     result.getTotalCount(), result.getValidRuleCounts().size(), result.getInvalidRuleCounts().size());
         return result;

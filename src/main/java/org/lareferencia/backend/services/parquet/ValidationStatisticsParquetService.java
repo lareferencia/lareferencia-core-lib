@@ -195,21 +195,32 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      */
     public void registerObservations(List<ValidationStatObservationParquet> validationStatsObservations) {
         if (validationStatsObservations == null || validationStatsObservations.isEmpty()) {
+            logger.debug("REGISTER: No observations to register (null or empty)");
             return;
         }
         
         try {
             int observationCount = validationStatsObservations.size();
-            logger.debug("Processing {} observations with immediate streaming", observationCount);
+            logger.info("REGISTER: Processing {} observations with immediate streaming", observationCount);
+            
+            // Log first observation details for debugging
+            if (!validationStatsObservations.isEmpty()) {
+                ValidationStatObservationParquet firstObs = validationStatsObservations.get(0);
+                logger.info("REGISTER: First observation - snapshotId: {}, identifier: {}, isValid: {}, isTransformed: {}", 
+                           firstObs.getSnapshotID(), 
+                           firstObs.getIdentifier(), 
+                           firstObs.getIsValid(), 
+                           firstObs.getIsTransformed());
+            }
             
             // Always use immediate streaming writes for all batch sizes
             // This is optimized for frequent 1000-record batches from ValidationWorker
             parquetRepository.saveAllImmediate(validationStatsObservations);
             
-            logger.debug("Successfully streamed {} observations to Parquet", observationCount);
+            logger.info("REGISTER: Successfully streamed {} observations to Parquet", observationCount);
             
         } catch (Exception e) {
-            logger.error("Error streaming observations: {}", e.getMessage(), e);
+            logger.error("REGISTER: Error streaming observations: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to stream validation observations", e);
         }
     }    /**
@@ -261,20 +272,26 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * Query validation rule statistics by snapshot
      */
     public ValidationStats queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws Exception {
+        logger.info("ENTERING: queryValidatorRulesStatsBySnapshot with NetworkSnapshot {} and filters: {}", snapshot.getId(), fq);
 
         ValidationStats result = new ValidationStats();
 
         try {
             // If there are filters, apply them to both statistics and facets
             if (fq != null && !fq.isEmpty()) {
-                logger.debug("Applying filters to main statistics: {}", fq);
+                logger.info("MAIN STATS: Applying filters to main statistics: {}", fq);
                 
                 // Process filters
                 Map<String, Object> filters = parseFilterQueries(fq);
+                logger.info("MAIN STATS: Parsed filters: {}", filters);
+                
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshot.getId());
+                logger.info("MAIN STATS: Created aggregation filter: isValid={}, identifier={}", 
+                    aggregationFilter.getIsValid(), aggregationFilter.getRecordOAIId());
                 
                 // Use OPTIMIZED repository methods - NO memory loading
                 Map<String, Object> filteredStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
+                logger.info("MAIN STATS: Filtered stats result: {}", filteredStats);
                 
                 result.size = ((Number) filteredStats.getOrDefault("totalCount", 0L)).intValue();
                 result.validSize = ((Number) filteredStats.getOrDefault("validCount", 0L)).intValue();
@@ -434,6 +451,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
     /**
      * Query validation statistics observations by snapshot ID with pagination (never loads all records in memory)
+     * This method focuses ONLY on returning filtered paginated records, NOT aggregated statistics
      */
     @Override
     public ValidationStatsQueryResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
@@ -442,12 +460,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         try {
             if (fq != null && !fq.isEmpty()) {
                 Map<String, Object> filters = parseFilterQueries(fq);
-                logger.info("FILTER STATS DEBUG: Parsed filters from fq: {}", filters);
-                logger.info("FILTER STATS DEBUG: Original fq list: {}", fq);
+                logger.info("FILTER RECORDS: Parsed filters from fq: {}", filters);
+                logger.info("FILTER RECORDS: Original fq list: {}", fq);
                 
                 // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
-                logger.info("FILTER STATS DEBUG: Converted AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
+                logger.info("FILTER RECORDS: Converted AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
                            aggregationFilter.getIsValid(), aggregationFilter.getIsTransformed(), aggregationFilter.getRecordOAIId());
                 
                 // Use optimized methods with pagination - never loads all data
@@ -456,25 +474,16 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 
                 // Get total count using optimizations (without loading all data)
                 long totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
-                logger.info("FILTER STATS DEBUG: Total filtered elements: {}", totalElements);
-                
-                // **IMPORTANT**: Get filtered aggregated statistics that reflect the applied filters
-                Map<String, Object> filteredAggregations = parquetRepository.getAggregatedStatsWithFilter(snapshotID, aggregationFilter);
-                logger.info("FILTER STATS DEBUG: Calculated filtered aggregations: {}", filteredAggregations);
+                logger.info("FILTER RECORDS: Total filtered elements: {}", totalElements);
                 
                 logger.debug("OPTIMIZED results - found: {} total, {} in page", totalElements, pageResults.size());
                 
-                // Create result with filtered aggregations
-                ValidationStatsQueryResult result = new ValidationStatsQueryResult(pageResults, totalElements, pageable);
-                result.setAggregations(filteredAggregations);
+                // Return ONLY paginated records - NO aggregated statistics
+                // Aggregated statistics should be handled by separate endpoints like /public/diagnose/{snapshotID}
+                return new ValidationStatsQueryResult(pageResults, totalElements, pageable);
                 
-                logger.info("FILTER STATS FINAL: ValidationStatsQueryResult created with aggregations: {}", result.getAggregations());
-                logger.info("FILTER STATS FINAL: Total elements in result: {}", result.getTotalElements());
-                logger.info("FILTER STATS FINAL: Content size: {}", result.getContent().size());
-                
-                return result;
             } else {
-                // Without filters, use direct pagination and get all stats
+                // Without filters, use direct pagination
                 List<ValidationStatObservationParquet> parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
                     snapshotID, 
                     pageable.getPageNumber(), 
@@ -483,15 +492,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 
                 long totalElements = parquetRepository.countBySnapshotId(snapshotID);
                 
-                // Get complete aggregated statistics (no filters)
-                Map<String, Object> allAggregations = parquetRepository.getAggregatedStats(snapshotID);
-                logger.debug("FILTER STATS: Calculated complete aggregations: {}", allAggregations);
-                
-                // Create result with complete aggregations
-                ValidationStatsQueryResult result = new ValidationStatsQueryResult(parquetObservations, totalElements, pageable);
-                result.setAggregations(allAggregations);
-                
-                return result;
+                // Return ONLY paginated records - NO aggregated statistics
+                return new ValidationStatsQueryResult(parquetObservations, totalElements, pageable);
             }
 
         } catch (IOException e) {
@@ -502,6 +504,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
     /**
      * Converts filters from String format to Map for Parquet repository (no System.out)
+     * Supports both formats: "field:value" and "field@@value"
      */
     private Map<String, Object> parseFilterQueries(List<String> fq) {
         Map<String, Object> filters = new HashMap<>();
@@ -513,20 +516,42 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         logger.debug("Processing filters: {}", fq);
         
         for (String fqTerm : fq) {
-            if (fqTerm.contains(":")) {
+            String key = null;
+            String value = null;
+            
+            // Support both formats: field:value and field@@value
+            if (fqTerm.contains("@@")) {
+                String[] parts = fqTerm.split("@@", 2);
+                key = parts[0].trim();
+                value = parts[1].trim();
+                logger.debug("Parsed @@ format - key: {}, value: {}", key, value);
+            } else if (fqTerm.contains(":")) {
                 String[] parts = fqTerm.split(":", 2);
-                String key = parts[0].trim();
-                String value = parts[1].trim();
+                key = parts[0].trim();
+                value = parts[1].trim();
+                logger.debug("Parsed : format - key: {}, value: {}", key, value);
+            }
+            
+            if (key != null && value != null) {
+                // Remove quotes if present
+                if (value.startsWith("\"") && value.endsWith("\"")) {
+                    value = value.substring(1, value.length() - 1);
+                }
                 
+                // Convert string values to appropriate types
                 if (value.equals("true") || value.equals("false")) {
                     filters.put(key, Boolean.parseBoolean(value));
+                    logger.debug("Added boolean filter: {} = {}", key, Boolean.parseBoolean(value));
                 } else {
                     filters.put(key, value);
+                    logger.debug("Added string filter: {} = {}", key, value);
                 }
+            } else {
+                logger.warn("Could not parse filter: {}", fqTerm);
             }
         }
         
-        logger.debug("Final filter map: {}", filters);
+        logger.info("FILTER PARSING: Final filter map: {}", filters);
         return filters;
     }
 
@@ -675,181 +700,128 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     private Map<String, List<FacetFieldEntry>> buildSimulatedFacets(Long snapshotId, List<String> fq) throws IOException {
         Map<String, List<FacetFieldEntry>> facets = new HashMap<>();
         
-        // Obtener todas las observaciones del snapshot
-        List<ValidationStatObservationParquet> observations = parquetRepository.findBySnapshotId(snapshotId);
-        logger.info("Total de observaciones antes del filtro: {}", observations.size());
+        // OPTIMIZED: Use aggregated statistics instead of loading all records
+        Map<String, Object> aggregatedStats;
         
-        // Aplicar filtros si están presentes
         if (fq != null && !fq.isEmpty()) {
+            // Apply filters to aggregated statistics (MEMORY EFFICIENT)
             Map<String, Object> filters = parseFilterQueries(fq);
-            if (!filters.isEmpty()) {
-                List<ValidationStatObservationParquet> filteredObservations = observations.stream()
-                    .filter(obs -> matchesFilters(obs, filters))
-                    .collect(Collectors.toList());
-                    
-                logger.info("Observaciones después del filtro: {} (filtros aplicados: {})", 
-                    filteredObservations.size(), filters);
-                observations = filteredObservations;
-            }
+            ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotId);
+            aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshotId, aggregationFilter);
+            logger.info("FACETS: Using filtered aggregated stats for snapshot {} with filters: {}", snapshotId, filters);
+        } else {
+            // No filters - use complete aggregated statistics
+            aggregatedStats = parquetRepository.getAggregatedStats(snapshotId);
+            logger.info("FACETS: Using complete aggregated stats for snapshot {}", snapshotId);
         }
         
-        // Calcular facetas para cada campo
-        facets.put("record_is_valid", buildFacetForBooleanField(observations, "isValid"));
-        facets.put("record_is_transformed", buildFacetForBooleanField(observations, "isTransformed"));
-        facets.put("institution_name", buildFacetForStringField(observations, "institutionName"));
-        facets.put("repository_name", buildFacetForStringField(observations, "repositoryName"));
-        facets.put("valid_rules", buildFacetForValidRules(observations));
-        facets.put("invalid_rules", buildFacetForInvalidRules(observations));
+        // Build facets from aggregated statistics (MEMORY EFFICIENT)
+        facets.put("record_is_valid", buildFacetFromAggregatedStats(aggregatedStats, "isValid"));
+        facets.put("record_is_transformed", buildFacetFromAggregatedStats(aggregatedStats, "isTransformed"));
+        facets.put("institution_name", buildFacetForInstitutionName(aggregatedStats));
+        facets.put("repository_name", buildFacetForRepositoryName(aggregatedStats));
+        facets.put("valid_rules", buildFacetForValidRulesFromStats(aggregatedStats));
+        facets.put("invalid_rules", buildFacetForInvalidRulesFromStats(aggregatedStats));
         
+        logger.debug("FACETS: Built {} facet fields", facets.size());
         return facets;
     }
 
-    // Métodos auxiliares para construir facetas
-    private List<FacetFieldEntry> buildFacetForBooleanField(List<ValidationStatObservationParquet> observations, String fieldName) {
-        Map<String, Long> counts = new HashMap<>();
+    /**
+     * Build facets from aggregated statistics instead of loading all records
+     */
+    private List<FacetFieldEntry> buildFacetFromAggregatedStats(Map<String, Object> stats, String fieldType) {
+        List<FacetFieldEntry> facetEntries = new ArrayList<>();
         
-        for (ValidationStatObservationParquet obs : observations) {
-            Boolean fieldValue = null;
-            switch (fieldName) {
-                case "isValid":
-                    fieldValue = obs.getIsValid();
-                    break;
-                case "isTransformed":
-                    fieldValue = obs.getIsTransformed();
-                    break;
+        long totalCount = ((Number) stats.getOrDefault("totalCount", 0L)).longValue();
+        long validCount = ((Number) stats.getOrDefault("validCount", 0L)).longValue();
+        long transformedCount = ((Number) stats.getOrDefault("transformedCount", 0L)).longValue();
+        
+        if ("isValid".equals(fieldType)) {
+            // Build isValid facet
+            if (validCount > 0) {
+                facetEntries.add(new FacetFieldEntry("true", validCount, "record_is_valid"));
             }
             
-            String valueStr = fieldValue != null ? fieldValue.toString() : "null";
-            counts.put(valueStr, counts.getOrDefault(valueStr, 0L) + 1);
-        }
-        
-        String facetKeyName = fieldName.equals("isValid") ? "record_is_valid" : "record_is_transformed";
-        
-        return counts.entrySet().stream()
-                .map(entry -> new FacetFieldEntry(entry.getKey(), entry.getValue(), facetKeyName))
-                .sorted((a, b) -> Long.compare(b.getValueCount(), a.getValueCount()))
-                .collect(Collectors.toList());
-    }
-    
-    private List<FacetFieldEntry> buildFacetForStringField(List<ValidationStatObservationParquet> observations, String fieldName) {
-        Map<String, Long> counts = new HashMap<>();
-        
-        for (ValidationStatObservationParquet obs : observations) {
-            String fieldValue = null;
-            switch (fieldName) {
-                case "institutionName":
-                    fieldValue = obs.getInstitutionName();
-                    break;
-                case "repositoryName":
-                    fieldValue = obs.getRepositoryName();
-                    break;
+            long invalidCount = totalCount - validCount;
+            if (invalidCount > 0) {
+                facetEntries.add(new FacetFieldEntry("false", invalidCount, "record_is_valid"));
+            }
+        } else if ("isTransformed".equals(fieldType)) {
+            // Build isTransformed facet
+            if (transformedCount > 0) {
+                facetEntries.add(new FacetFieldEntry("true", transformedCount, "record_is_transformed"));
             }
             
-            String valueStr = fieldValue != null ? fieldValue : "unknown";
-            counts.put(valueStr, counts.getOrDefault(valueStr, 0L) + 1);
-        }
-        
-        return counts.entrySet().stream()
-                .map(entry -> new FacetFieldEntry(entry.getKey(), entry.getValue(), fieldName))
-                .sorted((a, b) -> Long.compare(b.getValueCount(), a.getValueCount()))
-                .collect(Collectors.toList());
-    }
-    
-    private List<FacetFieldEntry> buildFacetForValidRules(List<ValidationStatObservationParquet> observations) {
-        Map<String, Long> counts = new HashMap<>();
-        
-        for (ValidationStatObservationParquet obs : observations) {
-            List<String> validRules = obs.getValidRulesIDList();
-            if (validRules != null) {
-                for (String ruleId : validRules) {
-                    counts.put(ruleId, counts.getOrDefault(ruleId, 0L) + 1);
-                }
+            long notTransformedCount = totalCount - transformedCount;
+            if (notTransformedCount > 0) {
+                facetEntries.add(new FacetFieldEntry("false", notTransformedCount, "record_is_transformed"));
             }
         }
         
-        return counts.entrySet().stream()
-                .map(entry -> new FacetFieldEntry(entry.getKey(), entry.getValue(), "valid_rules"))
-                .sorted((a, b) -> Long.compare(b.getValueCount(), a.getValueCount()))
-                .collect(Collectors.toList());
+        return facetEntries;
     }
-    
-    private List<FacetFieldEntry> buildFacetForInvalidRules(List<ValidationStatObservationParquet> observations) {
-        Map<String, Long> counts = new HashMap<>();
+
+    /**
+     * Build facets for institution name from aggregated statistics
+     */
+    private List<FacetFieldEntry> buildFacetForInstitutionName(Map<String, Object> stats) {
+        List<FacetFieldEntry> facetEntries = new ArrayList<>();
         
-        for (ValidationStatObservationParquet obs : observations) {
-            List<String> invalidRules = obs.getInvalidRulesIDList();
-            if (invalidRules != null) {
-                for (String ruleId : invalidRules) {
-                    counts.put(ruleId, counts.getOrDefault(ruleId, 0L) + 1);
-                }
-            }
+        // For now, use simple logic (can be enhanced later)
+        long totalCount = ((Number) stats.getOrDefault("totalCount", 0L)).longValue();
+        if (totalCount > 0) {
+            facetEntries.add(new FacetFieldEntry("unknown", totalCount, "institutionName"));
         }
         
-        return counts.entrySet().stream()
-                .map(entry -> new FacetFieldEntry(entry.getKey(), entry.getValue(), "invalid_rules"))
-                .sorted((a, b) -> Long.compare(b.getValueCount(), a.getValueCount()))
-                .collect(Collectors.toList());
+        return facetEntries;
     }
-    
-    private boolean matchesFilters(ValidationStatObservationParquet obs, Map<String, Object> filters) {
-        for (Map.Entry<String, Object> filter : filters.entrySet()) {
-            String field = filter.getKey();
-            Object value = filter.getValue();
-            
-            switch (field) {
-                case "isValid":
-                case "record_is_valid":
-                    if (!Objects.equals(obs.getIsValid(), value)) return false;
-                    break;
-                case "isTransformed":
-                case "record_is_transformed":
-                    if (!Objects.equals(obs.getIsTransformed(), value)) return false;
-                    break;
-                case "institutionName":
-                case "institution_name":
-                    if (!Objects.equals(obs.getInstitutionName(), value)) return false;
-                    break;
-                case "repositoryName":
-                case "repository_name":
-                    if (!Objects.equals(obs.getRepositoryName(), value)) return false;
-                    break;
-                case "identifier":
-                    // Verificar si el identifier coincide (búsqueda exacta o contiene)
-                    String identifierValue = value.toString();
-                    String obsIdentifier = obs.getIdentifier();
-                    logger.debug("Filtro identifier: buscando '{}' en '{}'", identifierValue, obsIdentifier);
-                    if (obsIdentifier == null || (!obsIdentifier.equals(identifierValue) && !obsIdentifier.contains(identifierValue))) {
-                        logger.debug("Comparando '{}' con '{}' (exacta o contiene) = false", obsIdentifier, identifierValue);
-                        return false;
-                    }
-                    logger.debug("Comparando '{}' con '{}' (exacta o contiene) = true", obsIdentifier, identifierValue);
-                    break;
-                case "valid_rules":
-                    // Verificar si el ruleId está en la lista de reglas válidas
-                    String valueStr = value.toString();
-                    List<String> validRules = obs.getValidRulesIDList();
-                    logger.debug("Filtro valid_rules: buscando '{}' en {}", valueStr, validRules);
-                    if (validRules == null || !validRules.contains(valueStr)) {
-                        logger.debug("Registro rechazado: regla '{}' no está en valid_rules {}", valueStr, validRules);
-                        return false;
-                    }
-                    logger.debug("Registro aceptado: regla '{}' encontrada en valid_rules", valueStr);
-                    break;
-                case "invalid_rules":
-                    // Verificar si el ruleId está en la lista de reglas inválidas
-                    String invalidValueStr = value.toString();
-                    List<String> invalidRules = obs.getInvalidRulesIDList();
-                    logger.debug("Filtro invalid_rules: buscando '{}' en {}", invalidValueStr, invalidRules);
-                    if (invalidRules == null || !invalidRules.contains(invalidValueStr)) {
-                        logger.debug("Registro rechazado: regla '{}' no está en invalid_rules {}", invalidValueStr, invalidRules);
-                        return false;
-                    }
-                    logger.debug("Registro aceptado: regla '{}' encontrada en invalid_rules", invalidValueStr);
-                    break;
-                // Agregar más campos según sea necesario
-            }
+
+    /**
+     * Build facets for repository name from aggregated statistics
+     */
+    private List<FacetFieldEntry> buildFacetForRepositoryName(Map<String, Object> stats) {
+        List<FacetFieldEntry> facetEntries = new ArrayList<>();
+        
+        // For now, use simple logic (can be enhanced later)
+        long totalCount = ((Number) stats.getOrDefault("totalCount", 0L)).longValue();
+        if (totalCount > 0) {
+            facetEntries.add(new FacetFieldEntry("unknown", totalCount, "repositoryName"));
         }
-        return true;
+        
+        return facetEntries;
+    }
+
+    /**
+     * Build facets for valid rules from aggregated statistics
+     */
+    private List<FacetFieldEntry> buildFacetForValidRulesFromStats(Map<String, Object> stats) {
+        List<FacetFieldEntry> facetEntries = new ArrayList<>();
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Long> validRuleCounts = (Map<String, Long>) stats.getOrDefault("validRuleCounts", new HashMap<>());
+        
+        for (Map.Entry<String, Long> entry : validRuleCounts.entrySet()) {
+            facetEntries.add(new FacetFieldEntry(entry.getKey(), entry.getValue(), "valid_rules"));
+        }
+        
+        return facetEntries;
+    }
+
+    /**
+     * Build facets for invalid rules from aggregated statistics
+     */
+    private List<FacetFieldEntry> buildFacetForInvalidRulesFromStats(Map<String, Object> stats) {
+        List<FacetFieldEntry> facetEntries = new ArrayList<>();
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Long> invalidRuleCounts = (Map<String, Long>) stats.getOrDefault("invalidRuleCounts", new HashMap<>());
+        
+        for (Map.Entry<String, Long> entry : invalidRuleCounts.entrySet()) {
+            facetEntries.add(new FacetFieldEntry(entry.getKey(), entry.getValue(), "invalid_rules"));
+        }
+        
+        return facetEntries;
     }
 
     // Clases internas (copiadas del servicio original)
@@ -1040,5 +1012,20 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         }
         
         return true;
+    }
+    
+    /**
+     * Flush any remaining buffered validation data for a snapshot.
+     * This should be called at the end of validation to ensure all data is written to files.
+     */
+    public void flushValidationData(Long snapshotId) {
+        try {
+            logger.info("VALIDATION FLUSH: Flushing remaining buffered data for snapshot {}", snapshotId);
+            parquetRepository.flushAllBuffers();
+            logger.info("VALIDATION FLUSH: Successfully flushed validation data for snapshot {}", snapshotId);
+        } catch (Exception e) {
+            logger.error("VALIDATION FLUSH: Error flushing validation data for snapshot {}", snapshotId, e);
+            throw new RuntimeException("Error flushing validation data for snapshot " + snapshotId, e);
+        }
     }
 }

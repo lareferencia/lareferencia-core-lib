@@ -1076,39 +1076,48 @@ public class ValidationStatParquetRepository {
         logger.debug("MULTI-FILE STREAMING: Processing {} data files for snapshot {} with pagination streaming", 
                    dataFiles.length, snapshotId);
         
+        // First, let's count total records that match the filter for debugging
+        long totalMatchingRecords = countRecordsWithFilter(snapshotId, filter);
+        logger.info("PAGINATION DEBUG: Total records matching filter for snapshot {}: {}", snapshotId, totalMatchingRecords);
+        
         List<ValidationStatObservationParquet> results = new ArrayList<>();
         int currentOffset = page * size;
         int collected = 0;
         int totalProcessed = 0;
         
+        logger.info("PAGINATION DEBUG: Starting pagination - page: {}, size: {}, currentOffset: {}, totalMatching: {}", 
+                   page, size, currentOffset, totalMatchingRecords);
+        
         // Process each file with streaming until we have enough results
         for (File dataFile : dataFiles) {
             if (collected >= size) {
+                logger.info("PAGINATION DEBUG: Breaking early - collected {} >= size {}", collected, size);
                 break; // We have enough results
             }
             
             try {
-                logger.debug("MULTI-FILE STREAMING: Processing file {} (collected: {}, needed: {})", 
-                           dataFile.getName(), collected, size);
+                logger.info("PAGINATION DEBUG: Processing file {} (collected: {}, needed: {}, currentOffset: {})", 
+                           dataFile.getName(), collected, size, currentOffset);
                 
                 // Stream through this file with filters applied
                 List<ValidationStatObservationParquet> fileResults = streamFileWithFilter(
                     dataFile.getAbsolutePath(), filter, currentOffset, size - collected, totalProcessed);
                 
-                // Adjust offset for next file (only if we haven't satisfied it yet)
+                // Add the results we got
+                results.addAll(fileResults);
+                collected = results.size();
+                
+                // Update offset for next file (subtract what we used from this file)
+                int recordsFromThisFile = fileResults.size();
                 if (currentOffset > 0) {
-                    int fileContribution = Math.min(currentOffset, fileResults.size());
-                    currentOffset = Math.max(0, currentOffset - fileContribution);
-                    
-                    // If offset was satisfied by this file, start collecting from the remaining results
-                    if (currentOffset == 0 && fileResults.size() > fileContribution) {
-                        results.addAll(fileResults.subList(fileContribution, fileResults.size()));
-                        collected = results.size();
-                    }
+                    // We were still in offset mode, now reduce the offset
+                    currentOffset = Math.max(0, currentOffset - recordsFromThisFile);
+                    logger.info("PAGINATION DEBUG: Used {} records from {}, new currentOffset: {}", 
+                               recordsFromThisFile, dataFile.getName(), currentOffset);
                 } else {
-                    // We're in collection mode, add results
-                    results.addAll(fileResults);
-                    collected = results.size();
+                    // We were in collection mode
+                    logger.info("PAGINATION DEBUG: Collected {} records from {}, total collected: {}", 
+                               recordsFromThisFile, dataFile.getName(), collected);
                 }
                 
                 totalProcessed += fileResults.size();
@@ -1172,8 +1181,8 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Stream a single file with filters applied, without loading all data in memory
-     * Efficiently processes large files by reading record by record
+     * Stream a single file with filters applied, with efficient offset/limit handling
+     * Only reads what's needed - no memory overload for millions of records
      */
     private List<ValidationStatObservationParquet> streamFileWithFilter(String filePath, AggregationFilter filter, 
                                                                        int offset, int limit, int globalOffset) throws IOException {
@@ -1185,11 +1194,10 @@ public class ValidationStatParquetRepository {
             return results;
         }
         
-        logger.debug("STREAM FILE: Processing {} with offset={}, limit={}, globalOffset={}", 
-                   file.getName(), offset, limit, globalOffset);
+        logger.debug("STREAM FILE: Processing {} with offset={}, limit={}", file.getName(), offset, limit);
         
-        int currentIndex = 0;
-        int collected = 0;
+        int filteredCount = 0; // Count of records that match the filter
+        int collected = 0;     // Count of records collected for results
         
         try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
                 .withConf(hadoopConf)
@@ -1199,20 +1207,21 @@ public class ValidationStatParquetRepository {
             while ((record = reader.read()) != null && collected < limit) {
                 ValidationStatObservationParquet observation = fromGenericRecord(record);
                 
-                // Apply filter
+                // Apply filter first
                 if (matchesAggregationFilter(observation, filter)) {
-                    // Check if we're still in the offset phase
-                    if (currentIndex >= offset) {
+                    // This record matches the filter
+                    if (filteredCount >= offset) {
+                        // We've skipped enough records, start collecting
                         results.add(observation);
                         collected++;
                     }
-                    currentIndex++;
+                    filteredCount++;
                 }
             }
         }
         
-        logger.debug("STREAM FILE: File {} returned {} results (read {} matching records)", 
-                   file.getName(), results.size(), currentIndex);
+        logger.debug("STREAM FILE: File {} returned {} results (filtered {} total, skipped {} for offset)", 
+                   file.getName(), results.size(), filteredCount, offset);
         
         return results;
     }
@@ -1349,24 +1358,28 @@ public class ValidationStatParquetRepository {
      */
     public void saveAllImmediate(List<ValidationStatObservationParquet> observations) throws IOException {
         if (observations == null || observations.isEmpty()) {
+            logger.debug("SAVE: No observations to save (null or empty)");
             return;
         }
         
-        logger.info("BUFFERED: Processing {} observations with intelligent buffering", observations.size());
+        logger.info("SAVE: Processing {} observations with intelligent buffering", observations.size());
         
         // Group by snapshot ID to handle multiple snapshots in one batch
         Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
             .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
+        
+        logger.info("SAVE: Grouped observations into {} snapshots: {}", groupedBySnapshot.size(), groupedBySnapshot.keySet());
         
         // Process each snapshot with buffering approach
         for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
             Long snapshotId = entry.getKey();
             List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
             
+            logger.info("SAVE: Processing {} observations for snapshot {}", snapshotObservations.size(), snapshotId);
             addToBufferAndFlushIfNeeded(snapshotId, snapshotObservations);
         }
         
-        logger.debug("BUFFERED: Completed processing {} observations", observations.size());
+        logger.info("SAVE: Completed processing {} observations", observations.size());
     }
 
     /**

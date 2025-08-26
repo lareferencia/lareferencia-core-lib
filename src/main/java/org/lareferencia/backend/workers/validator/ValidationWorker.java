@@ -367,6 +367,13 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 	@Override
 	public void postRun() {
+		// CRITICAL: Flush any remaining buffered validation data before marking as complete
+		try {
+			validationStatisticsService.flushValidationData(snapshotId);
+		} catch (Exception e) {
+			logger.error("ERROR: Failed to flush validation data for snapshot {}", snapshotId, e);
+		}
+		
 		setSnapshotStatus(SnapshotStatus.VALID);
 		logInfo("Finishing Validation/Transformation of " + runningContext.toString() );
 
