@@ -428,7 +428,7 @@ public class ValidationStatParquetRepository {
             return;
         }
         
-        logger.info("Starting OPTIMIZED batch save of {} observations", observations.size());
+        logger.debug("Starting OPTIMIZED batch save of {} observations", observations.size());
         
         // Group by snapshot ID for batch processing
         Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
@@ -580,7 +580,7 @@ public class ValidationStatParquetRepository {
             return;
         }
         
-        logger.info("Starting ULTRA-OPTIMIZED massive save of {} observations", observations.size());
+        logger.debug("Starting ULTRA-OPTIMIZED massive save of {} observations", observations.size());
         
         // Monitor memory usage
         Runtime runtime = Runtime.getRuntime();
@@ -1093,24 +1093,24 @@ public class ValidationStatParquetRepository {
         
         // First, let's count total records that match the filter for debugging
         long totalMatchingRecords = countRecordsWithFilter(snapshotId, filter);
-        logger.info("PAGINATION DEBUG: Total records matching filter for snapshot {}: {}", snapshotId, totalMatchingRecords);
+        logger.debug("PAGINATION DEBUG: Total records matching filter for snapshot {}: {}", snapshotId, totalMatchingRecords);
         
         List<ValidationStatObservationParquet> results = new ArrayList<>();
         int currentOffset = page * size;
         int collected = 0;
         
-        logger.info("PAGINATION DEBUG: Starting pagination - page: {}, size: {}, currentOffset: {}, totalMatching: {}", 
+        logger.debug("PAGINATION DEBUG: Starting pagination - page: {}, size: {}, currentOffset: {}, totalMatching: {}", 
                    page, size, currentOffset, totalMatchingRecords);
         
         // Process each file with streaming until we have enough results
         for (File dataFile : dataFiles) {
             if (collected >= size) {
-                logger.info("PAGINATION DEBUG: Breaking early - collected {} >= size {}", collected, size);
+                logger.debug("PAGINATION DEBUG: Breaking early - collected {} >= size {}", collected, size);
                 break; // We have enough results
             }
             
             try {
-                logger.info("PAGINATION DEBUG: Processing file {} (collected: {}, needed: {}, currentOffset: {})", 
+                logger.debug("PAGINATION DEBUG: Processing file {} (collected: {}, needed: {}, currentOffset: {})", 
                            dataFile.getName(), collected, size, currentOffset);
                 
                 // Stream through this file with filters applied
@@ -1126,11 +1126,11 @@ public class ValidationStatParquetRepository {
                 if (currentOffset > 0) {
                     // We were still in offset mode, now reduce the offset
                     currentOffset = Math.max(0, currentOffset - recordsFromThisFile);
-                    logger.info("PAGINATION DEBUG: Used {} records from {}, new currentOffset: {}", 
+                    logger.debug("PAGINATION DEBUG: Used {} records from {}, new currentOffset: {}", 
                                recordsFromThisFile, dataFile.getName(), currentOffset);
                 } else {
                     // We were in collection mode
-                    logger.info("PAGINATION DEBUG: Collected {} records from {}, total collected: {}", 
+                    logger.debug("PAGINATION DEBUG: Collected {} records from {}, total collected: {}", 
                                recordsFromThisFile, dataFile.getName(), collected);
                 }
                 
@@ -1309,24 +1309,24 @@ public class ValidationStatParquetRepository {
             return;
         }
         
-        logger.info("SAVE: Processing {} observations with intelligent buffering", observations.size());
+        logger.debug("SAVE: Processing {} observations with intelligent buffering", observations.size());
         
         // Group by snapshot ID to handle multiple snapshots in one batch
         Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
             .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
         
-        logger.info("SAVE: Grouped observations into {} snapshots: {}", groupedBySnapshot.size(), groupedBySnapshot.keySet());
+        logger.debug("SAVE: Grouped observations into {} snapshots: {}", groupedBySnapshot.size(), groupedBySnapshot.keySet());
         
         // Process each snapshot with buffering approach
         for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
             Long snapshotId = entry.getKey();
             List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
             
-            logger.info("SAVE: Processing {} observations for snapshot {}", snapshotObservations.size(), snapshotId);
+            logger.debug("SAVE: Processing {} observations for snapshot {}", snapshotObservations.size(), snapshotId);
             addToBufferAndFlushIfNeeded(snapshotId, snapshotObservations);
         }
         
-        logger.info("SAVE: Completed processing {} observations", observations.size());
+        logger.debug("SAVE: Completed processing {} observations", observations.size());
     }
 
     /**

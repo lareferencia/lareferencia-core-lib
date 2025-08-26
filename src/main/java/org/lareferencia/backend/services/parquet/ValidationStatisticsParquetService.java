@@ -219,12 +219,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         
         try {
             int observationCount = validationStatsObservations.size();
-            logger.info("REGISTER: Processing {} observations with immediate streaming", observationCount);
+            logger.debug("REGISTER: Processing {} observations with immediate streaming", observationCount);
             
             // Log first observation details for debugging
             if (!validationStatsObservations.isEmpty()) {
                 ValidationStatObservationParquet firstObs = validationStatsObservations.get(0);
-                logger.info("REGISTER: First observation - snapshotId: {}, identifier: {}, isValid: {}, isTransformed: {}", 
+                logger.debug("REGISTER: First observation - snapshotId: {}, identifier: {}, isValid: {}, isTransformed: {}", 
                            firstObs.getSnapshotID(), 
                            firstObs.getIdentifier(), 
                            firstObs.getIsValid(), 
@@ -235,7 +235,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             // This is optimized for frequent 1000-record batches from ValidationWorker
             parquetRepository.saveAllImmediate(validationStatsObservations);
             
-            logger.info("REGISTER: Successfully streamed {} observations to Parquet", observationCount);
+            logger.debug("REGISTER: Successfully streamed {} observations to Parquet", observationCount);
             
         } catch (Exception e) {
             logger.error("REGISTER: Error streaming observations: {}", e.getMessage(), e);
@@ -290,26 +290,26 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * Query validation rule statistics by snapshot
      */
     public ValidationStats queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws Exception {
-        logger.info("ENTERING: queryValidatorRulesStatsBySnapshot with NetworkSnapshot {} and filters: {}", snapshot.getId(), fq);
+        logger.debug("ENTERING: queryValidatorRulesStatsBySnapshot with NetworkSnapshot {} and filters: {}", snapshot.getId(), fq);
 
         ValidationStats result = new ValidationStats();
 
         try {
             // If there are filters, apply them to both statistics and facets
             if (fq != null && !fq.isEmpty()) {
-                logger.info("MAIN STATS: Applying filters to main statistics: {}", fq);
+                logger.debug("MAIN STATS: Applying filters to main statistics: {}", fq);
                 
                 // Process filters
                 Map<String, Object> filters = parseFilterQueries(fq);
-                logger.info("MAIN STATS: Parsed filters: {}", filters);
+                logger.debug("MAIN STATS: Parsed filters: {}", filters);
                 
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshot.getId());
-                logger.info("MAIN STATS: Created aggregation filter: isValid={}, identifier={}", 
+                logger.debug("MAIN STATS: Created aggregation filter: isValid={}, identifier={}", 
                     aggregationFilter.getIsValid(), aggregationFilter.getRecordOAIId());
                 
                 // Use OPTIMIZED repository methods - NO memory loading
                 Map<String, Object> filteredStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
-                logger.info("MAIN STATS: Filtered stats result: {}", filteredStats);
+                logger.debug("MAIN STATS: Filtered stats result: {}", filteredStats);
                 
                 result.size = ((Number) filteredStats.getOrDefault("totalCount", 0L)).intValue();
                 result.validSize = ((Number) filteredStats.getOrDefault("validCount", 0L)).intValue();
@@ -349,7 +349,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 
             } else {
                 // Without filters, use aggregated statistics (original behavior)
-                logger.info("No filters - using complete aggregated statistics");
+                logger.debug("No filters - using complete aggregated statistics");
                 
                 Map<String, Object> aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
                 
@@ -478,12 +478,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         try {
             if (fq != null && !fq.isEmpty()) {
                 Map<String, Object> filters = parseFilterQueries(fq);
-                logger.info("FILTER RECORDS: Parsed filters from fq: {}", filters);
-                logger.info("FILTER RECORDS: Original fq list: {}", fq);
+                logger.debug("FILTER RECORDS: Parsed filters from fq: {}", filters);
+                logger.debug("FILTER RECORDS: Original fq list: {}", fq);
                 
                 // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
                 ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
-                logger.info("FILTER RECORDS: Converted AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
+                logger.debug("FILTER RECORDS: Converted AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
                            aggregationFilter.getIsValid(), aggregationFilter.getIsTransformed(), aggregationFilter.getRecordOAIId());
                 
                 // Use optimized methods with pagination - never loads all data
@@ -492,7 +492,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 
                 // Get total count using optimizations (without loading all data)
                 long totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
-                logger.info("FILTER RECORDS: Total filtered elements: {}", totalElements);
+                logger.debug("FILTER RECORDS: Total filtered elements: {}", totalElements);
                 
                 logger.debug("OPTIMIZED results - found: {} total, {} in page", totalElements, pageResults.size());
                 
@@ -661,7 +661,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             }
         }
         
-        logger.info("FILTER CONVERSION: Final AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
+        logger.debug("FILTER CONVERSION: Final AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
                    aggFilter.getIsValid(), aggFilter.getIsTransformed(), aggFilter.getRecordOAIId());
         
         return aggFilter;
@@ -678,11 +678,11 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             Map<String, Object> filters = parseFilterQueries(fq);
             ValidationStatParquetQueryEngine.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotId);
             aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshotId, aggregationFilter);
-            logger.info("FACETS: Using filtered aggregated stats for snapshot {} with filters: {}", snapshotId, filters);
+            logger.debug("FACETS: Using filtered aggregated stats for snapshot {} with filters: {}", snapshotId, filters);
         } else {
             // No filters - use complete aggregated statistics
             aggregatedStats = parquetRepository.getAggregatedStats(snapshotId);
-            logger.info("FACETS: Using complete aggregated stats for snapshot {}", snapshotId);
+            logger.debug("FACETS: Using complete aggregated stats for snapshot {}", snapshotId);
         }
         
         // Build facets from aggregated statistics (MEMORY EFFICIENT)
@@ -990,9 +990,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      */
     public void flushValidationData(Long snapshotId) {
         try {
-            logger.info("VALIDATION FLUSH: Flushing remaining buffered data for snapshot {}", snapshotId);
+            logger.debug("VALIDATION FLUSH: Flushing remaining buffered data for snapshot {}", snapshotId);
             parquetRepository.flushAllBuffers();
-            logger.info("VALIDATION FLUSH: Successfully flushed validation data for snapshot {}", snapshotId);
+            logger.debug("VALIDATION FLUSH: Successfully flushed validation data for snapshot {}", snapshotId);
         } catch (Exception e) {
             logger.error("VALIDATION FLUSH: Error flushing validation data for snapshot {}", snapshotId, e);
             throw new RuntimeException("Error flushing validation data for snapshot " + snapshotId, e);
