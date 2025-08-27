@@ -33,7 +33,6 @@ import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.util.Utf8;
 import org.apache.parquet.hadoop.util.HadoopInputFile;
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 import org.springframework.beans.factory.annotation.Value;
@@ -88,18 +87,12 @@ public class ValidationStatParquetRepository {
     private Configuration hadoopConf;
     
     // Counter to track next file index per snapshot
-    private final Map<Long, Integer> snapshotFileCounters = new HashMap<>();
+    private final Map<Long, Integer> snapshotFileCounters = new ConcurrentHashMap<>();
     
     // BUFFER SYSTEM: Accumulate records until reaching recordsPerFile limit
-    private final Map<Long, List<ValidationStatObservationParquet>> snapshotBuffers = new HashMap<>();
+    private final Map<Long, List<ValidationStatObservationParquet>> snapshotBuffers = new ConcurrentHashMap<>();
     
-    // QUERY OPTIMIZATION: Cache and constants moved from QueryEngine
     private final Map<String, AggregationResult> queryCache = new ConcurrentHashMap<>();
-    
-    // OPTIMIZACIÓN: Configuración para datasets masivos (from QueryEngine)
-    private final int DEFAULT_BATCH_SIZE = 10000;
-    private final int PAGINATION_BATCH_SIZE = 5000;
-    private final int MEMORY_CHECK_INTERVAL = 50000;
     
     @PostConstruct
     public void init() throws IOException {
@@ -256,20 +249,7 @@ public class ValidationStatParquetRepository {
         return filePaths;
     }
     
-    /**
-     * LEGACY PATH SYSTEM: Single file per snapshot (backward compatibility)
-     * Returns: /base-path/snapshot_{id}.parquet
-     * 
-     * Used by methods that still need compatibility with pre-existing single-file data:
-     * - findBySnapshotId() for legacy data access
-     * - deleteBySnapshotId() for cleanup operations  
-     * - existsBySnapshotId() for existence checks
-     * 
-     * @deprecated in favor of multi-file architecture, but maintained for compatibility
-     */
-    private String getParquetFilePath(Long snapshotId) {
-        return parquetBasePath + "/snapshot_" + snapshotId + ".parquet";
-    }
+
     
     private GenericRecord toGenericRecord(ValidationStatObservationParquet observation) {
         GenericRecord record = new GenericData.Record(avroSchema);
@@ -292,13 +272,62 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Convierte un objeto Avro a String (maneja Utf8 y String)
+     * Convierte un objeto Avro a String (maneja Utf8, CharSequence y String)
+     * Optimizado para manejar todos los tipos comunes en Avro/Parquet
      */
     private String avroToString(Object obj) {
         if (obj == null) {
             return null;
         }
-        return obj.toString(); // Funciona tanto para String como para Utf8
+        
+        // Handle Avro Utf8 objects specifically
+        if (obj instanceof org.apache.avro.util.Utf8) {
+            return obj.toString();
+        }
+        
+        // Handle CharSequence (includes String and other string-like objects)
+        if (obj instanceof CharSequence) {
+            return obj.toString();
+        }
+        
+        // Fallback for any other type
+        return obj.toString();
+    }
+    
+    /**
+     * Helper method para buscar una clave en un mapa que puede contener claves Utf8 o String
+     * Maneja las diferencias de tipos entre Java String y Avro Utf8
+     */
+    private Object findValueInAvroMap(Map<Object, Object> map, String searchKey) {
+        if (map == null || searchKey == null) {
+            return null;
+        }
+        
+        // Try direct lookup first (String key)
+        Object value = map.get(searchKey);
+        if (value != null) {
+            return value;
+        }
+        
+        // Try with Utf8 key
+        try {
+            org.apache.avro.util.Utf8 utf8Key = new org.apache.avro.util.Utf8(searchKey);
+            value = map.get(utf8Key);
+            if (value != null) {
+                return value;
+            }
+        } catch (Exception e) {
+            // Ignore errors creating Utf8 key
+        }
+        
+        // Fallback: iterate and compare string representations
+        for (Map.Entry<Object, Object> entry : map.entrySet()) {
+            if (searchKey.equals(avroToString(entry.getKey()))) {
+                return entry.getValue();
+            }
+        }
+        
+        return null;
     }
     
     /**
@@ -335,7 +364,6 @@ public class ValidationStatParquetRepository {
         return result;
     }
     
-    @SuppressWarnings("unchecked")
     private ValidationStatObservationParquet fromGenericRecord(GenericRecord record) {
         ValidationStatObservationParquet observation = new ValidationStatObservationParquet();
         observation.setId(avroToString(record.get("id")));
@@ -359,8 +387,16 @@ public class ValidationStatParquetRepository {
     /**
      * NEW: Find all observations by snapshot ID - supports multi-file architecture
      * Reads from all data files in snapshot directory
+     * 
+     * WARNING: This method loads ALL records into memory - use with caution for large datasets!
+     * For large datasets (millions of records), prefer using:
+     * - findBySnapshotIdWithPagination() for paginated access
+     * - findWithFilterAndPagination() for filtered access
+     * - countBySnapshotId() for just counting records
+     * - getAggregatedStats() for statistics without loading records
      */
     public List<ValidationStatObservationParquet> findBySnapshotId(Long snapshotId) throws IOException {
+        logger.warn("MEMORY WARNING: findBySnapshotId loads ALL records into memory - consider using pagination for large datasets");
         logger.debug("MULTI-FILE: Finding observations for snapshot {}", snapshotId);
         
         List<String> filePaths = getAllDataFilePaths(snapshotId);
@@ -381,7 +417,7 @@ public class ValidationStatParquetRepository {
             
             logger.debug("MULTI-FILE: Reading from file: {}", filePath);
             
-            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
+            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
                     .withConf(hadoopConf)
                     .build()) {
                 
@@ -401,311 +437,89 @@ public class ValidationStatParquetRepository {
                    allResults.size(), snapshotId, filePaths.size());
         return allResults;
     }
+    
+    /**
+     * STREAMING ALTERNATIVE: Procesa todos los registros de un snapshot con un callback
+     * Evita cargar millones de registros en memoria de una vez
+     * @param snapshotId ID del snapshot
+     * @param processor Función que procesa cada registro individualmente
+     * @return Número total de registros procesados
+     */
+    public long processAllRecords(Long snapshotId, java.util.function.Consumer<ValidationStatObservationParquet> processor) throws IOException {
+        logger.debug("STREAMING PROCESSOR: Processing all records for snapshot {} with callback", snapshotId);
+        
+        List<String> filePaths = getAllDataFilePaths(snapshotId);
+        if (filePaths.isEmpty()) {
+            logger.debug("STREAMING PROCESSOR: No data files found for snapshot {}", snapshotId);
+            return 0;
+        }
+        
+        long totalProcessed = 0;
+        
+        // Process each file with streaming
+        for (String filePath : filePaths) {
+            File file = new File(filePath);
+            if (!file.exists()) {
+                logger.warn("STREAMING PROCESSOR: Data file does not exist: {}", filePath);
+                continue;
+            }
+            
+            logger.debug("STREAMING PROCESSOR: Processing file: {}", filePath);
+            
+            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
+                    .withConf(hadoopConf)
+                    .build()) {
+                
+                GenericRecord record;
+                long fileRecordCount = 0;
+                while ((record = reader.read()) != null) {
+                    ValidationStatObservationParquet observation = fromGenericRecord(record);
+                    processor.accept(observation); // Process each record individually
+                    fileRecordCount++;
+                    totalProcessed++;
+                }
+                
+                logger.debug("STREAMING PROCESSOR: Processed {} records from file: {}", fileRecordCount, filePath);
+            }
+        }
+        
+        logger.info("STREAMING PROCESSOR: Processed {} total records for snapshot {} across {} files", 
+                   totalProcessed, snapshotId, filePaths.size());
+        return totalProcessed;
+    }
 
     /**
-     * Implementa paginación simple
+     * STREAMING: Implementa paginación eficiente sin cargar datos en memoria
+     * Utiliza el método de streaming ya implementado para evitar memory overflow
      */
     public List<ValidationStatObservationParquet> findBySnapshotIdWithPagination(Long snapshotId, int page, int size) throws IOException {
-        List<ValidationStatObservationParquet> observations = findBySnapshotId(snapshotId);
-        
-        int start = page * size;
-        int end = Math.min(start + size, observations.size());
-        
-        if (start >= observations.size()) {
-            return Collections.emptyList();
-        }
-        
-        return observations.subList(start, end);
+        // Use the existing streaming pagination method with no filters
+        AggregationFilter noFilter = new AggregationFilter();
+        return findWithFilterAndPagination(snapshotId, noFilter, page, size);
     }
 
     /**
-     * Cuenta observaciones por snapshot ID
+     * STREAMING: Cuenta observaciones por snapshot ID sin cargar datos en memoria
+     * Utiliza el método de streaming ya implementado para evitar memory overflow
      */
     public long countBySnapshotId(Long snapshotId) throws IOException {
-        return findBySnapshotId(snapshotId).size();
+        // Use the existing streaming count method with no filters
+        AggregationFilter noFilter = new AggregationFilter();
+        return countRecordsWithFilter(snapshotId, noFilter);
     }
 
     /**
-     * OPTIMIZED: Saves all observations in Parquet files by snapshot using streaming and batch processing
+     * MULTI-FILE: Saves all observations using the new multi-file architecture with intelligent buffering
+     * This method delegates to saveAllImmediate() which uses the modern multi-file approach
      */
     public void saveAll(List<ValidationStatObservationParquet> observations) throws IOException {
-        if (observations == null || observations.isEmpty()) {
-            return;
-        }
-        
-        logger.debug("Starting OPTIMIZED batch save of {} observations", observations.size());
-        
-        // Group by snapshot ID for batch processing
-        Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
-            .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
-        
-        // Process each snapshot group with optimized streaming approach
-        for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
-            Long snapshotId = entry.getKey();
-            List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
-            
-            saveObservationsToParquetOptimized(snapshotId, snapshotObservations);
-        }
-        
-        logger.info("OPTIMIZED: Successfully saved {} observations across {} snapshots", 
-                   observations.size(), groupedBySnapshot.size());
+        // Delegate to the multi-file implementation
+        saveAllImmediate(observations);
     }
-    
-    /**
-     * OPTIMIZED: High-performance append-mode saving with streaming and deduplication
-     * Uses Set-based deduplication and batch writing to minimize memory usage and CPU load
-     */
-    private void saveObservationsToParquetOptimized(Long snapshotId, List<ValidationStatObservationParquet> newObservations) throws IOException {
-        String filePath = getParquetFilePath(snapshotId);
-        File parquetFile = new File(filePath);
-        
-        logger.debug("OPTIMIZED save for snapshot {}: {} new observations", snapshotId, newObservations.size());
-        
-        if (!parquetFile.exists()) {
-            // No existing file - direct write (most efficient case)
-            writeObservationsToParquetStreamOptimized(filePath, newObservations);
-            logger.debug("OPTIMIZED: Direct write for new snapshot {} - {} observations", snapshotId, newObservations.size());
-            return;
-        }
-        
-        // File exists - need to merge efficiently without loading all data into memory
-        Set<String> newObservationIds = newObservations.stream()
-            .map(ValidationStatObservationParquet::getId)
-            .collect(Collectors.toSet());
-        
-        logger.debug("OPTIMIZED: Merging with existing file, {} new unique IDs", newObservationIds.size());
-        
-        // Create temporary file for merge operation
-        String tempFilePath = filePath + ".tmp";
-        List<ValidationStatObservationParquet> mergedBatch = new ArrayList<>();
-        int batchSize = 10000; // Process in batches to control memory usage
-        
-        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
-                .withConf(hadoopConf)
-                .build();
-             ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(tempFilePath))
-                .withSchema(avroSchema)
-                .withConf(hadoopConf)
-                .withCompressionCodec(CompressionCodecName.SNAPPY)
-                .withWriteMode(ParquetFileWriter.Mode.CREATE)
-                .build()) {
-            
-            // Copy existing observations in batches, excluding duplicates
-            GenericRecord record;
-            int processedCount = 0;
-            int skippedDuplicates = 0;
-            
-            while ((record = reader.read()) != null) {
-                ValidationStatObservationParquet obs = fromGenericRecord(record);
-                
-                // Skip if this observation will be replaced by new data
-                if (!newObservationIds.contains(obs.getId())) {
-                    mergedBatch.add(obs);
-                }else {
-                    skippedDuplicates++;
-                }
-                
-                // Write batch when it reaches size limit
-                if (mergedBatch.size() >= batchSize) {
-                    for (ValidationStatObservationParquet batchObs : mergedBatch) {
-                        writer.write(toGenericRecord(batchObs));
-                    }
-                    processedCount += mergedBatch.size();
-                    mergedBatch.clear(); // Free memory
-                    
-                    if (processedCount % 50000 == 0) {
-                        logger.debug("OPTIMIZED: Processed {} existing observations", processedCount);
-                    }
-                }
-            }
-            
-            // Write remaining existing observations
-            for (ValidationStatObservationParquet batchObs : mergedBatch) {
-                writer.write(toGenericRecord(batchObs));
-            }
-            processedCount += mergedBatch.size();
-            
-            // Append all new observations
-            for (ValidationStatObservationParquet newObs : newObservations) {
-                writer.write(toGenericRecord(newObs));
-            }
-            
-            logger.debug("OPTIMIZED merge completed: {} existing (skipped {} duplicates), {} new, {} total", 
-                        processedCount, skippedDuplicates, newObservations.size(), processedCount + newObservations.size());
-        }
-        
-        // Replace original file with merged file atomically
-        File originalFile = new File(filePath);
-        File tempFile = new File(tempFilePath);
-        
-        if (!originalFile.delete()) {
-            logger.warn("Could not delete original file: {}", filePath);
-        }
-        
-        if (!tempFile.renameTo(originalFile)) {
-            throw new IOException("Could not replace original file with merged data");
-        }
-        
-        logger.debug("OPTIMIZED: File replacement completed for snapshot {}", snapshotId);
-    }
-    
-    /**
-     * OPTIMIZED: Stream-based writing with minimal memory footprint
-     */
-    private void writeObservationsToParquetStreamOptimized(String filePath, List<ValidationStatObservationParquet> observations) throws IOException {
-        try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(filePath))
-                .withSchema(avroSchema)
-                .withConf(hadoopConf)
-                .withCompressionCodec(CompressionCodecName.SNAPPY)
-                .withWriteMode(ParquetFileWriter.Mode.CREATE)
-                .build()) {
-            
-            int written = 0;
-            for (ValidationStatObservationParquet observation : observations) {
-                GenericRecord record = toGenericRecord(observation);
-                writer.write(record);
-                written++;
-                
-                // Log progress for large batches
-                if (written % 10000 == 0) {
-                    logger.debug("OPTIMIZED: Written {} of {} observations", written, observations.size());
-                }
-            }
-            
-            logger.debug("OPTIMIZED: Stream write completed - {} observations written", written);
-        }
-    }
-    
-    /**
-     * ULTRA-OPTIMIZED: Massive batch processing with memory monitoring and backpressure control
-     * For datasets with millions of observations
-     */
-    public void saveAllMassiveOptimized(List<ValidationStatObservationParquet> observations) throws IOException {
-        if (observations == null || observations.isEmpty()) {
-            return;
-        }
-        
-        logger.debug("Starting ULTRA-OPTIMIZED massive save of {} observations", observations.size());
-        
-        // Monitor memory usage
-        Runtime runtime = Runtime.getRuntime();
-        long maxMemory = runtime.maxMemory();
-        logger.debug("Available memory: {} MB", maxMemory / (1024 * 1024));
-        
-        // Group by snapshot ID
-        Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
-            .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
-        
-        int processedSnapshots = 0;
-        for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
-            Long snapshotId = entry.getKey();
-            List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
-            
-            // Memory check before processing each snapshot
-            long usedMemory = runtime.totalMemory() - runtime.freeMemory();
-            double memoryUsagePercent = (double) usedMemory / maxMemory * 100;
-            
-            if (memoryUsagePercent > 80) {
-                logger.warn("High memory usage detected: {:.2f}% - forcing garbage collection", memoryUsagePercent);
-                System.gc();
-                Thread.yield(); // Allow GC to run
-            }
-            
-            // Process large snapshots in chunks
-            if (snapshotObservations.size() > 50000) {
-                saveObservationsInChunks(snapshotId, snapshotObservations);
-            } else {
-                saveObservationsToParquetOptimized(snapshotId, snapshotObservations);
-            }
-            
-            processedSnapshots++;
-            if (processedSnapshots % 10 == 0) {
-                logger.info("ULTRA-OPTIMIZED: Processed {}/{} snapshots", processedSnapshots, groupedBySnapshot.size());
-            }
-        }
-        
-        logger.info("ULTRA-OPTIMIZED: Successfully completed massive save - {} observations across {} snapshots", 
-                   observations.size(), groupedBySnapshot.size());
-    }
-    
-    /**
-     * CHUNK PROCESSING: Handles massive datasets by processing in memory-safe chunks
-     */
-    private void saveObservationsInChunks(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
-        int chunkSize = 25000; // Optimal chunk size for memory management
-        int totalChunks = (observations.size() + chunkSize - 1) / chunkSize;
-        
-        logger.debug("Processing snapshot {} in {} chunks of max {} observations", snapshotId, totalChunks, chunkSize);
-        
-        for (int i = 0; i < totalChunks; i++) {
-            int start = i * chunkSize;
-            int end = Math.min(start + chunkSize, observations.size());
-            List<ValidationStatObservationParquet> chunk = observations.subList(start, end);
-            
-            logger.debug("Processing chunk {}/{} for snapshot {} ({} observations)", i + 1, totalChunks, snapshotId, chunk.size());
-            
-            if (i == 0) {
-                // First chunk - use normal optimized method
-                saveObservationsToParquetOptimized(snapshotId, chunk);
-            } else {
-                // Subsequent chunks - append to existing file
-                appendObservationsToParquet(snapshotId, chunk);
-            }
-            
-            // Clear chunk reference to help GC
-            chunk = null;
-        }
-        
-        logger.debug("Completed chunked processing for snapshot {}", snapshotId);
-    }
-    
-    /**
-     * APPEND MODE: Efficiently appends observations to existing Parquet file
-     */
-    private void appendObservationsToParquet(Long snapshotId, List<ValidationStatObservationParquet> newObservations) throws IOException {
-        String filePath = getParquetFilePath(snapshotId);
-        String tempFilePath = filePath + ".append.tmp";
-        
-        // Read existing file and append new observations
-        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
-                .withConf(hadoopConf)
-                .build();
-             ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(tempFilePath))
-                .withSchema(avroSchema)
-                .withConf(hadoopConf)
-                .withCompressionCodec(CompressionCodecName.SNAPPY)
-                .withWriteMode(ParquetFileWriter.Mode.CREATE)
-                .build()) {
-            
-            // Copy existing data
-            GenericRecord record;
-            int existingCount = 0;
-            while ((record = reader.read()) != null) {
-                writer.write(record);
-                existingCount++;
-            }
-            
-            // Append new observations
-            for (ValidationStatObservationParquet obs : newObservations) {
-                writer.write(toGenericRecord(obs));
-            }
-            
-            logger.debug("Appended {} new observations to {} existing for snapshot {}", 
-                        newObservations.size(), existingCount, snapshotId);
-        }
-        
-        // Replace original file atomically
-        File originalFile = new File(filePath);
-        File tempFile = new File(tempFilePath);
-        
-        if (!originalFile.delete()) {
-            logger.warn("Could not delete original file for append: {}", filePath);
-        }
-        
-        if (!tempFile.renameTo(originalFile)) {
-            throw new IOException("Could not replace file after append operation");
-        }
-    }
+
+
+
+
 
     /**
      * NEW: Deletes all observations for a snapshot (removes entire snapshot directory)
@@ -760,57 +574,277 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Elimina observación específica por ID
+     * STREAMING: Elimina observación específica por ID usando arquitectura multi-archivo
+     * Procesa archivo por archivo sin cargar todos los datos en memoria
      */
     public void deleteById(String id, Long snapshotId) throws IOException {
-        List<ValidationStatObservationParquet> observations = findBySnapshotId(snapshotId);
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
         
-        List<ValidationStatObservationParquet> filteredObservations = observations.stream()
-            .filter(obs -> !id.equals(obs.getId()))
-            .collect(Collectors.toList());
+        if (!dir.exists()) {
+            logger.debug("DELETE BY ID: Snapshot directory does not exist: {}", snapshotId);
+            return;
+        }
         
-        if (filteredObservations.size() < observations.size()) {
-            // Re-escribir el archivo sin la observación eliminada
-            String filePath = getParquetFilePath(snapshotId);
-            writeObservationsToParquet(filePath, filteredObservations);
-            logger.info("Eliminada observación {} del snapshot {}", id, snapshotId);
+        // Get all data files in the snapshot directory
+        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+        
+        if (dataFiles == null || dataFiles.length == 0) {
+            logger.debug("DELETE BY ID: No data files found for snapshot: {}", snapshotId);
+            return;
+        }
+        
+        boolean recordFound = false;
+        List<String> tempFilePaths = new ArrayList<>();
+        
+        logger.info("DELETE BY ID: Searching and filtering record {} in {} files for snapshot {}", 
+                   id, dataFiles.length, snapshotId);
+        
+        // First pass: Create filtered temporary files
+        for (File dataFile : dataFiles) {
+            try {
+                String tempFilePath = dataFile.getAbsolutePath() + ".tmp";
+                tempFilePaths.add(tempFilePath);
+                
+                boolean foundInThisFile = filterRecordFromFile(dataFile.getAbsolutePath(), tempFilePath, id);
+                if (foundInThisFile) {
+                    recordFound = true;
+                    logger.debug("DELETE BY ID: Found and filtered record {} from file {}", id, dataFile.getName());
+                }
+                
+            } catch (Exception e) {
+                logger.error("DELETE BY ID: Error processing file {} for snapshot {}", 
+                           dataFile.getName(), snapshotId, e);
+                // Clean up temp files and abort
+                cleanupTempFiles(tempFilePaths);
+                throw new IOException("Failed to delete record " + id + " from snapshot " + snapshotId, e);
+            }
+        }
+        
+        if (recordFound) {
+            // Second pass: Replace original files with filtered ones
+            for (int i = 0; i < dataFiles.length; i++) {
+                File originalFile = dataFiles[i];
+                String tempFilePath = tempFilePaths.get(i);
+                File tempFile = new File(tempFilePath);
+                
+                if (tempFile.exists()) {
+                    // Replace original with filtered version
+                    if (!originalFile.delete()) {
+                        logger.error("DELETE BY ID: Failed to delete original file: {}", originalFile.getAbsolutePath());
+                        cleanupTempFiles(tempFilePaths);
+                        throw new IOException("Failed to delete original file during record deletion");
+                    }
+                    
+                    if (!tempFile.renameTo(originalFile)) {
+                        logger.error("DELETE BY ID: Failed to rename temp file: {}", tempFilePath);
+                        throw new IOException("Failed to rename temp file during record deletion");
+                    }
+                    
+                    logger.debug("DELETE BY ID: Replaced file {} with filtered version", originalFile.getName());
+                }
+            }
+            
+            logger.info("DELETE BY ID: Successfully deleted record {} from snapshot {} using streaming approach", id, snapshotId);
+        } else {
+            // Clean up temp files if record was not found
+            cleanupTempFiles(tempFilePaths);
+            logger.info("DELETE BY ID: Record {} not found in snapshot {}", id, snapshotId);
+        }
+    }
+    
+    /**
+     * STREAMING HELPER: Filtra un registro específico de un archivo sin cargar todo en memoria
+     * @param sourceFilePath Archivo fuente
+     * @param targetFilePath Archivo destino filtrado
+     * @param recordIdToDelete ID del registro a eliminar
+     * @return true si se encontró y filtró el registro
+     */
+    private boolean filterRecordFromFile(String sourceFilePath, String targetFilePath, String recordIdToDelete) throws IOException {
+        boolean recordFound = false;
+        int totalRecords = 0;
+        int writtenRecords = 0;
+        
+        File sourceFile = new File(sourceFilePath);
+        if (!sourceFile.exists()) {
+            logger.debug("FILTER RECORD: Source file does not exist: {}", sourceFilePath);
+            return false;
+        }
+        
+        logger.debug("FILTER RECORD: Filtering record {} from {} to {}", 
+                   recordIdToDelete, sourceFile.getName(), targetFilePath);
+        
+        org.apache.hadoop.fs.Path targetPath = new org.apache.hadoop.fs.Path(targetFilePath);
+        
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(sourceFilePath), hadoopConf))
+                .withConf(hadoopConf)
+                .build();
+             ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
+                org.apache.parquet.hadoop.util.HadoopOutputFile.fromPath(targetPath, hadoopConf))
+                .withWriteMode(ParquetFileWriter.Mode.CREATE)
+                .withCompressionCodec(CompressionCodecName.SNAPPY)
+                .withConf(hadoopConf)
+                .withSchema(avroSchema)
+                .build()) {
+            
+            GenericRecord record;
+            while ((record = reader.read()) != null) {
+                totalRecords++;
+                
+                String recordId = avroToString(record.get("id"));
+                if (recordIdToDelete.equals(recordId)) {
+                    recordFound = true;
+                    logger.debug("FILTER RECORD: Found target record {} to delete", recordIdToDelete);
+                    // Skip this record (don't write it)
+                } else {
+                    // Keep this record
+                    writer.write(record);
+                    writtenRecords++;
+                }
+            }
+        }
+        
+        logger.debug("FILTER RECORD: Processed {} records, wrote {} records, found target: {}", 
+                   totalRecords, writtenRecords, recordFound);
+        
+        return recordFound;
+    }
+    
+    /**
+     * CLEANUP HELPER: Limpia archivos temporales en caso de error
+     */
+    private void cleanupTempFiles(List<String> tempFilePaths) {
+        for (String tempFilePath : tempFilePaths) {
+            File tempFile = new File(tempFilePath);
+            if (tempFile.exists()) {
+                if (tempFile.delete()) {
+                    logger.debug("CLEANUP: Deleted temp file: {}", tempFilePath);
+                } else {
+                    logger.warn("CLEANUP: Failed to delete temp file: {}", tempFilePath);
+                }
+            }
         }
     }
 
     /**
-     * Copia datos de un snapshot a otro
+     * STREAMING: Copia datos de un snapshot a otro usando la arquitectura multi-archivo
+     * Procesa archivo por archivo sin cargar todos los datos en memoria
      */
     public void copySnapshotData(Long originalSnapshotId, Long newSnapshotId) throws IOException {
-        List<ValidationStatObservationParquet> originalData = findBySnapshotId(originalSnapshotId);
+        String originalSnapshotDir = getSnapshotDirectoryPath(originalSnapshotId);
+        File originalDir = new File(originalSnapshotDir);
         
-        if (!originalData.isEmpty()) {
-            List<ValidationStatObservationParquet> copiedData = new ArrayList<>();
-            for (ValidationStatObservationParquet obs : originalData) {
-                ValidationStatObservationParquet copy = new ValidationStatObservationParquet();
-                copyObservation(obs, copy);
-                copy.setSnapshotID(newSnapshotId);
-                copiedData.add(copy);
-            }
-            
-            saveObservationsToParquetOptimized(newSnapshotId, copiedData);
-            logger.info("Copiados datos del snapshot {} al snapshot {}", originalSnapshotId, newSnapshotId);
+        if (!originalDir.exists()) {
+            logger.debug("COPY SNAPSHOT: Original snapshot directory does not exist: {}", originalSnapshotId);
+            return;
         }
+        
+        // Get all data files in the original snapshot directory
+        File[] originalDataFiles = originalDir.listFiles(file -> 
+            file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+        
+        if (originalDataFiles == null || originalDataFiles.length == 0) {
+            logger.debug("COPY SNAPSHOT: No data files found in original snapshot: {}", originalSnapshotId);
+            return;
+        }
+        
+        // Ensure target snapshot directory exists
+        String newSnapshotDir = getSnapshotDirectoryPath(newSnapshotId);
+        Files.createDirectories(Paths.get(newSnapshotDir));
+        
+        // Clear any existing data in target snapshot
+        cleanSnapshot(newSnapshotId);
+        
+        logger.info("COPY SNAPSHOT: Copying {} data files from snapshot {} to snapshot {} using streaming", 
+                   originalDataFiles.length, originalSnapshotId, newSnapshotId);
+        
+        int processedFiles = 0;
+        long totalCopiedRecords = 0;
+        
+        // Process each file individually with streaming
+        for (File originalFile : originalDataFiles) {
+            try {
+                long copiedRecords = copyFileWithSnapshotUpdate(
+                    originalFile.getAbsolutePath(), newSnapshotId, processedFiles);
+                
+                totalCopiedRecords += copiedRecords;
+                processedFiles++;
+                
+                logger.debug("COPY SNAPSHOT: Copied {} records from file {} ({}/{})", 
+                           copiedRecords, originalFile.getName(), processedFiles, originalDataFiles.length);
+                           
+            } catch (Exception e) {
+                logger.error("COPY SNAPSHOT: Error copying file {} from snapshot {} to {}", 
+                           originalFile.getName(), originalSnapshotId, newSnapshotId, e);
+                throw new IOException("Failed to copy snapshot data", e);
+            }
+        }
+        
+        logger.info("COPY SNAPSHOT: Successfully copied {} records from snapshot {} to {} across {} files using streaming", 
+                   totalCopiedRecords, originalSnapshotId, newSnapshotId, processedFiles);
     }
     
-    private void writeObservationsToParquet(String filePath, List<ValidationStatObservationParquet> observations) throws IOException {
-        try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(filePath))
-                .withSchema(avroSchema)
+    /**
+     * STREAMING HELPER: Copia un archivo actualizando el snapshot ID sin cargar todo en memoria
+     * @param sourceFilePath Archivo fuente
+     * @param newSnapshotId Nuevo snapshot ID
+     * @param fileIndex Índice del archivo en el nuevo snapshot
+     * @return Número de registros copiados
+     */
+    private long copyFileWithSnapshotUpdate(String sourceFilePath, Long newSnapshotId, int fileIndex) throws IOException {
+        File sourceFile = new File(sourceFilePath);
+        if (!sourceFile.exists()) {
+            logger.debug("COPY FILE: Source file does not exist: {}", sourceFilePath);
+            return 0;
+        }
+        
+        String targetFilePath = getDataFilePath(newSnapshotId, fileIndex);
+        org.apache.hadoop.fs.Path targetPath = new org.apache.hadoop.fs.Path(targetFilePath);
+        
+        logger.debug("COPY FILE: Streaming copy from {} to {} with snapshot ID update", 
+                   sourceFile.getName(), targetFilePath);
+        
+        long copiedRecords = 0;
+        
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(sourceFilePath), hadoopConf))
                 .withConf(hadoopConf)
+                .build();
+             ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
+                org.apache.parquet.hadoop.util.HadoopOutputFile.fromPath(targetPath, hadoopConf))
+                .withWriteMode(ParquetFileWriter.Mode.CREATE)
                 .withCompressionCodec(CompressionCodecName.SNAPPY)
-                .withWriteMode(ParquetFileWriter.Mode.OVERWRITE)
+                .withConf(hadoopConf)
+                .withSchema(avroSchema)
                 .build()) {
             
-            for (ValidationStatObservationParquet observation : observations) {
-                GenericRecord record = toGenericRecord(observation);
-                writer.write(record);
+            GenericRecord record;
+            while ((record = reader.read()) != null) {
+                // Create a new record with updated snapshot ID
+                GenericRecord newRecord = new GenericData.Record(avroSchema);
+                
+                // Copy all fields except snapshotID
+                for (Schema.Field field : avroSchema.getFields()) {
+                    if ("snapshotID".equals(field.name())) {
+                        newRecord.put("snapshotID", newSnapshotId);
+                    } else {
+                        newRecord.put(field.name(), record.get(field.name()));
+                    }
+                }
+                
+                writer.write(newRecord);
+                copiedRecords++;
             }
         }
+        
+        // Update file counter for the new snapshot
+        snapshotFileCounters.put(newSnapshotId, fileIndex + 1);
+        
+        logger.debug("COPY FILE: Copied {} records from {} to {}", 
+                   copiedRecords, sourceFile.getName(), targetFilePath);
+        
+        return copiedRecords;
     }
+
 
     /**
      * Obtiene estadísticas agregadas por snapshot ID (VERSIÓN OPTIMIZADA MULTI-ARCHIVO)
@@ -1044,7 +1078,7 @@ public class ValidationStatParquetRepository {
         
         long count = 0;
         
-        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
                 .withConf(hadoopConf)
                 .build()) {
             
@@ -1216,7 +1250,7 @@ public class ValidationStatParquetRepository {
         int filteredCount = 0; // Count of records that match the filter
         int collected = 0;     // Count of records collected for results
         
-        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(filePath))
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
                 .withConf(hadoopConf)
                 .build()) {
             
@@ -1244,50 +1278,117 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Obtiene conteos de ocurrencias de reglas (MULTI-ARCHIVO OPTIMIZADO)
+     * STREAMING: Obtiene conteos de ocurrencias de reglas sin cargar en memoria
+     * Procesa archivo por archivo de forma secuencial para millones de registros
      */
     public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, String ruleId, boolean valid) throws IOException {
-        List<ValidationStatObservationParquet> observations = findBySnapshotId(snapshotId);
+        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
+        File dir = new File(snapshotDir);
+        
+        if (!dir.exists()) {
+            logger.debug("RULE OCCURRENCES STREAMING: Snapshot directory does not exist: {}", snapshotId);
+            return new HashMap<>();
+        }
+        
+        // Get all data files in the snapshot directory
+        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+        
+        if (dataFiles == null || dataFiles.length == 0) {
+            logger.debug("RULE OCCURRENCES STREAMING: No data files found for snapshot: {}", snapshotId);
+            return new HashMap<>();
+        }
+        
         Map<String, Long> occurrenceCounts = new HashMap<>();
         
-        logger.debug("RULE OCCURRENCES: Processing {} observations for rule {} (valid: {})", observations.size(), ruleId, valid);
+        logger.debug("RULE OCCURRENCES STREAMING: Processing {} data files for rule {} (valid: {})", 
+                   dataFiles.length, ruleId, valid);
         
-        for (ValidationStatObservationParquet obs : observations) {
-            Map<String, List<String>> occurrenceMap = valid ? 
-                obs.getValidOccurrencesByRuleID() : 
-                obs.getInvalidOccurrencesByRuleID();
+        // Process each file sequentially without loading all data in memory
+        for (File dataFile : dataFiles) {
+            try {
+                Map<String, Long> fileOccurrences = getRuleOccurrenceCountsFromFile(
+                    dataFile.getAbsolutePath(), ruleId, valid);
                 
-            if (occurrenceMap != null && occurrenceMap.containsKey(ruleId)) {
-                List<String> occurrences = occurrenceMap.get(ruleId);
-                if (occurrences != null) {
-                    for (String occurrence : occurrences) {
-                        occurrenceCounts.put(occurrence, occurrenceCounts.getOrDefault(occurrence, 0L) + 1);
+                // Merge counts from this file
+                for (Map.Entry<String, Long> entry : fileOccurrences.entrySet()) {
+                    occurrenceCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
+                }
+                
+                logger.debug("RULE OCCURRENCES STREAMING: File {} contributed {} unique occurrences", 
+                           dataFile.getName(), fileOccurrences.size());
+                           
+            } catch (Exception e) {
+                logger.error("RULE OCCURRENCES STREAMING: Error processing file {} for snapshot {}", 
+                           dataFile.getName(), snapshotId, e);
+                // Continue with other files
+            }
+        }
+        
+        logger.info("RULE OCCURRENCES STREAMING: Found {} unique occurrences for rule {} (valid: {}) across {} files", 
+                   occurrenceCounts.size(), ruleId, valid, dataFiles.length);
+        
+        return occurrenceCounts;
+    }
+    
+    /**
+     * STREAMING HELPER: Procesa conteos de ocurrencias de reglas de un solo archivo
+     * Sin cargar todos los registros en memoria
+     */
+    private Map<String, Long> getRuleOccurrenceCountsFromFile(String filePath, String ruleId, boolean valid) throws IOException {
+        Map<String, Long> fileOccurrenceCounts = new HashMap<>();
+        
+        File file = new File(filePath);
+        if (!file.exists()) {
+            logger.debug("RULE OCCURRENCES FILE: File does not exist: {}", filePath);
+            return fileOccurrenceCounts;
+        }
+        
+        logger.debug("RULE OCCURRENCES FILE: Processing {} for rule {} (valid: {})", 
+                   file.getName(), ruleId, valid);
+        
+        int processedRecords = 0;
+        int recordsWithOccurrences = 0;
+        
+        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
+                .withConf(hadoopConf)
+                .build()) {
+            
+            GenericRecord record;
+            while ((record = reader.read()) != null) {
+                processedRecords++;
+                
+                // Get the appropriate occurrences map based on valid flag
+                String fieldName = valid ? "validOccurrencesByRuleID" : "invalidOccurrencesByRuleID";
+                Object occurrenceMapObj = record.get(fieldName);
+                
+                if (occurrenceMapObj != null) {
+                    @SuppressWarnings("unchecked")
+                    Map<Object, Object> occurrenceMap = (Map<Object, Object>) occurrenceMapObj;
+                    
+                    // Use helper method to find the rule regardless of String/Utf8 type
+                    Object occurrencesObj = findValueInAvroMap(occurrenceMap, ruleId);
+                    
+                    if (occurrencesObj != null) {
+                        recordsWithOccurrences++;
+                        @SuppressWarnings("unchecked")
+                        List<Object> occurrences = (List<Object>) occurrencesObj;
+                        
+                        // Count each occurrence
+                        for (Object occurrence : occurrences) {
+                            String occurrenceStr = avroToString(occurrence);
+                            if (occurrenceStr != null) {
+                                fileOccurrenceCounts.merge(occurrenceStr, 1L, Long::sum);
+                            }
+                        }
                     }
                 }
             }
         }
         
-        logger.debug("RULE OCCURRENCES: Found {} unique occurrences for rule {} (valid: {})", occurrenceCounts.size(), ruleId, valid);
+        logger.debug("RULE OCCURRENCES FILE: Processed {} records, {} had occurrences, found {} unique occurrences in {}", 
+                   processedRecords, recordsWithOccurrences, fileOccurrenceCounts.size(), file.getName());
         
-        return occurrenceCounts;
-    }
-
-    private void copyObservation(ValidationStatObservationParquet source, ValidationStatObservationParquet target) {
-        target.setId(source.getId());
-        target.setIdentifier(source.getIdentifier());
-        target.setSnapshotID(source.getSnapshotID());
-        target.setOrigin(source.getOrigin());
-        target.setSetSpec(source.getSetSpec());
-        target.setMetadataPrefix(source.getMetadataPrefix());
-        target.setNetworkAcronym(source.getNetworkAcronym());
-        target.setRepositoryName(source.getRepositoryName());
-        target.setInstitutionName(source.getInstitutionName());
-        target.setIsValid(source.getIsValid());
-        target.setIsTransformed(source.getIsTransformed());
-        target.setValidOccurrencesByRuleID(source.getValidOccurrencesByRuleID());
-        target.setInvalidOccurrencesByRuleID(source.getInvalidOccurrencesByRuleID());
-        target.setValidRulesIDList(source.getValidRulesIDList());
-        target.setInvalidRulesIDList(source.getInvalidRulesIDList());
+        return fileOccurrenceCounts;
     }
     
     /**
@@ -1389,8 +1490,9 @@ public class ValidationStatParquetRepository {
         
         logger.info("BUFFER: Writing {} records to file: {}", observations.size(), filePath);
         
+        org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(filePath);
         try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
-                new org.apache.hadoop.fs.Path(filePath))
+                org.apache.parquet.hadoop.util.HadoopOutputFile.fromPath(hadoopPath, hadoopConf))
                 .withWriteMode(ParquetFileWriter.Mode.CREATE)
                 .withCompressionCodec(CompressionCodecName.SNAPPY)
                 .withConf(hadoopConf)
@@ -1491,10 +1593,12 @@ public class ValidationStatParquetRepository {
     // (Moved from ValidationStatParquetQueryEngine for consolidated architecture)
     
     /**
-     * Consulta optimizada HÍBRIDA: metadatos para conteos + lectura real para reglas
+     * STREAMING OPTIMIZED: Consulta optimizada que procesa registros de forma streaming
+     * Lee registros uno por uno sin cargar todo el archivo en memoria
+     * Utiliza caché para evitar re-procesar archivos con los mismos filtros
      */
     private AggregationResult getAggregatedStatsOptimized(String filePath, AggregationFilter filter) throws IOException {
-        logger.debug("Consulta optimizada HÍBRIDA para: {}", filePath);
+        logger.debug("STREAMING STATS: Processing aggregated stats for: {} (streaming mode)", filePath);
         
         String cacheKey = filePath + "_" + filter.hashCode();
         if (queryCache.containsKey(cacheKey)) {
