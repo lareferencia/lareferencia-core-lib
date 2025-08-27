@@ -1,11 +1,10 @@
-package org.lareferencia.backend.services.validation;
+package org.lareferencia.backend.validation;
 
+import org.lareferencia.backend.domain.NetworkSnapshot;
 import org.lareferencia.backend.domain.validation.ValidationStatObservation;
-import org.lareferencia.backend.domain.validation.ValidationStatsQueryResult;
 import org.springframework.data.domain.Pageable;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Interface principal para servicios de estadísticas de validación
@@ -28,7 +27,7 @@ public interface IValidationStatisticsService {
      * @return Resultado de la consulta con datos paginados
      * @throws ValidationStatisticsException Si ocurre un error durante la consulta
      */
-    ValidationStatsQueryResult queryValidationStatsObservationsBySnapshotID(
+    ValidationStatsObservationsResult queryValidationStatsObservationsBySnapshotID(
         Long snapshotID, 
         List<String> filters, 
         Pageable pageable
@@ -41,17 +40,32 @@ public interface IValidationStatisticsService {
      * @return Estadísticas agregadas por reglas
      * @throws ValidationStatisticsException Si ocurre un error durante la consulta
      */
-    ValidationStatsQueryResult queryValidatorRulesStatsBySnapshot(
-        Long snapshotID, 
+    ValidationStatsResult queryValidatorRulesStatsBySnapshot(
+        NetworkSnapshot snapshot, 
         List<String> filters
     ) throws ValidationStatisticsException;
-    
+
+
+    /**
+     * Consulta la cantidad de ocurrencias de reglas válidas por snapshot
+     * @param snapshotID ID del snapshot
+     * @param ruleID ID de la regla
+     * @param fq Filtros adicionales
+     * @return Conteo de ocurrencias de reglas válidas
+     * @throws ValidationStatisticsException Si ocurre un error durante la consulta
+     */
+    ValidationRuleOccurrencesCount queryValidRuleOccurrencesCountBySnapshotID(Long snapshotID, Long ruleID, List<String> fq) throws ValidationStatisticsException;
+
+
+
     /**
      * Elimina observaciones por snapshot ID
      * @param snapshotID ID del snapshot a eliminar
      * @throws ValidationStatisticsException Si ocurre un error durante la eliminación
      */
     void deleteValidationStatsObservationsBySnapshotID(Long snapshotID) throws ValidationStatisticsException;
+
+    
     
     /**
      * Inicializa una nueva validación para un snapshot específico
@@ -67,19 +81,7 @@ public interface IValidationStatisticsService {
      * @return true si el servicio está disponible
      */
     boolean isServiceAvailable();
-    
-    /**
-     * Obtiene el tipo de implementación (parquet, solr, database, etc.)
-     * @return Nombre del tipo de implementación
-     */
-    String getImplementationType();
-    
-    /**
-     * Obtiene métricas de performance del servicio
-     * @return Mapa con métricas de performance
-     */
-    Map<String, Object> getPerformanceMetrics();
-    
+           
     /**
      * Valida los filtros proporcionados
      * @param filters Lista de filtros a validar

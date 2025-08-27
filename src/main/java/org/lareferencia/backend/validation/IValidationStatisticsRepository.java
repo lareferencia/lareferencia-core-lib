@@ -1,7 +1,6 @@
-package org.lareferencia.backend.services.validation;
+package org.lareferencia.backend.validation;
 
 import org.lareferencia.backend.domain.validation.ValidationStatObservation;
-import org.lareferencia.backend.domain.validation.ValidationStatsQueryResult;
 import org.springframework.data.domain.Pageable;
 
 import java.util.List;
@@ -35,7 +34,7 @@ public interface IValidationStatisticsRepository {
      * @return Resultado de la consulta
      * @throws ValidationStatisticsException Si ocurre un error
      */
-    ValidationStatsQueryResult findBySnapshotIdWithFilters(Long snapshotId, 
+    ValidationStatsObservationsResult findBySnapshotIdWithFilters(Long snapshotId, 
             Map<String, Object> filters, Pageable pageable) throws ValidationStatisticsException;
     
     /**

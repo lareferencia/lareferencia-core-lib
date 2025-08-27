@@ -1,4 +1,4 @@
-package org.lareferencia.backend.services.validation;
+package org.lareferencia.backend.validation;
 
 /**
  * Excepción específica para errores en servicios de estadísticas de validación

@@ -1,4 +1,3 @@
-
 /*
  *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
  *
@@ -19,32 +18,25 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.backend.services;
+package org.lareferencia.backend.validation;
 
-public class ValidationStatisticsException extends Exception {
+import org.lareferencia.core.validation.QuantifierValues;
 
-	public ValidationStatisticsException() {
-		// TODO Auto-generated constructor stub
-	}
+import lombok.Getter;
+import lombok.Setter;
 
-	public ValidationStatisticsException(String arg0) {
-		super(arg0);
-		// TODO Auto-generated constructor stub
-	}
-
-	public ValidationStatisticsException(Throwable arg0) {
-		super(arg0);
-		// TODO Auto-generated constructor stub
-	}
-
-	public ValidationStatisticsException(String arg0, Throwable arg1) {
-		super(arg0, arg1);
-		// TODO Auto-generated constructor stub
-	}
-
-	public ValidationStatisticsException(String arg0, Throwable arg1, boolean arg2, boolean arg3) {
-		super(arg0, arg1, arg2, arg3);
-		// TODO Auto-generated constructor stub
-	}
-
+/**
+ * Class representing statistics for a specific validation rule.
+ * Contains rule metadata and counts of valid/invalid applications.
+ */
+@Getter
+@Setter
+public class ValidationRuleStat {
+    Long ruleID;
+    String name;
+    String description;
+    QuantifierValues quantifier;
+    Boolean mandatory;
+    Integer validCount;
+    Integer invalidCount;
 }

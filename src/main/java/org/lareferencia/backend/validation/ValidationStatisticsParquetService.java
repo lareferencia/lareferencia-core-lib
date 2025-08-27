@@ -18,7 +18,7 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.backend.services.parquet;
+package org.lareferencia.backend.validation;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -28,18 +28,14 @@ import org.lareferencia.backend.domain.ValidatorRule;
 
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetRepository;
-import org.lareferencia.backend.services.validation.ValidationStatisticsException;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
 import org.lareferencia.core.util.IRecordFingerprintHelper;
-import org.lareferencia.core.validation.QuantifierValues;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.validation.ValidatorRuleResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.lareferencia.backend.services.validation.IValidationStatisticsService;
 import org.lareferencia.backend.domain.validation.ValidationStatObservation;
-import org.lareferencia.backend.domain.validation.ValidationStatsQueryResult;
 import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -49,7 +45,6 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import lombok.Getter;
-import lombok.Setter;
 
 /**
  * Validation statistics service based on Parquet files.
@@ -240,58 +235,16 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             logger.error("REGISTER: Error streaming observations: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to stream validation observations", e);
         }
-    }    /**
-     * Query validation rule statistics by snapshot (simplified version)
-     */
-    public Map<String, Object> queryValidatorRulesStatsBySnapshot(Long snapshotId) throws Exception {
-        try {
-            // Get aggregated statistics from repository
-            Map<String, Object> aggregatedStats = parquetRepository.getAggregatedStats(snapshotId);
-            
-            Map<String, Object> result = new HashMap<>();
-            result.put("size", ((Number) aggregatedStats.get("totalCount")).intValue());
-            result.put("validSize", ((Number) aggregatedStats.get("validCount")).intValue());
-            result.put("transformedSize", ((Number) aggregatedStats.get("transformedCount")).intValue());
-            
-            @SuppressWarnings("unchecked")
-            Map<String, Long> validRuleCounts = (Map<String, Long>) aggregatedStats.get("validRuleCounts");
-            @SuppressWarnings("unchecked")
-            Map<String, Long> invalidRuleCounts = (Map<String, Long>) aggregatedStats.get("invalidRuleCounts");
-            
-            // Build simplified rule maps
-            Map<String, Map<String, Object>> rulesByID = new HashMap<>();
-            
-            // Combine all found rules
-            Set<String> allRuleIds = new HashSet<>();
-            if (validRuleCounts != null) allRuleIds.addAll(validRuleCounts.keySet());
-            if (invalidRuleCounts != null) allRuleIds.addAll(invalidRuleCounts.keySet());
-            
-            for (String ruleId : allRuleIds) {
-                Map<String, Object> ruleStats = new HashMap<>();
-                ruleStats.put("ruleID", Long.valueOf(ruleId));
-                ruleStats.put("validCount", validRuleCounts != null ? validRuleCounts.getOrDefault(ruleId, 0L) : 0L);
-                ruleStats.put("invalidCount", invalidRuleCounts != null ? invalidRuleCounts.getOrDefault(ruleId, 0L) : 0L);
-                rulesByID.put(ruleId, ruleStats);
-            }
-            
-            result.put("rulesByID", rulesByID);
-            result.put("facets", new HashMap<String, Object>()); // Empty facets for simplicity
-            
-            return result;
-            
-        } catch (IOException e) {
-            logger.error("Error querying validation stats for snapshot {}", snapshotId, e);
-            throw new Exception("Error querying validation statistics", e);
-        }
-    }
+    }   
 
     /**
      * Query validation rule statistics by snapshot
      */
-    public ValidationStats queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws Exception {
+                           
+    public ValidationStatsResult queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws ValidationStatisticsException {
         logger.debug("ENTERING: queryValidatorRulesStatsBySnapshot with NetworkSnapshot {} and filters: {}", snapshot.getId(), fq);
 
-        ValidationStats result = new ValidationStats();
+        ValidationStatsResult result = new ValidationStatsResult();
 
         try {
             // If there are filters, apply them to both statistics and facets
@@ -310,15 +263,15 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 Map<String, Object> filteredStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
                 logger.debug("MAIN STATS: Filtered stats result: {}", filteredStats);
                 
-                result.size = ((Number) filteredStats.getOrDefault("totalCount", 0L)).intValue();
-                result.validSize = ((Number) filteredStats.getOrDefault("validCount", 0L)).intValue();
-                result.transformedSize = ((Number) filteredStats.getOrDefault("transformedCount", 0L)).intValue();
+                result.setSize(((Number) filteredStats.getOrDefault("totalCount", 0L)).intValue());
+                result.setValidSize(((Number) filteredStats.getOrDefault("validCount", 0L)).intValue());
+                result.setTransformedSize(((Number) filteredStats.getOrDefault("transformedCount", 0L)).intValue());
                 
                 logger.debug("OPTIMIZED filtered statistics: {} total, {} valid, {} transformed", 
-                    result.size, result.validSize, result.transformedSize);
+                    result.getSize(), result.getValidSize(), result.getTransformedSize());
                 
                 // Build facets with filters using optimized method
-                result.facets = buildSimulatedFacets(snapshot.getId(), fq);
+                result.setFacets(buildSimulatedFacets(snapshot.getId(), fq));
                 
                 // Get rule counts from filtered stats for building rule statistics
                 @SuppressWarnings("unchecked")
@@ -334,15 +287,15 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
                         ValidationRuleStat ruleResult = new ValidationRuleStat();
 
-                        ruleResult.ruleID = rule.getId();
-                        ruleResult.validCount = validRuleCounts.getOrDefault(ruleID, 0L).intValue();
-                        ruleResult.invalidCount = invalidRuleCounts.getOrDefault(ruleID, 0L).intValue();
-                        ruleResult.name = rule.getName();
-                        ruleResult.description = rule.getDescription();
-                        ruleResult.mandatory = rule.getMandatory();
-                        ruleResult.quantifier = rule.getQuantifier();
+                        ruleResult.setRuleID(rule.getId());
+                        ruleResult.setValidCount(validRuleCounts.getOrDefault(ruleID, 0L).intValue());
+                        ruleResult.setInvalidCount(invalidRuleCounts.getOrDefault(ruleID, 0L).intValue());
+                        ruleResult.setName(rule.getName());
+                        ruleResult.setDescription(rule.getDescription());
+                        ruleResult.setMandatory(rule.getMandatory());
+                        ruleResult.setQuantifier(rule.getQuantifier());
 
-                        result.rulesByID.put(ruleID, ruleResult);
+                        result.getRulesByID().put(ruleID, ruleResult);
                     }
                 }
                 
@@ -352,9 +305,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 
                 Map<String, Object> aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
                 
-                result.size = ((Number) aggregatedStats.get("totalCount")).intValue();
-                result.validSize = ((Number) aggregatedStats.get("validCount")).intValue();
-                result.transformedSize = ((Number) aggregatedStats.get("transformedCount")).intValue();
+                result.setSize(((Number) aggregatedStats.get("totalCount")).intValue());
+                result.setValidSize(((Number) aggregatedStats.get("validCount")).intValue());
+                result.setTransformedSize(((Number) aggregatedStats.get("transformedCount")).intValue());
 
                 @SuppressWarnings("unchecked")
                 Map<String, Long> validRuleCounts = (Map<String, Long>) aggregatedStats.get("validRuleCounts");
@@ -362,7 +315,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 Map<String, Long> invalidRuleCounts = (Map<String, Long>) aggregatedStats.get("invalidRuleCounts");
 
                 // Build facets without filters
-                result.facets = buildSimulatedFacets(snapshot.getId(), fq);
+                result.setFacets(buildSimulatedFacets(snapshot.getId(), fq));
 
                 if (snapshot.getNetwork().getValidator() != null) {
                     for (ValidatorRule rule : snapshot.getNetwork().getValidator().getRules()) {
@@ -371,21 +324,21 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
                         ValidationRuleStat ruleResult = new ValidationRuleStat();
 
-                        ruleResult.ruleID = rule.getId();
-                        ruleResult.validCount = validRuleCounts.getOrDefault(ruleID, 0L).intValue();
-                        ruleResult.invalidCount = invalidRuleCounts.getOrDefault(ruleID, 0L).intValue();
-                        ruleResult.name = rule.getName();
-                        ruleResult.description = rule.getDescription();
-                        ruleResult.mandatory = rule.getMandatory();
-                        ruleResult.quantifier = rule.getQuantifier();
+                        ruleResult.setRuleID(rule.getId());
+                        ruleResult.setValidCount(validRuleCounts.getOrDefault(ruleID, 0L).intValue());
+                        ruleResult.setInvalidCount(invalidRuleCounts.getOrDefault(ruleID, 0L).intValue());
+                        ruleResult.setName(rule.getName());
+                        ruleResult.setDescription(rule.getDescription());
+                        ruleResult.setMandatory(rule.getMandatory());
+                        ruleResult.setQuantifier(rule.getQuantifier());
 
-                        result.rulesByID.put(ruleID, ruleResult);
+                        result.getRulesByID().put(ruleID, ruleResult);
                     }
                 }
             }
 
         } catch (IOException e) {
-            throw new Exception("Error querying validation statistics: " + e.getMessage());
+            throw new ValidationStatisticsException("Error querying validation statistics: " + e.getMessage());
         }
 
         return result;
@@ -420,12 +373,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
             List<OccurrenceCount> validRuleOccurrence = validOccurrences.entrySet().stream()
                     .map(entry -> new OccurrenceCount(entry.getKey(), entry.getValue().intValue()))
-                    .sorted((a, b) -> Integer.compare(b.count, a.count)) // Sort by count descending
+                    .sorted((a, b) -> Integer.compare(b.getCount(), a.getCount())) // Sort by count descending
                     .collect(Collectors.toList());
 
             List<OccurrenceCount> invalidRuleOccurrence = invalidOccurrences.entrySet().stream()
                     .map(entry -> new OccurrenceCount(entry.getKey(), entry.getValue().intValue()))
-                    .sorted((a, b) -> Integer.compare(b.count, a.count)) // Sort by count descending
+                    .sorted((a, b) -> Integer.compare(b.getCount(), a.getCount())) // Sort by count descending
                     .collect(Collectors.toList());
 
             result.setValidRuleOccrs(validRuleOccurrence);
@@ -440,38 +393,38 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         return result;
     }
 
-    /**
-     * Query validation observations by snapshot ID with OPTIMIZED pagination (never loads all records in memory)
-     */
-    public List<ValidationStatObservationParquet> queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, int page, int size) {
-        logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, page, size);
+    // /**
+    //  * Query validation observations by snapshot ID with OPTIMIZED pagination (never loads all records in memory)
+    //  */
+    // public List<ValidationStatObservationParquet> queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, int page, int size) {
+    //     logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, page, size);
         
-        try {
-            // Apply filters if present
-            Map<String, Object> filters = parseFilterQueries(fq);
+    //     try {
+    //         // Apply filters if present
+    //         Map<String, Object> filters = parseFilterQueries(fq);
             
-            if (filters.isEmpty()) {
-                return parquetRepository.findBySnapshotIdWithPagination(snapshotID, page, size);
-            } else {
-                logger.debug("Applying optimized filters: {}", filters);
+    //         if (filters.isEmpty()) {
+    //             return parquetRepository.findBySnapshotIdWithPagination(snapshotID, page, size);
+    //         } else {
+    //             logger.debug("Applying optimized filters: {}", filters);
                 
-                // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
-                ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
+    //             // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
+    //             ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
                 
-                return parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, page, size);
-            }
-        } catch (IOException e) {
-            logger.error("Error querying optimized observations", e);
-            return new ArrayList<>();
-        }
-    }
+    //             return parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, page, size);
+    //         }
+    //     } catch (IOException e) {
+    //         logger.error("Error querying optimized observations", e);
+    //         return new ArrayList<>();
+    //     }
+    // }
 
     /**
      * Query validation statistics observations by snapshot ID with pagination (never loads all records in memory)
      * This method focuses ONLY on returning filtered paginated records, NOT aggregated statistics
      */
     @Override
-    public ValidationStatsQueryResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
+    public ValidationStatsObservationsResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
         logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, pageable.getPageNumber(), pageable.getPageSize());
         
         try {
@@ -497,7 +450,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 
                 // Return ONLY paginated records - NO aggregated statistics
                 // Aggregated statistics should be handled by separate endpoints like /public/diagnose/{snapshotID}
-                return new ValidationStatsQueryResult(pageResults, totalElements, pageable);
+                return new ValidationStatsObservationsResult(pageResults, totalElements, pageable);
                 
             } else {
                 // Without filters, use direct pagination
@@ -510,7 +463,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 long totalElements = parquetRepository.countBySnapshotId(snapshotID);
                 
                 // Return ONLY paginated records - NO aggregated statistics
-                return new ValidationStatsQueryResult(parquetObservations, totalElements, pageable);
+                return new ValidationStatsObservationsResult(parquetObservations, totalElements, pageable);
             }
 
         } catch (IOException e) {
@@ -793,95 +746,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         return facetEntries;
     }
 
-    // Clases internas (copiadas del servicio original)
-
-    @Getter
-    @Setter
-    public class ValidationStats {
-
-        public ValidationStats() {
-            facets = new HashMap<>();
-            rulesByID = new HashMap<>();
-        }
-
-        Integer size;
-        Integer transformedSize;
-        Integer validSize;
-        Map<String, ValidationRuleStat> rulesByID;
-        Map<String, List<FacetFieldEntry>> facets;
-    }
-
-    @Getter
-    @Setter
-    public class ValidationRuleStat {
-        Long ruleID;
-        String name;
-        String description;
-        QuantifierValues quantifier;
-        Boolean mandatory;
-        Integer validCount;
-        Integer invalidCount;
-    }
-
-    @Getter
-    @Setter
-    public class ValidationRuleOccurrencesCount {
-        List<OccurrenceCount> invalidRuleOccrs;
-        List<OccurrenceCount> validRuleOccrs;
-    }
-
-    @Getter
-    @Setter
-    public class OccurrenceCount {
-        public OccurrenceCount(String value, int count) {
-            super();
-            this.value = value;
-            this.count = count;
-        }
-
-        String value;
-        Integer count;
-    }
-
-    // Clase auxiliar para simular FacetFieldEntry de Solr
-    public static class FacetFieldEntry {
-        private String value;
-        private long valueCount;
-        private FacetKey key;
-
-        public FacetFieldEntry(String value, long valueCount, String keyName) {
-            this.value = value;
-            this.valueCount = valueCount;
-            this.key = new FacetKey(keyName);
-        }
-
-        public String getValue() {
-            return value;
-        }
-
-        public long getValueCount() {
-            return valueCount;
-        }
-        
-        public FacetKey getKey() {
-            return key;
-        }
-    }
-    
-    // Clase auxiliar para la clave de faceta
-    public static class FacetKey {
-        private String name;
-        
-        public FacetKey(String name) {
-            this.name = name;
-        }
-        
-        public String getName() {
-            return name;
-        }
-    }
-    
     // Implementación de métodos de la interfaz IValidationStatisticsService
+    
+
     
     @Override
     public void saveValidationStatObservations(List<ValidationStatObservation> observations) throws ValidationStatisticsException {
@@ -917,18 +784,18 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         }
     }
 
-    @Override
-    public ValidationStatsQueryResult queryValidatorRulesStatsBySnapshot(Long snapshotID, List<String> filters) throws ValidationStatisticsException {
-        try {
-            Map<String, Object> stats = queryValidatorRulesStatsBySnapshot(snapshotID);
-            ValidationStatsQueryResult result = new ValidationStatsQueryResult();
-            result.setAggregations(stats);
-            result.setMetadata(Map.of("snapshotId", snapshotID, "implementationType", "parquet"));
-            return result;
-        } catch (Exception e) {
-            throw new ValidationStatisticsException("Error consultando estadísticas de reglas", e);
-        }
-    }
+    // @Override
+    // public ValidationStatsQueryResult queryValidatorRulesStatsBySnapshot(Long snapshotID, List<String> filters) throws ValidationStatisticsException {
+    //     try {
+    //         Map<String, Object> stats = queryValidatorRulesStatsBySnapshot(snapshotID);
+    //         ValidationStatsQueryResult result = new ValidationStatsQueryResult();
+    //         result.setAggregations(stats);
+    //         result.setMetadata(Map.of("snapshotId", snapshotID, "implementationType", "parquet"));
+    //         return result;
+    //     } catch (Exception e) {
+    //         throw new ValidationStatisticsException("Error consultando estadísticas de reglas", e);
+    //     }
+    // }
 
     @Override
     public void deleteValidationStatsObservationsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
@@ -938,29 +805,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         } catch (Exception e) {
             throw new ValidationStatisticsException("Error eliminando observaciones del snapshot: " + snapshotID, e);
         }
-    }
-
-    @Override
-    public String getImplementationType() {
-        return "parquet";
-    }
-
-    @Override
-    public Map<String, Object> getPerformanceMetrics() {
-        Map<String, Object> metrics = new HashMap<>();
-        metrics.put("implementationType", "parquet");
-        metrics.put("available", isServiceAvailable());
-        metrics.put("timestamp", System.currentTimeMillis());
-        
-        try {
-            // Agregar métricas básicas del repositorio si están disponibles
-            metrics.put("repositoryType", "filesystem-parquet");
-            
-        } catch (Exception e) {
-            logger.warn("Error obteniendo métricas de performance: {}", e.getMessage());
-        }
-        
-        return metrics;
     }
 
     @Override

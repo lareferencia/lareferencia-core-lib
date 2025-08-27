@@ -1,4 +1,4 @@
-package org.lareferencia.backend.domain.validation;
+package org.lareferencia.backend.validation;
 
 import org.springframework.data.domain.Pageable;
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
@@ -10,7 +10,7 @@ import java.util.Map;
  * DTO para resultados de consultas de estadísticas de validación
  * Encapsula tanto datos paginados como metadatos de la consulta
  */
-public class ValidationStatsQueryResult {
+public class ValidationStatsObservationsResult {
     
     private List<ValidationStatObservationParquet> content;
     private long totalElements;
@@ -24,10 +24,10 @@ public class ValidationStatsQueryResult {
     private long executionTimeMs;
     
     // Constructor por defecto
-    public ValidationStatsQueryResult() {}
+    public ValidationStatsObservationsResult() {}
     
     // Constructor para consultas paginadas
-    public ValidationStatsQueryResult(List<ValidationStatObservationParquet> content, 
+    public ValidationStatsObservationsResult(List<ValidationStatObservationParquet> content, 
             long totalElements, Pageable pageable) {
         this.content = content;
         this.totalElements = totalElements;
@@ -39,7 +39,7 @@ public class ValidationStatsQueryResult {
     }
     
     // Constructor completo
-    public ValidationStatsQueryResult(List<ValidationStatObservationParquet> content,
+    public ValidationStatsObservationsResult(List<ValidationStatObservationParquet> content,
             long totalElements, int totalPages, int currentPage, int pageSize,
             boolean hasNext, boolean hasPrevious, Map<String, Object> aggregations,
             Map<String, Object> metadata, long executionTimeMs) {
