@@ -98,6 +98,11 @@ public class ValidationStatParquetRepository {
     
     private final Map<String, AggregationResult> queryCache = new ConcurrentHashMap<>();
     
+    // CACHE: Para evitar recontar registros en cada paginación
+    private final Map<String, Long> countCache = new ConcurrentHashMap<>();
+    private final Map<String, Long> countCacheTimestamp = new ConcurrentHashMap<>();
+    private final long COUNT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos de TTL
+    
     @PostConstruct
     public void init() throws IOException {
         logger.info("Initializing ValidationStatParquetRepository with {} records per file", recordsPerFile);
@@ -126,9 +131,26 @@ public class ValidationStatParquetRepository {
         try {
             logger.info("SHUTDOWN: Flushing remaining buffers before shutdown");
             flushAllBuffers();
+            
+            // Limpiar caches
+            queryCache.clear();
+            countCache.clear();
+            countCacheTimestamp.clear();
+            logger.debug("SHUTDOWN: Cleared all caches");
+            
         } catch (IOException e) {
             logger.error("SHUTDOWN: Error flushing buffers during shutdown", e);
         }
+    }
+    
+    /**
+     * CACHE HELPER: Invalida cache de conteo para un snapshot específico
+     */
+    private void invalidateCountCache(Long snapshotId) {
+        // Buscar todas las claves de cache que empiecen con el snapshot ID
+        countCache.entrySet().removeIf(entry -> entry.getKey().startsWith("count_" + snapshotId + "_"));
+        countCacheTimestamp.entrySet().removeIf(entry -> entry.getKey().startsWith("count_" + snapshotId + "_"));
+        logger.debug("CACHE: Invalidated count cache for snapshot {}", snapshotId);
     }
     
     /**
@@ -915,6 +937,9 @@ public class ValidationStatParquetRepository {
         snapshotBuffers.remove(snapshotId);
         snapshotFileCounters.remove(snapshotId);
         
+        // Invalidar cache de conteo para este snapshot
+        invalidateCountCache(snapshotId);
+        
         logger.info("CLEANUP: Successfully deleted {} data files for snapshot {}", deletedCount, snapshotId);
     }
 
@@ -1368,12 +1393,91 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Cuenta registros con filtros específicos (OPTIMIZADO CON PREDICATE PUSHDOWN)
+     * CACHE HELPER: Obtiene clave de cache para conteo
+     */
+    private String getCountCacheKey(Long snapshotId, AggregationFilter filter) {
+        return "count_" + snapshotId + "_" + (filter != null ? filter.hashCode() : "nofilter");
+    }
+    
+    /**
+     * CACHE HELPER: Verifica si el cache está vigente
+     */
+    private boolean isCountCacheValid(String cacheKey) {
+        Long timestamp = countCacheTimestamp.get(cacheKey);
+        if (timestamp == null) {
+            return false;
+        }
+        return (System.currentTimeMillis() - timestamp) < COUNT_CACHE_TTL_MS;
+    }
+    
+    /**
+     * OPTIMIZED: Cuenta registros con cache inteligente para evitar recálculos frecuentes
      * @param snapshotId ID del snapshot
      * @param filter Filtros a aplicar
      * @return Número de registros que cumplen los criterios
      */
     public long countRecordsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
+        String cacheKey = getCountCacheKey(snapshotId, filter);
+        
+        // Verificar cache primero
+        if (isCountCacheValid(cacheKey)) {
+            Long cachedCount = countCache.get(cacheKey);
+            if (cachedCount != null) {
+                logger.debug("PREDICATE COUNT CACHE: Returning cached count {} for snapshot {} (cache hit)", 
+                           cachedCount, snapshotId);
+                return cachedCount;
+            }
+        }
+        
+        // No hay cache válido, calcular el conteo
+        logger.info("PREDICATE COUNT CACHE: Cache miss or expired, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
+                   snapshotId);
+        
+        long count = calculateCountWithPredicate(snapshotId, filter);
+        
+        // Guardar en cache
+        countCache.put(cacheKey, count);
+        countCacheTimestamp.put(cacheKey, System.currentTimeMillis());
+        
+        logger.info("PREDICATE COUNT CACHE: Calculated and cached count {} for snapshot {} (cache stored)", 
+                   count, snapshotId);
+        
+        return count;
+    }
+    
+    /**
+     * FORCE: Cuenta registros sin usar cache (para casos específicos)
+     * @param snapshotId ID del snapshot
+     * @param filter Filtros a aplicar
+     * @return Número de registros que cumplen los criterios
+     */
+    public long countRecordsWithFilterNoCache(Long snapshotId, AggregationFilter filter) throws IOException {
+        logger.info("PREDICATE COUNT FORCE: Bypassing cache, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
+                   snapshotId);
+        return calculateCountWithPredicate(snapshotId, filter);
+    }
+    
+    /**
+     * CACHE MANAGEMENT: Limpia cache de conteo para un snapshot específico
+     */
+    public void clearCountCache(Long snapshotId) {
+        invalidateCountCache(snapshotId);
+        logger.info("CACHE: Manually cleared count cache for snapshot {}", snapshotId);
+    }
+    
+    /**
+     * CACHE MANAGEMENT: Limpia todo el cache de conteo
+     */
+    public void clearAllCountCache() {
+        countCache.clear();
+        countCacheTimestamp.clear();
+        logger.info("CACHE: Manually cleared all count cache");
+    }
+    
+    /**
+     * INTERNAL: Realiza el cálculo real del conteo con predicate pushdown
+     */
+    private long calculateCountWithPredicate(Long snapshotId, AggregationFilter filter) throws IOException {
         String snapshotDir = getSnapshotDirectoryPath(snapshotId);
         File dir = new File(snapshotDir);
         
@@ -1394,14 +1498,16 @@ public class ValidationStatParquetRepository {
                    dataFiles.length, snapshotId);
         
         long totalCount = 0;
+        int processedFiles = 0;
         
         // Count records from all data files using predicate pushdown
         for (File dataFile : dataFiles) {
+            processedFiles++;
             try {
                 long fileCount = countFileWithPredicatePushdown(dataFile.getAbsolutePath(), filter);
                 totalCount += fileCount;
-                logger.debug("PREDICATE COUNT API: File {} has {} matching records with pushdown", 
-                           dataFile.getName(), fileCount);
+                logger.debug("PREDICATE COUNT API: File {} ({}/{}) has {} matching records with pushdown", 
+                           dataFile.getName(), processedFiles, dataFiles.length, fileCount);
             } catch (Exception e) {
                 logger.error("PREDICATE COUNT API: Error counting records in file {} for snapshot {}", 
                            dataFile.getName(), snapshotId, e);
@@ -1409,8 +1515,8 @@ public class ValidationStatParquetRepository {
             }
         }
         
-        logger.info("PREDICATE COUNT API: OPTIMIZED total matching records for snapshot {}: {} using PREDICATE PUSHDOWN", 
-                   snapshotId, totalCount);
+        logger.info("PREDICATE COUNT API: OPTIMIZED total matching records for snapshot {}: {} using PREDICATE PUSHDOWN across {} files", 
+                   snapshotId, totalCount, processedFiles);
         return totalCount;
     }
 
@@ -1444,38 +1550,60 @@ public class ValidationStatParquetRepository {
         // Sort files to ensure consistent ordering
         Arrays.sort(dataFiles, (f1, f2) -> f1.getName().compareTo(f2.getName()));
         
-        logger.info("PREDICATE API: Processing {} data files for snapshot {} with PREDICATE PUSHDOWN optimization", 
+        logger.info("PREDICATE API: Processing up to {} data files for snapshot {} with PREDICATE PUSHDOWN optimization", 
                    dataFiles.length, snapshotId);
         
         List<ValidationStatObservationParquet> results = new ArrayList<>();
-        int currentOffset = page * size;
-        int collected = 0;
+        int totalOffset = page * size; // Total de registros a saltar
+        int remainingToSkip = totalOffset; // Registros que aún necesitamos saltar
+        int targetSize = size; // Número de registros que queremos recolectar
+        int processedFiles = 0;
         
         // Process each file with predicate pushdown until we have enough results
         for (File dataFile : dataFiles) {
-            if (collected >= size) {
-                break; // We have enough results
+            processedFiles++;
+            
+            // Si ya tenemos suficientes resultados, no procesar más archivos
+            if (results.size() >= targetSize) {
+                logger.debug("PREDICATE API: EARLY STOP - Already collected {} records, skipping remaining {} files", 
+                           results.size(), dataFiles.length - processedFiles + 1);
+                break;
             }
             
             try {
-                logger.debug("PREDICATE API: Processing file {} with pushdown optimization", dataFile.getName());
+                logger.debug("PREDICATE API: Processing file {} ({}/{}) with pushdown optimization, remaining to skip: {}, need: {}", 
+                           dataFile.getName(), processedFiles, dataFiles.length, remainingToSkip, targetSize - results.size());
+                
+                // Calcular cuántos registros necesitamos de este archivo
+                int remainingNeeded = targetSize - results.size();
                 
                 // Stream through this file with predicate pushdown
                 List<ValidationStatObservationParquet> fileResults = streamFileWithPredicatePushdown(
-                    dataFile.getAbsolutePath(), filter, currentOffset, size - collected);
+                    dataFile.getAbsolutePath(), filter, remainingToSkip, remainingNeeded);
                 
-                // Add the results we got
-                results.addAll(fileResults);
-                collected = results.size();
-                
-                // Update offset for next file
-                int recordsFromThisFile = fileResults.size();
-                if (currentOffset > 0) {
-                    currentOffset = Math.max(0, currentOffset - recordsFromThisFile);
+                // Si obtuvimos resultados, significa que hemos terminado de saltar registros
+                if (!fileResults.isEmpty()) {
+                    results.addAll(fileResults);
+                    remainingToSkip = 0; // Ya no necesitamos saltar más registros
+                    
+                    logger.debug("PREDICATE API: File {} contributed {} results (total collected: {}/{})", 
+                               dataFile.getName(), fileResults.size(), results.size(), targetSize);
+                    
+                    // Si ya tenemos suficientes resultados, terminar
+                    if (results.size() >= targetSize) {
+                        logger.debug("PREDICATE API: TARGET REACHED - Collected {} records after processing {} of {} files", 
+                                   results.size(), processedFiles, dataFiles.length);
+                        break;
+                    }
+                } else {
+                    // No obtuvimos resultados, actualizar cuántos registros saltamos en este archivo
+                    // Necesitamos contar cuántos registros había que cumplían el filtro en este archivo
+                    long filteredInThisFile = countFileWithPredicatePushdown(dataFile.getAbsolutePath(), filter);
+                    remainingToSkip = Math.max(0, remainingToSkip - (int)filteredInThisFile);
+                    
+                    logger.debug("PREDICATE API: File {} had {} filtered records, remaining to skip: {}", 
+                               dataFile.getName(), filteredInThisFile, remainingToSkip);
                 }
-                
-                logger.debug("PREDICATE API: File {} contributed {} results with pushdown (total collected: {})", 
-                           dataFile.getName(), fileResults.size(), collected);
                            
             } catch (Exception e) {
                 logger.error("PREDICATE API: Error processing file {} for snapshot {}", 
@@ -1484,8 +1612,8 @@ public class ValidationStatParquetRepository {
             }
         }
         
-        logger.info("PREDICATE API: OPTIMIZED results - {} records from page {} for snapshot {} using PREDICATE PUSHDOWN", 
-                   results.size(), page, snapshotId);
+        logger.info("PREDICATE API: OPTIMIZED results - {} records from page {} for snapshot {} using PREDICATE PUSHDOWN (processed {}/{} files)", 
+                   results.size(), page, snapshotId, processedFiles, dataFiles.length);
         
         return results;
     }
@@ -1693,6 +1821,9 @@ public class ValidationStatParquetRepository {
             
             // Write the file
             writeBufferToFile(snapshotId, recordsToWrite);
+            
+            // Invalidar cache de conteo ya que se agregaron nuevos datos
+            invalidateCountCache(snapshotId);
             
             logger.info("BUFFER: Flushed {} records for snapshot {} (buffer remaining: {})", 
                        recordsToWrite.size(), snapshotId, buffer.size());
