@@ -29,7 +29,7 @@
 	<artifactId>lareferencia-core-lib</artifactId>
 	<name>LA Referencia core lib</name>
 	<description>LA Referencia core library</description>
-	<version>4.2.5</version>
+	<version>4.2.6</version>
 
 	<parent>
 		<groupId>org.lareferencia</groupId>
