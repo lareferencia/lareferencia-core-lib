@@ -51,6 +51,7 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Repositorio para datos de validación en Parquet con persistencia real.
@@ -87,6 +88,17 @@ public class ValidationStatParquetRepository {
     @Value("${parquet.validation.records-per-file:10000}")
     private int recordsPerFile;
 
+    // ==================== MEMORY CACHE CONFIGURATION ====================
+    
+    @Value("${validation.stats.memory-cache.enabled:true}")
+    private boolean memoryCacheEnabled;
+    
+    @Value("${validation.stats.memory-cache.max-snapshots:10}")
+    private int maxCachedSnapshots;
+    
+    @Value("${validation.stats.memory-cache.max-records-per-snapshot:5000000}")
+    private long maxRecordsPerSnapshot;
+
     private Schema avroSchema;
     private Configuration hadoopConf;
     
@@ -95,6 +107,40 @@ public class ValidationStatParquetRepository {
     
     // BUFFER SYSTEM: Accumulate records until reaching recordsPerFile limit
     private final Map<Long, List<ValidationStatObservationParquet>> snapshotBuffers = new ConcurrentHashMap<>();
+    
+    // ==================== MEMORY CACHE SYSTEM ====================
+    
+    /**
+     * CACHE DATA STRUCTURE: Holds all data for a snapshot in memory
+     */
+    private static class SnapshotCache {
+        private final List<ValidationStatObservationParquet> allRecords;
+        private final Map<String, Object> precomputedStats;
+        private final long loadedTimestamp;
+        private final long recordCount;
+        
+        public SnapshotCache(List<ValidationStatObservationParquet> records, Map<String, Object> stats) {
+            this.allRecords = Collections.unmodifiableList(new ArrayList<>(records));
+            this.precomputedStats = new HashMap<>(stats);
+            this.loadedTimestamp = System.currentTimeMillis();
+            this.recordCount = records.size();
+        }
+        
+        public List<ValidationStatObservationParquet> getAllRecords() { return allRecords; }
+        public Map<String, Object> getPrecomputedStats() { return precomputedStats; }
+        public long getLoadedTimestamp() { return loadedTimestamp; }
+        public long getRecordCount() { return recordCount; }
+    }
+    
+    // MEMORY CACHE STORAGE
+    private final Map<Long, SnapshotCache> snapshotMemoryCache = new ConcurrentHashMap<>();
+    private final Map<Long, Long> cacheLoadTimestamp = new ConcurrentHashMap<>();
+    private final Map<Long, Boolean> cacheLoadingInProgress = new ConcurrentHashMap<>();
+    
+    // CACHE STATISTICS
+    private final AtomicLong cacheHits = new AtomicLong(0);
+    private final AtomicLong cacheMisses = new AtomicLong(0);
+    private final AtomicLong cacheLoads = new AtomicLong(0);
     
     private final Map<String, AggregationResult> queryCache = new ConcurrentHashMap<>();
     
@@ -136,6 +182,12 @@ public class ValidationStatParquetRepository {
             queryCache.clear();
             countCache.clear();
             countCacheTimestamp.clear();
+            
+            // Limpiar memory cache
+            if (memoryCacheEnabled) {
+                clearMemoryCache();
+            }
+            
             logger.debug("SHUTDOWN: Cleared all caches");
             
         } catch (IOException e) {
@@ -939,6 +991,12 @@ public class ValidationStatParquetRepository {
         
         // Invalidar cache de conteo para este snapshot
         invalidateCountCache(snapshotId);
+        
+        // CACHE INVALIDATION: Automatically invalidate memory cache when data is deleted
+        if (memoryCacheEnabled) {
+            evictFromCache(snapshotId);
+            logger.debug("CACHE INVALIDATION: Evicted snapshot {} due to deletion", snapshotId);
+        }
         
         logger.info("CLEANUP: Successfully deleted {} data files for snapshot {}", deletedCount, snapshotId);
     }
@@ -1795,6 +1853,18 @@ public class ValidationStatParquetRepository {
         }
         
         logger.debug("SAVE: Completed processing {} observations", observations.size());
+        
+        // CACHE INVALIDATION: Automatically invalidate cache when data changes
+        if (memoryCacheEnabled && observations != null) {
+            Set<Long> affectedSnapshots = observations.stream()
+                .map(ValidationStatObservationParquet::getSnapshotID)
+                .collect(Collectors.toSet());
+            
+            for (Long snapshotId : affectedSnapshots) {
+                evictFromCache(snapshotId);
+                logger.debug("CACHE INVALIDATION: Evicted snapshot {} due to data changes", snapshotId);
+            }
+        }
     }
 
     /**
@@ -1954,6 +2024,228 @@ public class ValidationStatParquetRepository {
         logger.info("MANUAL CLEANUP: Completed cleaning snapshot {}", snapshotId);
     }
     
+    // ==================== MEMORY CACHE CORE METHODS ====================
+    
+    /**
+     * SMART CACHE LOADER: Loads snapshot data into memory cache if not already loaded
+     * Thread-safe with loading indicators to prevent multiple concurrent loads
+     */
+    private SnapshotCache ensureSnapshotInCache(Long snapshotId) throws IOException {
+        if (!memoryCacheEnabled) {
+            throw new UnsupportedOperationException("Memory cache is disabled");
+        }
+        
+        // Check if already in cache
+        SnapshotCache cached = snapshotMemoryCache.get(snapshotId);
+        if (cached != null) {
+            cacheHits.incrementAndGet();
+            logger.debug("MEMORY CACHE HIT: Snapshot {} found in cache ({} records)", 
+                       snapshotId, cached.getRecordCount());
+            return cached;
+        }
+        
+        // Check if loading is in progress
+        synchronized (cacheLoadingInProgress) {
+            if (cacheLoadingInProgress.getOrDefault(snapshotId, false)) {
+                logger.debug("MEMORY CACHE WAIT: Snapshot {} is being loaded by another thread, waiting...", snapshotId);
+                
+                // Wait for loading to complete
+                while (cacheLoadingInProgress.getOrDefault(snapshotId, false)) {
+                    try {
+                        Thread.sleep(100); // Wait 100ms and check again
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("Interrupted while waiting for cache load", e);
+                    }
+                }
+                
+                // Check cache again after waiting
+                cached = snapshotMemoryCache.get(snapshotId);
+                if (cached != null) {
+                    cacheHits.incrementAndGet();
+                    logger.debug("MEMORY CACHE HIT AFTER WAIT: Snapshot {} now available in cache", snapshotId);
+                    return cached;
+                }
+            }
+            
+            // Mark as loading in progress
+            cacheLoadingInProgress.put(snapshotId, true);
+        }
+        
+        try {
+            cacheMisses.incrementAndGet();
+            logger.info("MEMORY CACHE MISS: Loading snapshot {} into memory cache...", snapshotId);
+            
+            // Check if we need to evict old snapshots (LRU eviction)
+            evictOldSnapshotsIfNeeded();
+            
+            // Load all data from parquet files
+            long startTime = System.currentTimeMillis();
+            List<ValidationStatObservationParquet> allRecords = loadAllRecordsFromDisk(snapshotId);
+            
+            // Check record count limit
+            if (allRecords.size() > maxRecordsPerSnapshot) {
+                logger.warn("MEMORY CACHE LIMIT: Snapshot {} has {} records, exceeds limit of {}. Skipping cache.", 
+                           snapshotId, allRecords.size(), maxRecordsPerSnapshot);
+                return null; // Don't cache, fall back to disk queries
+            }
+            
+            // Precompute basic statistics for ultra-fast stats queries
+            Map<String, Object> precomputedStats = precomputeStatistics(allRecords);
+            
+            // Create cache entry
+            SnapshotCache newCache = new SnapshotCache(allRecords, precomputedStats);
+            
+            // Store in cache
+            snapshotMemoryCache.put(snapshotId, newCache);
+            cacheLoadTimestamp.put(snapshotId, System.currentTimeMillis());
+            cacheLoads.incrementAndGet();
+            
+            long loadTime = System.currentTimeMillis() - startTime;
+            logger.info("MEMORY CACHE LOADED: Snapshot {} cached in memory - {} records in {}ms ({}MB estimated)", 
+                       snapshotId, allRecords.size(), loadTime, estimateMemoryUsage(allRecords));
+            
+            return newCache;
+            
+        } finally {
+            // Always remove loading indicator
+            synchronized (cacheLoadingInProgress) {
+                cacheLoadingInProgress.remove(snapshotId);
+            }
+        }
+    }
+    
+    /**
+     * DISK LOADER: Loads all records from parquet files (used for cache loading)
+     */
+    private List<ValidationStatObservationParquet> loadAllRecordsFromDisk(Long snapshotId) throws IOException {
+        logger.debug("DISK LOAD: Loading all records for snapshot {} from parquet files", snapshotId);
+        
+        List<String> filePaths = getAllDataFilePaths(snapshotId);
+        if (filePaths.isEmpty()) {
+            logger.debug("DISK LOAD: No data files found for snapshot {}", snapshotId);
+            return Collections.emptyList();
+        }
+        
+        List<ValidationStatObservationParquet> allRecords = new ArrayList<>();
+        
+        // Load from all parquet files
+        for (String filePath : filePaths) {
+            File file = new File(filePath);
+            if (!file.exists()) {
+                logger.warn("DISK LOAD: File does not exist: {}", filePath);
+                continue;
+            }
+            
+            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(
+                    HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
+                    .withConf(hadoopConf)
+                    .build()) {
+                
+                GenericRecord record;
+                int fileRecordCount = 0;
+                while ((record = reader.read()) != null) {
+                    ValidationStatObservationParquet observation = fromGenericRecord(record);
+                    allRecords.add(observation);
+                    fileRecordCount++;
+                }
+                
+                logger.debug("DISK LOAD: Loaded {} records from {}", fileRecordCount, file.getName());
+            }
+        }
+        
+        logger.info("DISK LOAD: Loaded {} total records for snapshot {} from {} files", 
+                   allRecords.size(), snapshotId, filePaths.size());
+        return allRecords;
+    }
+    
+    /**
+     * PRECOMPUTE: Calculate basic statistics during cache load for ultra-fast stats queries
+     */
+    private Map<String, Object> precomputeStatistics(List<ValidationStatObservationParquet> records) {
+        logger.debug("PRECOMPUTE: Calculating statistics for {} records", records.size());
+        
+        long totalCount = records.size();
+        long validCount = 0;
+        long transformedCount = 0;
+        Map<String, Long> validRuleCounts = new HashMap<>();
+        Map<String, Long> invalidRuleCounts = new HashMap<>();
+        
+        for (ValidationStatObservationParquet obs : records) {
+            // Count valid/invalid
+            if (Boolean.TRUE.equals(obs.getIsValid())) {
+                validCount++;
+            }
+            
+            // Count transformed
+            if (Boolean.TRUE.equals(obs.getIsTransformed())) {
+                transformedCount++;
+            }
+            
+            // Count rules
+            if (obs.getValidRulesIDList() != null) {
+                for (String rule : obs.getValidRulesIDList()) {
+                    if (rule != null && !rule.isEmpty()) {
+                        validRuleCounts.merge(rule, 1L, Long::sum);
+                    }
+                }
+            }
+            
+            if (obs.getInvalidRulesIDList() != null) {
+                for (String rule : obs.getInvalidRulesIDList()) {
+                    if (rule != null && !rule.isEmpty()) {
+                        invalidRuleCounts.merge(rule, 1L, Long::sum);
+                    }
+                }
+            }
+        }
+        
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalCount", totalCount);
+        stats.put("validCount", validCount);
+        stats.put("invalidCount", totalCount - validCount);
+        stats.put("transformedCount", transformedCount);
+        stats.put("validRuleCounts", validRuleCounts);
+        stats.put("invalidRuleCounts", invalidRuleCounts);
+        
+        logger.debug("PRECOMPUTE: Statistics calculated - {} total, {} valid, {} rules", 
+                    totalCount, validCount, validRuleCounts.size() + invalidRuleCounts.size());
+        return stats;
+    }
+    
+    /**
+     * MEMORY MANAGEMENT: Evict old snapshots using LRU policy
+     */
+    private void evictOldSnapshotsIfNeeded() {
+        if (snapshotMemoryCache.size() >= maxCachedSnapshots) {
+            // Find oldest snapshot by load timestamp
+            Long oldestSnapshotId = cacheLoadTimestamp.entrySet().stream()
+                .min(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
+            
+            if (oldestSnapshotId != null) {
+                SnapshotCache evicted = snapshotMemoryCache.remove(oldestSnapshotId);
+                cacheLoadTimestamp.remove(oldestSnapshotId);
+                
+                if (evicted != null) {
+                    logger.info("MEMORY CACHE EVICT: Removed snapshot {} from cache ({} records freed)", 
+                               oldestSnapshotId, evicted.getRecordCount());
+                }
+            }
+        }
+    }
+    
+    /**
+     * MEMORY ESTIMATION: Estimate memory usage of cached records
+     */
+    private long estimateMemoryUsage(List<ValidationStatObservationParquet> records) {
+        if (records.isEmpty()) return 0;
+        
+        // Rough estimation: ~500 bytes per record (strings, lists, etc.)
+        return records.size() * 500L / (1024 * 1024); // Return in MB
+    }
+
     // ==================== QUERY OPTIMIZATION METHODS ====================
     // (Moved from ValidationStatParquetQueryEngine for consolidated architecture)
     
@@ -2163,6 +2455,237 @@ public class ValidationStatParquetRepository {
     public void clearCache() {
         queryCache.clear();
         logger.info("Query cache cleared");
+    }
+    
+    // ==================== MEMORY CACHE API METHODS ====================
+    
+    /**
+     * ULTRA-FAST: Get aggregated stats from memory cache (millisecond response)
+     */
+    public Map<String, Object> getAggregatedStatsFromCache(Long snapshotId) throws IOException {
+        if (!memoryCacheEnabled) {
+            logger.info("CACHE DISABLED: Falling back to disk-based aggregation for snapshot {}", snapshotId);
+            return getAggregatedStats(snapshotId);
+        }
+        
+        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
+        if (cache == null) {
+            logger.warn("CACHE FALLBACK: Snapshot {} too large for cache, using disk queries", snapshotId);
+            return getAggregatedStats(snapshotId);
+        }
+        
+        logger.debug("ULTRA-FAST STATS: Returning precomputed statistics for snapshot {} from memory", snapshotId);
+        return new HashMap<>(cache.getPrecomputedStats());
+    }
+    
+    /**
+     * ULTRA-FAST: Get aggregated stats with filter from memory cache
+     */
+    public Map<String, Object> getAggregatedStatsWithFilterFromCache(Long snapshotId, AggregationFilter filter) throws IOException {
+        if (!memoryCacheEnabled) {
+            logger.info("CACHE DISABLED: Falling back to disk-based filtered aggregation for snapshot {}", snapshotId);
+            return getAggregatedStatsWithFilter(snapshotId, filter);
+        }
+        
+        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
+        if (cache == null) {
+            logger.warn("CACHE FALLBACK: Snapshot {} too large for cache, using disk queries", snapshotId);
+            return getAggregatedStatsWithFilter(snapshotId, filter);
+        }
+        
+        logger.debug("ULTRA-FAST FILTERED STATS: Processing filter on {} cached records", cache.getRecordCount());
+        
+        // Apply filter in memory - ultra fast!
+        List<ValidationStatObservationParquet> filteredRecords = cache.getAllRecords().stream()
+            .filter(record -> matchesFilter(record, filter))
+            .collect(Collectors.toList());
+        
+        // Compute stats on filtered results
+        Map<String, Object> filteredStats = precomputeStatistics(filteredRecords);
+        
+        logger.debug("ULTRA-FAST FILTERED STATS: {} records matched filter criteria", filteredRecords.size());
+        return filteredStats;
+    }
+    
+    /**
+     * ULTRA-FAST: Count records with filter from memory cache
+     */
+    public long countRecordsWithFilterFromCache(Long snapshotId, AggregationFilter filter) throws IOException {
+        if (!memoryCacheEnabled) {
+            logger.info("CACHE DISABLED: Falling back to disk-based count for snapshot {}", snapshotId);
+            return countRecordsWithFilter(snapshotId, filter);
+        }
+        
+        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
+        if (cache == null) {
+            logger.warn("CACHE FALLBACK: Snapshot {} too large for cache, using disk queries", snapshotId);
+            return countRecordsWithFilter(snapshotId, filter);
+        }
+        
+        logger.debug("ULTRA-FAST COUNT: Counting on {} cached records with filter", cache.getRecordCount());
+        
+        // Count in memory - ultra fast!
+        long count = cache.getAllRecords().stream()
+            .filter(record -> matchesFilter(record, filter))
+            .count();
+        
+        logger.debug("ULTRA-FAST COUNT: {} records matched filter criteria", count);
+        return count;
+    }
+    
+    /**
+     * ULTRA-FAST: Find records with filter and pagination from memory cache
+     */
+    public List<ValidationStatObservationParquet> findWithFilterAndPaginationFromCache(Long snapshotId, 
+                                                                                       AggregationFilter filter, 
+                                                                                       int page, int size) throws IOException {
+        if (!memoryCacheEnabled) {
+            logger.info("CACHE DISABLED: Falling back to disk-based pagination for snapshot {}", snapshotId);
+            return findWithFilterAndPagination(snapshotId, filter, page, size);
+        }
+        
+        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
+        if (cache == null) {
+            logger.warn("CACHE FALLBACK: Snapshot {} too large for cache, using disk queries", snapshotId);
+            return findWithFilterAndPagination(snapshotId, filter, page, size);
+        }
+        
+        logger.debug("ULTRA-FAST PAGINATION: Processing page {} (size {}) on {} cached records", 
+                   page, size, cache.getRecordCount());
+        
+        // Filter and paginate in memory - ultra fast!
+        List<ValidationStatObservationParquet> results = cache.getAllRecords().stream()
+            .filter(record -> matchesFilter(record, filter))
+            .skip((long) page * size)
+            .limit(size)
+            .collect(Collectors.toList());
+        
+        logger.debug("ULTRA-FAST PAGINATION: Returning {} results for page {}", results.size(), page);
+        return results;
+    }
+    
+    /**
+     * IN-MEMORY FILTER: Apply filter to individual record (ultra-fast)
+     */
+    private boolean matchesFilter(ValidationStatObservationParquet record, AggregationFilter filter) {
+        if (filter == null) {
+            return true;
+        }
+        
+        // Apply filters
+        if (filter.getRecordOAIId() != null && !filter.getRecordOAIId().equals(record.getIdentifier())) {
+            return false;
+        }
+        
+        if (filter.getIsValid() != null && !filter.getIsValid().equals(record.getIsValid())) {
+            return false;
+        }
+        
+        if (filter.getIsTransformed() != null && !filter.getIsTransformed().equals(record.getIsTransformed())) {
+            return false;
+        }
+        
+        if (filter.getValidRulesFilter() != null) {
+            List<String> validRules = record.getValidRulesIDList();
+            if (validRules == null || !validRules.contains(filter.getValidRulesFilter())) {
+                return false;
+            }
+        }
+        
+        if (filter.getInvalidRulesFilter() != null) {
+            List<String> invalidRules = record.getInvalidRulesIDList();
+            if (invalidRules == null || !invalidRules.contains(filter.getInvalidRulesFilter())) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    // ==================== CACHE MANAGEMENT API ====================
+    
+    /**
+     * CACHE INFO: Get cache statistics and status
+     */
+    public Map<String, Object> getMemoryCacheInfo() {
+        Map<String, Object> info = new HashMap<>();
+        info.put("enabled", memoryCacheEnabled);
+        info.put("cachedSnapshots", snapshotMemoryCache.size());
+        info.put("maxSnapshots", maxCachedSnapshots);
+        info.put("maxRecordsPerSnapshot", maxRecordsPerSnapshot);
+        info.put("cacheHits", cacheHits.get());
+        info.put("cacheMisses", cacheMisses.get());
+        info.put("cacheLoads", cacheLoads.get());
+        
+        // Hit ratio
+        long totalRequests = cacheHits.get() + cacheMisses.get();
+        double hitRatio = totalRequests > 0 ? (double) cacheHits.get() / totalRequests * 100 : 0;
+        info.put("hitRatio", String.format("%.2f%%", hitRatio));
+        
+        // Snapshot details
+        Map<Long, Map<String, Object>> snapshotDetails = new HashMap<>();
+        for (Map.Entry<Long, SnapshotCache> entry : snapshotMemoryCache.entrySet()) {
+            Long snapshotId = entry.getKey();
+            SnapshotCache cache = entry.getValue();
+            Map<String, Object> details = new HashMap<>();
+            details.put("recordCount", cache.getRecordCount());
+            details.put("loadedTimestamp", cache.getLoadedTimestamp());
+            details.put("estimatedSizeMB", estimateMemoryUsage(Collections.emptyList()));
+            snapshotDetails.put(snapshotId, details);
+        }
+        info.put("snapshotDetails", snapshotDetails);
+        
+        return info;
+    }
+    
+    /**
+     * CACHE CONTROL: Manually warm up cache for a snapshot
+     */
+    public void warmUpCache(Long snapshotId) throws IOException {
+        if (!memoryCacheEnabled) {
+            logger.warn("CACHE WARMUP: Memory cache is disabled");
+            return;
+        }
+        
+        logger.info("CACHE WARMUP: Manually warming up cache for snapshot {}", snapshotId);
+        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
+        if (cache != null) {
+            logger.info("CACHE WARMUP: Successfully warmed up snapshot {} ({} records)", 
+                       snapshotId, cache.getRecordCount());
+        } else {
+            logger.warn("CACHE WARMUP: Failed to warm up snapshot {} (too large?)", snapshotId);
+        }
+    }
+    
+    /**
+     * CACHE CONTROL: Clear specific snapshot from cache
+     */
+    public void evictFromCache(Long snapshotId) {
+        SnapshotCache evicted = snapshotMemoryCache.remove(snapshotId);
+        cacheLoadTimestamp.remove(snapshotId);
+        
+        if (evicted != null) {
+            logger.info("CACHE EVICT: Manually evicted snapshot {} from cache ({} records freed)", 
+                       snapshotId, evicted.getRecordCount());
+        } else {
+            logger.debug("CACHE EVICT: Snapshot {} was not in cache", snapshotId);
+        }
+    }
+    
+    /**
+     * CACHE CONTROL: Clear entire cache
+     */
+    public void clearMemoryCache() {
+        int evictedCount = snapshotMemoryCache.size();
+        snapshotMemoryCache.clear();
+        cacheLoadTimestamp.clear();
+        
+        // Reset statistics
+        cacheHits.set(0);
+        cacheMisses.set(0);
+        cacheLoads.set(0);
+        
+        logger.info("CACHE CLEAR: Cleared entire memory cache ({} snapshots freed)", evictedCount);
     }
     
     // ==================== QUERY OPTIMIZATION CLASSES ====================
