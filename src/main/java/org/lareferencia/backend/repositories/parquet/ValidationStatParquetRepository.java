@@ -51,6 +51,9 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -135,7 +138,9 @@ public class ValidationStatParquetRepository {
     // MEMORY CACHE STORAGE
     private final Map<Long, SnapshotCache> snapshotMemoryCache = new ConcurrentHashMap<>();
     private final Map<Long, Long> cacheLoadTimestamp = new ConcurrentHashMap<>();
-    private final Map<Long, Boolean> cacheLoadingInProgress = new ConcurrentHashMap<>();
+    
+    // CONCURRENT LOADING: Future-based coordination for concurrent cache loading
+    private final Map<Long, CompletableFuture<SnapshotCache>> cacheLoadingFutures = new ConcurrentHashMap<>();
     
     // CACHE STATISTICS
     private final AtomicLong cacheHits = new AtomicLong(0);
@@ -177,6 +182,13 @@ public class ValidationStatParquetRepository {
         try {
             logger.info("SHUTDOWN: Flushing remaining buffers before shutdown");
             flushAllBuffers();
+            
+            // Cancel pending cache loading futures
+            if (!cacheLoadingFutures.isEmpty()) {
+                logger.info("SHUTDOWN: Cancelling {} pending cache loading operations", cacheLoadingFutures.size());
+                cacheLoadingFutures.values().forEach(future -> future.cancel(true));
+                cacheLoadingFutures.clear();
+            }
             
             // Limpiar caches
             queryCache.clear();
@@ -2027,8 +2039,8 @@ public class ValidationStatParquetRepository {
     // ==================== MEMORY CACHE CORE METHODS ====================
     
     /**
-     * SMART CACHE LOADER: Loads snapshot data into memory cache if not already loaded
-     * Thread-safe with loading indicators to prevent multiple concurrent loads
+     * IMPROVED: Smart cache loader with Future-based coordination
+     * Allows multiple threads to wait for the same cache loading operation
      */
     private SnapshotCache ensureSnapshotInCache(Long snapshotId) throws IOException {
         if (!memoryCacheEnabled) {
@@ -2044,75 +2056,79 @@ public class ValidationStatParquetRepository {
             return cached;
         }
         
-        // Check if loading is in progress
-        synchronized (cacheLoadingInProgress) {
-            if (cacheLoadingInProgress.getOrDefault(snapshotId, false)) {
-                logger.debug("MEMORY CACHE WAIT: Snapshot {} is being loaded by another thread, waiting...", snapshotId);
-                
-                // Wait for loading to complete
-                while (cacheLoadingInProgress.getOrDefault(snapshotId, false)) {
-                    try {
-                        Thread.sleep(100); // Wait 100ms and check again
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new IOException("Interrupted while waiting for cache load", e);
-                    }
+        // Get or create loading future for this snapshot
+        CompletableFuture<SnapshotCache> loadingFuture = cacheLoadingFutures.computeIfAbsent(snapshotId, 
+            id -> CompletableFuture.supplyAsync(() -> {
+                try {
+                    return loadSnapshotIntoCache(snapshotId);
+                } catch (IOException e) {
+                    logger.error("CACHE LOAD ERROR: Failed to load snapshot {} into cache", snapshotId, e);
+                    return null;
                 }
-                
-                // Check cache again after waiting
-                cached = snapshotMemoryCache.get(snapshotId);
-                if (cached != null) {
-                    cacheHits.incrementAndGet();
-                    logger.debug("MEMORY CACHE HIT AFTER WAIT: Snapshot {} now available in cache", snapshotId);
-                    return cached;
-                }
-            }
-            
-            // Mark as loading in progress
-            cacheLoadingInProgress.put(snapshotId, true);
-        }
+            }));
         
         try {
-            cacheMisses.incrementAndGet();
-            logger.info("MEMORY CACHE MISS: Loading snapshot {} into memory cache...", snapshotId);
+            // Wait for loading to complete (with timeout)
+            SnapshotCache result = loadingFuture.get(30, TimeUnit.SECONDS);
             
-            // Check if we need to evict old snapshots (LRU eviction)
-            evictOldSnapshotsIfNeeded();
+            // Clean up completed future
+            cacheLoadingFutures.remove(snapshotId);
             
-            // Load all data from parquet files
-            long startTime = System.currentTimeMillis();
-            List<ValidationStatObservationParquet> allRecords = loadAllRecordsFromDisk(snapshotId);
-            
-            // Check record count limit
-            if (allRecords.size() > maxRecordsPerSnapshot) {
-                logger.warn("MEMORY CACHE LIMIT: Snapshot {} has {} records, exceeds limit of {}. Skipping cache.", 
-                           snapshotId, allRecords.size(), maxRecordsPerSnapshot);
-                return null; // Don't cache, fall back to disk queries
+            if (result != null) {
+                cacheHits.incrementAndGet();
+                return result;
+            } else {
+                cacheMisses.incrementAndGet();
+                return null;
             }
-            
-            // Precompute basic statistics for ultra-fast stats queries
-            Map<String, Object> precomputedStats = precomputeStatistics(allRecords);
-            
-            // Create cache entry
-            SnapshotCache newCache = new SnapshotCache(allRecords, precomputedStats);
-            
-            // Store in cache
-            snapshotMemoryCache.put(snapshotId, newCache);
-            cacheLoadTimestamp.put(snapshotId, System.currentTimeMillis());
-            cacheLoads.incrementAndGet();
-            
-            long loadTime = System.currentTimeMillis() - startTime;
-            logger.info("MEMORY CACHE LOADED: Snapshot {} cached in memory - {} records in {}ms ({}MB estimated)", 
-                       snapshotId, allRecords.size(), loadTime, estimateMemoryUsage(allRecords));
-            
-            return newCache;
-            
-        } finally {
-            // Always remove loading indicator
-            synchronized (cacheLoadingInProgress) {
-                cacheLoadingInProgress.remove(snapshotId);
-            }
+        } catch (TimeoutException e) {
+            logger.warn("CACHE LOAD TIMEOUT: Loading snapshot {} took too long, falling back to disk", snapshotId);
+            cacheLoadingFutures.remove(snapshotId);
+            return null;
+        } catch (Exception e) {
+            logger.error("CACHE LOAD ERROR: Error waiting for cache load of snapshot {}", snapshotId, e);
+            cacheLoadingFutures.remove(snapshotId);
+            return null;
         }
+    }
+
+    /**
+     * EXTRACTED: Actual cache loading logic
+     */
+    private SnapshotCache loadSnapshotIntoCache(Long snapshotId) throws IOException {
+        cacheMisses.incrementAndGet();
+        logger.info("MEMORY CACHE MISS: Loading snapshot {} into memory cache...", snapshotId);
+        
+        // Check if we need to evict old snapshots (LRU eviction)
+        evictOldSnapshotsIfNeeded();
+        
+        // Load all data from parquet files
+        long startTime = System.currentTimeMillis();
+        List<ValidationStatObservationParquet> allRecords = loadAllRecordsFromDisk(snapshotId);
+        
+        // Check record count limit
+        if (allRecords.size() > maxRecordsPerSnapshot) {
+            logger.warn("MEMORY CACHE LIMIT: Snapshot {} has {} records, exceeds limit of {}. Skipping cache.", 
+                       snapshotId, allRecords.size(), maxRecordsPerSnapshot);
+            return null; // Don't cache, fall back to disk queries
+        }
+        
+        // Precompute basic statistics for ultra-fast stats queries
+        Map<String, Object> precomputedStats = precomputeStatistics(allRecords);
+        
+        // Create cache entry
+        SnapshotCache newCache = new SnapshotCache(allRecords, precomputedStats);
+        
+        // Store in cache
+        snapshotMemoryCache.put(snapshotId, newCache);
+        cacheLoadTimestamp.put(snapshotId, System.currentTimeMillis());
+        cacheLoads.incrementAndGet();
+        
+        long loadTime = System.currentTimeMillis() - startTime;
+        logger.info("MEMORY CACHE LOADED: Snapshot {} cached in memory - {} records in {}ms ({}MB estimated)", 
+                   snapshotId, allRecords.size(), loadTime, estimateMemoryUsage(allRecords));
+        
+        return newCache;
     }
     
     /**
@@ -2562,6 +2578,64 @@ public class ValidationStatParquetRepository {
         
         logger.debug("ULTRA-FAST PAGINATION: Returning {} results for page {}", results.size(), page);
         return results;
+    }
+    
+    /**
+     * SMART FALLBACK: Try cache first, but with intelligent fallback strategy
+     * This method addresses the concurrent query problem by:
+     * 1. Using cache immediately if available
+     * 2. Waiting briefly for cache if loading in progress
+     * 3. Starting background cache loading for future queries
+     * 4. Using disk-based query for immediate response
+     */
+    public Map<String, Object> getAggregatedStatsWithOptimalStrategy(Long snapshotId, AggregationFilter filter) throws IOException {
+        if (!memoryCacheEnabled) {
+            return getAggregatedStatsWithFilter(snapshotId, filter);
+        }
+        
+        // Check if cache is available immediately (without blocking)
+        SnapshotCache cache = snapshotMemoryCache.get(snapshotId);
+        if (cache != null) {
+            // Cache hit - use ultra-fast path
+            logger.debug("OPTIMAL STRATEGY: Using cached data for snapshot {}", snapshotId);
+            return getAggregatedStatsWithFilterFromCache(snapshotId, filter);
+        }
+        
+        // Check if loading is in progress
+        CompletableFuture<SnapshotCache> loadingFuture = cacheLoadingFutures.get(snapshotId);
+        if (loadingFuture != null) {
+            try {
+                // Wait briefly for cache to load
+                SnapshotCache loadedCache = loadingFuture.get(5, TimeUnit.SECONDS);
+                if (loadedCache != null) {
+                    logger.info("OPTIMAL STRATEGY: Cache loaded during wait, using cached data for snapshot {}", snapshotId);
+                    return getAggregatedStatsWithFilterFromCache(snapshotId, filter);
+                }
+            } catch (TimeoutException e) {
+                logger.info("OPTIMAL STRATEGY: Cache loading taking too long, falling back to disk for snapshot {}", snapshotId);
+            } catch (Exception e) {
+                logger.warn("OPTIMAL STRATEGY: Error waiting for cache, falling back to disk for snapshot {} - {}", snapshotId, e.getMessage());
+            }
+        }
+        
+        // Start background cache loading for future queries if not already loading
+        if (loadingFuture == null) {
+            logger.debug("OPTIMAL STRATEGY: Starting background cache loading for snapshot {}", snapshotId);
+            cacheLoadingFutures.computeIfAbsent(snapshotId, id -> 
+                CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return loadSnapshotIntoCache(snapshotId);
+                    } catch (IOException e) {
+                        logger.error("BACKGROUND CACHE: Failed to load snapshot {} into cache", snapshotId, e);
+                        return null;
+                    }
+                })
+            );
+        }
+        
+        // Use disk-based query for immediate response
+        logger.info("OPTIMAL STRATEGY: Using disk-based query for immediate response, cache will be ready for next query");
+        return getAggregatedStatsWithFilter(snapshotId, filter);
     }
     
     /**
