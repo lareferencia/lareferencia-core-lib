@@ -158,9 +158,21 @@ public class ValidationStatParquetRepository {
     public void init() throws IOException {
         logger.info("Initializing ValidationStatParquetRepository with {} records per file", recordsPerFile);
         
-        // Initialize Hadoop configuration
+        // Initialize Hadoop configuration with robust local filesystem support
         hadoopConf = new Configuration();
         hadoopConf.set("fs.defaultFS", "file:///");
+        hadoopConf.set("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
+        hadoopConf.set("fs.hdfs.impl", "org.apache.hadoop.fs.DistributedFileSystem");
+        hadoopConf.setBoolean("fs.file.impl.disable.cache", false);
+        hadoopConf.setBoolean("fs.automatic.close", false);
+        
+        // Ensure local filesystem is properly initialized
+        try {
+            org.apache.hadoop.fs.FileSystem.get(hadoopConf);
+            logger.info("HADOOP CONFIG: Successfully initialized local filesystem support");
+        } catch (Exception e) {
+            logger.warn("HADOOP CONFIG: Issue initializing filesystem, using fallback configuration - {}", e.getMessage());
+        }
         
         // Create base directory if it doesn't exist
         Files.createDirectories(Paths.get(parquetBasePath));
@@ -216,7 +228,32 @@ public class ValidationStatParquetRepository {
         countCacheTimestamp.entrySet().removeIf(entry -> entry.getKey().startsWith("count_" + snapshotId + "_"));
         logger.debug("CACHE: Invalidated count cache for snapshot {}", snapshotId);
     }
-    
+
+    /**
+     * HADOOP HELPER: Create HadoopInputFile with robust error handling
+     * Handles filesystem configuration issues gracefully
+     */
+    private HadoopInputFile createHadoopInputFile(String filePath) throws IOException {
+        try {
+            // First attempt with main hadoop configuration
+            return HadoopInputFile.fromPath(new Path(filePath), hadoopConf);
+        } catch (org.apache.hadoop.fs.UnsupportedFileSystemException e) {
+            logger.debug("HADOOP HELPER: Primary config failed, trying with explicit file:// scheme - {}", e.getMessage());
+            try {
+                // Second attempt with explicit file:// scheme
+                Configuration fallbackConf = new Configuration();
+                fallbackConf.set("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
+                fallbackConf.set("fs.defaultFS", "file:///");
+                
+                String absolutePath = new File(filePath).getAbsolutePath();
+                return HadoopInputFile.fromPath(new Path("file://" + absolutePath), fallbackConf);
+            } catch (Exception fallbackError) {
+                logger.error("HADOOP HELPER: Both primary and fallback methods failed for file: {}", filePath, fallbackError);
+                throw new IOException("Failed to create HadoopInputFile for: " + filePath, e);
+            }
+        }
+    }
+
     /**
      * Initialize file counters for existing snapshots to avoid file conflicts
      */
@@ -485,9 +522,9 @@ public class ValidationStatParquetRepository {
         long pushedDownCount = 0;
         
         try {
-            // Crear reader con predicate pushdown
+            // Crear reader con predicate pushdown y manejo robusto de errores
             ParquetReader.Builder<GenericRecord> readerBuilder = AvroParquetReader.<GenericRecord>builder(
-                HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
+                createHadoopInputFile(filePath))
                 .withConf(hadoopConf);
             
             // Aplicar predicate pushdown si está disponible
@@ -508,15 +545,67 @@ public class ValidationStatParquetRepository {
                     }
                 }
             }
+        } catch (org.apache.hadoop.fs.UnsupportedFileSystemException e) {
+            logger.warn("PREDICATE COUNT: Hadoop filesystem issue, trying fallback method for file {} - {}", file.getName(), e.getMessage());
+            // Fallback to simple counting method without Hadoop filesystem
+            return countFileWithSimpleFallback(filePath, filter);
         } catch (Exception e) {
             logger.error("PREDICATE COUNT: Error with predicate pushdown for file {}", file.getName(), e);
-            // Re-throw exception since we removed fallback methods
-            throw new IOException("Failed to count with predicate pushdown: " + file.getName(), e);
+            // Try fallback method before giving up
+            try {
+                logger.info("PREDICATE COUNT: Attempting fallback counting method for file {}", file.getName());
+                return countFileWithSimpleFallback(filePath, filter);
+            } catch (Exception fallbackError) {
+                logger.error("PREDICATE COUNT: Fallback method also failed for file {}", file.getName(), fallbackError);
+                throw new IOException("Failed to count with predicate pushdown: " + file.getName(), e);
+            }
         }
         
         logger.debug("PREDICATE COUNT: File {} - Pushdown to {} records, complex filters to {} final count", 
                    file.getName(), pushedDownCount, count);
         
+        return count;
+    }
+
+    /**
+     * FALLBACK: Simple counting method without Hadoop filesystem dependencies
+     * Used when Hadoop configuration issues prevent normal operation
+     */
+    private long countFileWithSimpleFallback(String filePath, AggregationFilter filter) throws IOException {
+        File file = new File(filePath);
+        if (!file.exists()) {
+            logger.debug("FALLBACK COUNT: File does not exist: {}", filePath);
+            return 0L;
+        }
+
+        logger.debug("FALLBACK COUNT: Using simple fallback counting for {}", file.getName());
+        
+        long count = 0;
+        
+        try {
+            // Use basic Parquet reader with minimal Hadoop configuration
+            Configuration fallbackConf = new Configuration();
+            fallbackConf.set("fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem");
+            
+            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(
+                    HadoopInputFile.fromPath(new Path("file://" + file.getAbsolutePath()), fallbackConf))
+                    .withConf(fallbackConf)
+                    .build()) {
+                
+                GenericRecord record;
+                while ((record = reader.read()) != null) {
+                    ValidationStatObservationParquet observation = fromGenericRecord(record);
+                    if (matchesComplexFilters(observation, filter)) {
+                        count++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("FALLBACK COUNT: Error in simple fallback counting for file {}", file.getName(), e);
+            throw new IOException("Failed to count with simple fallback: " + file.getName(), e);
+        }
+        
+        logger.debug("FALLBACK COUNT: File {} - Counted {} matching records", file.getName(), count);
         return count;
     }
 
