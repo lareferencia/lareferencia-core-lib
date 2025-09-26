@@ -259,8 +259,16 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 logger.debug("MAIN STATS: Created aggregation filter: isValid={}, identifier={}", 
                     aggregationFilter.getIsValid(), aggregationFilter.getRecordOAIId());
                 
-                // USE OPTIMAL STRATEGY: Handles concurrent queries intelligently
-                Map<String, Object> filteredStats = parquetRepository.getAggregatedStatsWithOptimalStrategy(snapshot.getId(), aggregationFilter);
+                // TRY ULTRA-FAST CACHE FIRST, fallback to disk if needed
+                Map<String, Object> filteredStats;
+                try {
+                    logger.debug("CACHE ATTEMPT: Trying memory cache for filtered stats (snapshot {})", snapshot.getId());
+                    filteredStats = parquetRepository.getAggregatedStatsWithFilterFromCache(snapshot.getId(), aggregationFilter);
+                    logger.info("ULTRA-FAST CACHE HIT: Used memory cache for filtered stats (response in milliseconds)");
+                } catch (Exception e) {
+                    logger.info("CACHE MISS/LOADING: Loading data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshot.getId(), e.getMessage());
+                    filteredStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
+                }
                 logger.debug("MAIN STATS: Filtered stats result: {}", filteredStats);
                 
                 result.setSize(((Number) filteredStats.getOrDefault("totalCount", 0L)).intValue());
@@ -300,10 +308,17 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 }
                 
             } else {
-                // USE OPTIMAL STRATEGY: Handles concurrent queries intelligently  
-                logger.debug("OPTIMAL: Using optimal strategy for complete aggregated statistics (snapshot {})", snapshot.getId());
+                // TRY ULTRA-FAST CACHE FIRST, fallback to disk if needed
+                logger.debug("CACHE ATTEMPT: Trying memory cache for complete aggregated statistics (snapshot {})", snapshot.getId());
                 
-                Map<String, Object> aggregatedStats = parquetRepository.getAggregatedStatsWithOptimalStrategy(snapshot.getId(), null);
+                Map<String, Object> aggregatedStats;
+                try {
+                    aggregatedStats = parquetRepository.getAggregatedStatsFromCache(snapshot.getId());
+                    logger.info("ULTRA-FAST CACHE HIT: Used memory cache for aggregated stats (response in milliseconds)");
+                } catch (Exception e) {
+                    logger.info("CACHE MISS/LOADING: Loading data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshot.getId(), e.getMessage());
+                    aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
+                }
                 
                 result.setSize(((Number) aggregatedStats.get("totalCount")).intValue());
                 result.setValidSize(((Number) aggregatedStats.get("validCount")).intValue());
@@ -493,25 +508,19 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 logger.debug("FILTER RECORDS: Converted AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
                            aggregationFilter.getIsValid(), aggregationFilter.getIsTransformed(), aggregationFilter.getRecordOAIId());
                 
-                // USE OPTIMAL STRATEGY: Handles concurrent queries intelligently for pagination
+                // TRY ULTRA-FAST CACHE FIRST for pagination
                 List<ValidationStatObservationParquet> pageResults;
                 long totalElements;
                 
                 try {
-                    logger.debug("OPTIMAL: Using optimal strategy for filtered pagination (snapshot {})", snapshotID);
+                    logger.debug("CACHE ATTEMPT: Trying memory cache for filtered pagination (snapshot {})", snapshotID);
                     pageResults = parquetRepository.findWithFilterAndPaginationFromCache(snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
                     totalElements = parquetRepository.countRecordsWithFilterFromCache(snapshotID, aggregationFilter);
-                    logger.info("OPTIMAL CACHE: Used optimized cache strategy for filtered pagination");
+                    logger.info("ULTRA-FAST CACHE HIT: Used memory cache for filtered pagination (response in milliseconds)");
                 } catch (Exception e) {
-                    logger.info("OPTIMAL FALLBACK: Using disk-based query for filtered pagination - cache loading in background for snapshot {}", snapshotID);
+                    logger.info("CACHE MISS/LOADING: Loading paginated data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshotID, e.getMessage());
                     pageResults = parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
                     totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
-                    // Trigger background cache loading for future queries
-                    try {
-                        parquetRepository.getAggregatedStatsWithOptimalStrategy(snapshotID, aggregationFilter);
-                    } catch (Exception cacheEx) {
-                        logger.debug("Background cache loading initiated for snapshot {}", snapshotID);
-                    }
                 }
                 logger.debug("FILTER RECORDS: Total filtered elements: {}", totalElements);
                 
@@ -695,17 +704,29 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         Map<String, Object> aggregatedStats;
         
         if (fq != null && !fq.isEmpty()) {
-            // USE OPTIMAL STRATEGY for filtered facets stats
+            // TRY ULTRA-FAST CACHE FIRST for filtered stats
             Map<String, Object> filters = parseFilterQueries(fq);
             ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotId);
             
-            logger.debug("FACETS OPTIMAL: Using optimal strategy for filtered facets (snapshot {})", snapshotId);
-            aggregatedStats = parquetRepository.getAggregatedStatsWithOptimalStrategy(snapshotId, aggregationFilter);
+            try {
+                logger.debug("FACETS CACHE ATTEMPT: Trying memory cache for filtered facets (snapshot {})", snapshotId);
+                aggregatedStats = parquetRepository.getAggregatedStatsWithFilterFromCache(snapshotId, aggregationFilter);
+                logger.debug("ULTRA-FAST FACETS HIT: Used memory cache for filtered stats (millisecond response)");
+            } catch (Exception e) {
+                logger.debug("FACETS CACHE MISS: Loading filtered stats from disk for snapshot {} - subsequent queries will be ultra-fast", snapshotId);
+                aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshotId, aggregationFilter);
+            }
             logger.debug("FACETS: Using filtered aggregated stats for snapshot {} with filters: {}", snapshotId, filters);
         } else {
-            // USE OPTIMAL STRATEGY for complete facets stats
-            logger.debug("FACETS OPTIMAL: Using optimal strategy for complete facets (snapshot {})", snapshotId);
-            aggregatedStats = parquetRepository.getAggregatedStatsWithOptimalStrategy(snapshotId, null);
+            // TRY ULTRA-FAST CACHE FIRST for complete stats
+            try {
+                logger.debug("FACETS CACHE ATTEMPT: Trying memory cache for complete facets (snapshot {})", snapshotId);
+                aggregatedStats = parquetRepository.getAggregatedStatsFromCache(snapshotId);
+                logger.debug("ULTRA-FAST FACETS HIT: Used memory cache for complete stats (millisecond response)");
+            } catch (Exception e) {
+                logger.debug("FACETS CACHE MISS: Loading complete stats from disk for snapshot {} - subsequent queries will be ultra-fast", snapshotId);
+                aggregatedStats = parquetRepository.getAggregatedStats(snapshotId);
+            }
             logger.debug("FACETS: Using complete aggregated stats for snapshot {}", snapshotId);
         }
         
