@@ -20,14 +20,15 @@
 
 package org.lareferencia.core.oabroker;
 
-import javax.persistence.Column;
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
-import javax.persistence.Id;
-import javax.persistence.Index;
-import javax.persistence.Table;
+import jakarta.persistence.Column;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 
-import org.hibernate.annotations.Type;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
@@ -46,7 +47,7 @@ import lombok.Setter;
 @Table(name = "broker_event" , indexes = { @Index(name = "broker_event_identifier",  columnList="identifier", unique = false),  
 										   @Index(name = "broker_network_id",  		 columnList="network_id", unique = false),
 										   @Index(name = "broker_topic",  		 	 columnList="topic", unique = false)}  )
-@javax.persistence.Entity
+@jakarta.persistence.Entity
 public class BrokerEvent  {
 
 	@EqualsAndHashCode.Include
@@ -58,7 +59,7 @@ public class BrokerEvent  {
 	@Column(nullable = false)
 	private String identifier;
 	
-	@Type(type = "org.hibernate.type.TextType")
+	@JdbcTypeCode(SqlTypes.LONGVARCHAR)
 	private String message;
 	
 	private String topic;

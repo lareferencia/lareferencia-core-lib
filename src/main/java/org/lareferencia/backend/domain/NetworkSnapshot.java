@@ -31,7 +31,7 @@ import org.lareferencia.core.util.LocalDateTimeAttributeConverter;
 
 import java.time.LocalDateTime;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 /**
  * 

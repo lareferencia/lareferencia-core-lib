@@ -123,6 +123,11 @@
 					<groupId>org.apache.logging.log4j</groupId>
 					<artifactId>log4j-slf4j2-impl</artifactId>
 				</exclusion>
+				<!-- UPGRADED: Exclude old JLine 3.9.0 from hadoop-yarn-client to avoid conflict with Spring Shell 3.x (needs JLine 3.26.x) -->
+				<exclusion>
+					<groupId>org.jline</groupId>
+					<artifactId>jline</artifactId>
+				</exclusion>
 			</exclusions>
 		</dependency>
 		<dependency>
@@ -166,10 +171,20 @@
 			<version>${apache.tika.version}</version>
 		</dependency>
 
+		<!-- ADDED: Missing dependencies for Spring Boot 3.x -->
+		
+		<!-- JSON Simple for JWT parsing -->
 		<dependency>
-			<groupId>org.apache.tika</groupId>
-			<artifactId>tika-parsers</artifactId>
-			<version>${apache.tika.version}</version>
+			<groupId>com.googlecode.json-simple</groupId>
+			<artifactId>json-simple</artifactId>
+			<version>1.1.1</version>
+		</dependency>
+		
+		<!-- Joda Time for date/time handling (legacy code) -->
+		<dependency>
+			<groupId>joda-time</groupId>
+			<artifactId>joda-time</artifactId>
+			<version>2.12.5</version>
 		</dependency>
 
 		<dependency>
@@ -244,6 +259,8 @@
 				</executions>
 			</plugin>
 
+			<!-- COMMENTED: Spring Boot 3.x parent POM already configures maven-source-plugin
+			     to avoid duplicate execution. If needed, uncomment and add a classifier.
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-source-plugin</artifactId>
@@ -256,6 +273,7 @@
 					</execution>
 				</executions>
 			</plugin>
+			-->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-javadoc-plugin</artifactId>

@@ -23,8 +23,8 @@ package org.lareferencia.core.util;
 
 import java.time.LocalDateTime;
 
-import javax.persistence.AttributeConverter;
-import javax.persistence.Converter;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
 
 import java.sql.Timestamp;
  

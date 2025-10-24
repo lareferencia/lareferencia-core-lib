@@ -1,22 +1,7 @@
 /*
  *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
  *
- *   This program is fr	@Override
-	public void preRun() {
-		// Verificar que el servicio Parquet esté disponible
-		if (validationStatisticsService == null || !validationStatisticsService.isServiceAvailable()) {
-			logError("Parquet validation statistics service is not available");
-			this.stop();
-			return;
-		}
-		
-		logInfo("Using Parquet validation statistics service");
-		
-		// new reusable validation result
-		reusableValidationResult = new ValidatorResult();
-		
-		// Inicializar lista de observaciones Parquet
-		validationStatsObservations = new ArrayList<ValidationStatObservationParquet>(); can redistribute it and/or modify
+ *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU Affero General Public License as published by
  *   the Free Software Foundation, either version 3 of the License, or
  *   (at your option) any later version.
@@ -41,13 +26,12 @@ import java.util.ArrayList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.SnapshotStatus;
-import org.lareferencia.backend.domain.ValidationStatObservation;
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
-import org.lareferencia.backend.services.ValidationStatisticsException;
-import org.lareferencia.backend.services.parquet.ValidationStatisticsParquetService;
+import org.lareferencia.backend.validation.ValidationStatisticsException;
+import org.lareferencia.backend.validation.ValidationStatisticsParquetService;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
 import org.lareferencia.core.metadata.MetadataRecordStoreException;
@@ -62,7 +46,6 @@ import org.lareferencia.core.worker.BaseBatchWorker;
 import org.lareferencia.core.worker.IPaginator;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 
 public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningContext> {
@@ -93,7 +76,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	private Long snapshotId;
 	
 
-	private ArrayList<ValidationStatObservationParquet> validationStatsObservations;
+	private ArrayList<ValidationStatObservationParquet> validationStatsObservations = new ArrayList<ValidationStatObservationParquet>();
 	
 	@Autowired
 	ValidationStatisticsParquetService validationStatisticsService;
@@ -111,20 +94,16 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	
 	@Override
 	public void preRun() {
-		// Verificar que el servicio Parquet esté disponible
-		if (validationStatisticsParquetService == null || !validationStatisticsParquetService.isServiceAvailable()) {
-			logError("Parquet validation statistics service is not available");
+
+
+		if ( ! validationStatisticsService.isServiceAvailable() ) {
+			logError("Validation Statistics Service is not available, can't run validation");
 			this.stop();
 			return;
 		}
 		
-		logInfo("Using Parquet validation statistics service");
-		
 		// new reusable validation result
 		reusableValidationResult = new ValidatorResult();
-		
-		// Inicializar lista de observaciones Parquet
-		validationStatsObservationsParquet = new ArrayList<ValidationStatObservationParquet>();
 		
 		// trata de conseguir la ultima cosecha válida o el revalida el lgk 
 		this.snapshotId = metadataStoreService.findLastHarvestingSnapshot( runningContext.getNetwork() );
@@ -134,6 +113,11 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			Long previousSnapshotId = metadataStoreService.getPreviousSnapshotId(snapshotId);
 
 			logInfo("Starting Validation/Tranformation " + runningContext.toString() + "  -  snapshot: " + snapshotId + (isIncremental() ? " (incremental)" : " (full)"));
+			
+			// INITIALIZE: Clean validation statistics for new validation run
+			logInfo("Initializing validation statistics for snapshot: " + snapshotId);
+			validationStatisticsService.initializeValidationForSnapshot(snapshotId);
+			
 			/***
 			 * Si es una validación incremental se crea un paginado que solo considera los untested, 
 			 * para la validacion full se considera los no deleted, eso asegura que se vuelvan a evaluar los valid e invalid
@@ -161,13 +145,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 			   // delete previous validation results if any
 				try {
-					if (useParquetForValidationStats && validationStatisticsParquetService != null && validationStatisticsParquetService.isServiceAvailable()) {
-						// TODO: Implementar deleteValidationStatsBySnapshotID en ValidationStatisticsParquetService
-						logInfo("Deleting previous validation results with Parquet service for snapshot: " + snapshotId);
-						// validationStatisticsParquetService.deleteValidationStatsBySnapshotID(snapshotId);
-					} else {
-						validationStatisticsService.deleteValidationStatsBySnapshotID(snapshotId);
-					}
+					validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
 				} catch (ValidationStatisticsException e) {
 					logError("Error deleting previous validation results: " + e.getMessage());
 					this.stop();
@@ -181,11 +159,6 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 		
 			logger.debug("Detailed diagnose: " + runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
 			validationStatisticsService.setDetailedDiagnose( runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
-			
-			// Configurar también el servicio Parquet si está disponible
-			if (useParquetForValidationStats && validationStatisticsParquetService != null) {
-				validationStatisticsParquetService.setDetailedDiagnose( runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
-			}
 			
 	
 			try {
@@ -234,16 +207,8 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 
 	private void copyAndUpdatePreviousValidationResults(Long previousSnapshotId, Long snapshotId) throws ValidationStatisticsException {
-		
-		// Copiar los resultados según el servicio en uso
-		if (useParquetForValidationStats && validationStatisticsParquetService != null && validationStatisticsParquetService.isServiceAvailable()) {
-			// TODO: Implementar copyValidationStatsObservationsFromTo en ValidationStatisticsParquetService
-			logInfo("Copying validation results with Parquet service from " + previousSnapshotId + " to " + snapshotId);
-			// validationStatisticsParquetService.copyValidationStatsObservationsFromTo(previousSnapshotId, snapshotId);
-		} else {
-			// copia los resultados de validación del snapshot anterior usando Solr
-			validationStatisticsService.copyValidationStatsObservationsFromTo(previousSnapshotId, snapshotId);
-		}
+		// copia los resultados de validación del snapshot anterior
+		validationStatisticsService.copyValidationStatsObservationsFromTo(previousSnapshotId, snapshotId);
 
 		// obtain paginator for deleted records
 		IPaginator<OAIRecord> paginator = metadataStoreService.getDeletedRecordsPaginator(snapshotId);
@@ -262,14 +227,8 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 					// use record ids from page and call validation services delete
 					page.getContent().stream().forEach(record -> {
 						try {
-							if (useParquetForValidationStats && validationStatisticsParquetService != null && validationStatisticsParquetService.isServiceAvailable()) {
-								// TODO: Implementar deleteValidationStatsObservationByRecordAndSnapshotID en ValidationStatisticsParquetService
-								// validationStatisticsParquetService.deleteValidationStatsObservationByRecordAndSnapshotID(snapshotId, record);
-								logger.debug("Deleting validation results for record (Parquet): " + record.getId() + " :: Snapshot: " + snapshotId);
-							} else {
-								validationStatisticsService.deleteValidationStatsObservationByRecordAndSnapshotID(snapshotId, record);
-								logger.debug("Deleting validation results for record (Solr): " + record.getId() + " :: Snapshot: " + snapshotId);
-							}
+							validationStatisticsService.deleteValidationStatsObservationByRecordAndSnapshotID(snapshotId, record);
+							logger.debug("Deleting validation results for record: " + record.getId() + " :: Snapshot: " + snapshotId);
 						} catch (ValidationStatisticsException e) {
 							throw new RuntimeException(e);
 						}
@@ -290,9 +249,6 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	public void prePage() {
 		
 		validationStatsObservations.clear();
-		if (validationStatsObservationsParquet != null) {
-			validationStatsObservationsParquet.clear();
-		}
 	}
 	
 	@Override
@@ -365,11 +321,6 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			// Se almacenan las estadísticas de cosecha
             logger.debug("Storing diagnose "  + record.getId() + " :: "+ record.getIdentifier() );
             validationStatsObservations.add( validationStatisticsService.buildObservation(record, reusableValidationResult) );
-            
-            // Agregar observación para Parquet si está habilitado
-            if (useParquetForValidationStats && validationStatisticsParquetService != null) {
-                validationStatsObservationsParquet.add(validationStatisticsParquetService.buildObservation(record, reusableValidationResult));
-            }
 
 			logger.debug( record.getId() + " :: "+ record.getIdentifier() + " final status: " + record.getStatus() );
 
@@ -405,18 +356,9 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	@Override
 	public void postPage() {
 		
-		// Registrar observaciones en el servicio disponible
-		if (useParquetForValidationStats && validationStatisticsParquetService != null && validationStatisticsParquetService.isServiceAvailable()) {
-			logger.info("Enviando {} observaciones Parquet para registro", validationStatsObservationsParquet.size());
-			validationStatisticsParquetService.registerObservations(validationStatsObservationsParquet);
-			validationStatsObservationsParquet.clear();
-		} else if (validationStatisticsService.isServiceAvaliable()) {
-			logger.info("Enviando {} observaciones Solr para registro", validationStatsObservations.size());
+		if ( validationStatisticsService.isServiceAvailable() ) {
 			validationStatisticsService.registerObservations(validationStatsObservations);
-		}
-		
-		// Limpiar las observaciones de Solr en cualquier caso
-		validationStatsObservations.clear();
+		} 
 		
 		metadataStoreService.saveSnapshot(snapshotId);
 
@@ -425,6 +367,13 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 	@Override
 	public void postRun() {
+		// CRITICAL: Flush any remaining buffered validation data before marking as complete
+		try {
+			validationStatisticsService.flushValidationData(snapshotId);
+		} catch (Exception e) {
+			logger.error("ERROR: Failed to flush validation data for snapshot {}", snapshotId, e);
+		}
+		
 		setSnapshotStatus(SnapshotStatus.VALID);
 		logInfo("Finishing Validation/Transformation of " + runningContext.toString() );
 
