@@ -175,7 +175,7 @@ public class ValidationStatParquetRepository {
     @PreDestroy
     public void shutdown() {
         try {
-            logger.info("SHUTDOWN: Flushing remaining buffers before shutdown");
+            logger.debug("SHUTDOWN: Flushing remaining buffers before shutdown");
             flushAllBuffers();
             
             // Limpiar caches
@@ -329,7 +329,7 @@ public class ValidationStatParquetRepository {
         }
         
         if (predicate != null) {
-            logger.info("PREDICATE: Built optimized filter predicate with {} conditions", 
+            logger.debug("PREDICATE: Built optimized filter predicate with {} conditions", 
                        countPredicateConditions(predicate));
         }
         
@@ -983,7 +983,7 @@ public class ValidationStatParquetRepository {
         // Clear any buffered data and reset counters
         List<ValidationStatObservationParquet> buffer = snapshotBuffers.get(snapshotId);
         if (buffer != null && !buffer.isEmpty()) {
-            logger.info("CLEANUP: Clearing {} buffered records for snapshot {}", buffer.size(), snapshotId);
+            logger.debug("CLEANUP: Clearing {} buffered records for snapshot {}", buffer.size(), snapshotId);
             buffer.clear();
         }
         snapshotBuffers.remove(snapshotId);
@@ -1407,7 +1407,7 @@ public class ValidationStatParquetRepository {
         Map<String, Long> combinedValidRuleCounts = new HashMap<>();
         Map<String, Long> combinedInvalidRuleCounts = new HashMap<>();
         
-        logger.info("PREDICATE AGGREGATION API: Processing {} data files for snapshot {} with PREDICATE PUSHDOWN filters", 
+        logger.debug("PREDICATE AGGREGATION API: Processing {} data files for snapshot {} with PREDICATE PUSHDOWN filters", 
                    dataFiles.length, snapshotId);
         
         // Process each data file and combine filtered results using pushdown
@@ -1444,7 +1444,7 @@ public class ValidationStatParquetRepository {
         stats.put("validRuleCounts", combinedValidRuleCounts);
         stats.put("invalidRuleCounts", combinedInvalidRuleCounts);
         
-        logger.info("PREDICATE AGGREGATION API: OPTIMIZED combined statistics for snapshot {}: {} records matched criteria from {} files using PREDICATE PUSHDOWN", 
+        logger.debug("PREDICATE AGGREGATION API: OPTIMIZED combined statistics for snapshot {}: {} records matched criteria from {} files using PREDICATE PUSHDOWN", 
                    snapshotId, totalCount, dataFiles.length);
         
         return stats;
@@ -1488,7 +1488,7 @@ public class ValidationStatParquetRepository {
         }
         
         // No hay cache válido, calcular el conteo
-        logger.info("PREDICATE COUNT CACHE: Cache miss or expired, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
+        logger.debug("PREDICATE COUNT CACHE: Cache miss or expired, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
                    snapshotId);
         
         long count = calculateCountWithPredicate(snapshotId, filter);
@@ -1497,7 +1497,7 @@ public class ValidationStatParquetRepository {
         countCache.put(cacheKey, count);
         countCacheTimestamp.put(cacheKey, System.currentTimeMillis());
         
-        logger.info("PREDICATE COUNT CACHE: Calculated and cached count {} for snapshot {} (cache stored)", 
+        logger.debug("PREDICATE COUNT CACHE: Calculated and cached count {} for snapshot {} (cache stored)", 
                    count, snapshotId);
         
         return count;
@@ -1510,7 +1510,7 @@ public class ValidationStatParquetRepository {
      * @return Número de registros que cumplen los criterios
      */
     public long countRecordsWithFilterNoCache(Long snapshotId, AggregationFilter filter) throws IOException {
-        logger.info("PREDICATE COUNT FORCE: Bypassing cache, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
+        logger.debug("PREDICATE COUNT FORCE: Bypassing cache, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
                    snapshotId);
         return calculateCountWithPredicate(snapshotId, filter);
     }
@@ -1552,7 +1552,7 @@ public class ValidationStatParquetRepository {
             return 0L;
         }
         
-        logger.info("PREDICATE COUNT API: Counting in {} data files for snapshot {} with PREDICATE PUSHDOWN", 
+        logger.debug("PREDICATE COUNT API: Counting in {} data files for snapshot {} with PREDICATE PUSHDOWN", 
                    dataFiles.length, snapshotId);
         
         long totalCount = 0;
@@ -1573,7 +1573,7 @@ public class ValidationStatParquetRepository {
             }
         }
         
-        logger.info("PREDICATE COUNT API: OPTIMIZED total matching records for snapshot {}: {} using PREDICATE PUSHDOWN across {} files", 
+        logger.debug("PREDICATE COUNT API: OPTIMIZED total matching records for snapshot {}: {} using PREDICATE PUSHDOWN across {} files", 
                    snapshotId, totalCount, processedFiles);
         return totalCount;
     }
@@ -1608,7 +1608,7 @@ public class ValidationStatParquetRepository {
         // Sort files to ensure consistent ordering
         Arrays.sort(dataFiles, (f1, f2) -> f1.getName().compareTo(f2.getName()));
         
-        logger.info("PREDICATE API: Processing up to {} data files for snapshot {} with PREDICATE PUSHDOWN optimization", 
+        logger.debug("PREDICATE API: Processing up to {} data files for snapshot {} with PREDICATE PUSHDOWN optimization", 
                    dataFiles.length, snapshotId);
         
         List<ValidationStatObservationParquet> results = new ArrayList<>();
@@ -1670,22 +1670,32 @@ public class ValidationStatParquetRepository {
             }
         }
         
-        logger.info("PREDICATE API: OPTIMIZED results - {} records from page {} for snapshot {} using PREDICATE PUSHDOWN (processed {}/{} files)", 
+        logger.debug("PREDICATE API: OPTIMIZED results - {} records from page {} for snapshot {} using PREDICATE PUSHDOWN (processed {}/{} files)", 
                    results.size(), page, snapshotId, processedFiles, dataFiles.length);
         
         return results;
     }
     
     /**
-     * OPTIMIZED: Obtiene conteos de ocurrencias de reglas con predicate pushdown
-     * Procesa archivo por archivo con filtros optimizados a nivel de columna
+     * Obtiene conteos de ocurrencias de reglas por snapshot y rule ID
+     * El parámetro 'valid' indica si buscar en validOccurrencesByRuleID (true) o invalidOccurrencesByRuleID (false)
+     * Procesa archivo por archivo acumulando resultados
      */
     public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, String ruleId, boolean valid) throws IOException {
+        return getRuleOccurrenceCounts(snapshotId, ruleId, valid, new HashMap<>());
+    }
+    
+    /**
+     * Obtiene conteos de ocurrencias de reglas por snapshot y rule ID con filtros adicionales
+     * El parámetro 'valid' indica si buscar en validOccurrencesByRuleID (true) o invalidOccurrencesByRuleID (false)
+     * Los filtros permiten contar solo ocurrencias en registros que cumplen criterios específicos
+     */
+    public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, String ruleId, boolean valid, Map<String, Object> filters) throws IOException {
         String snapshotDir = getSnapshotDirectoryPath(snapshotId);
         File dir = new File(snapshotDir);
         
         if (!dir.exists()) {
-            logger.debug("RULE OCCURRENCES PREDICATE: Snapshot directory does not exist: {}", snapshotId);
+            logger.debug("Snapshot directory does not exist: {}", snapshotId);
             return new HashMap<>();
         }
         
@@ -1693,103 +1703,90 @@ public class ValidationStatParquetRepository {
         File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
         
         if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("RULE OCCURRENCES PREDICATE: No data files found for snapshot: {}", snapshotId);
+            logger.debug("No data files found for snapshot: {}", snapshotId);
             return new HashMap<>();
         }
         
         Map<String, Long> occurrenceCounts = new HashMap<>();
         
-        logger.debug("RULE OCCURRENCES PREDICATE: Processing {} data files for rule {} (valid: {}) with predicate pushdown", 
-                   dataFiles.length, ruleId, valid);
+        logger.debug("Processing {} files for rule {} ({} map) with filters: {}", 
+                   dataFiles.length, ruleId, valid ? "valid" : "invalid", filters);
         
-        // Process each file sequentially with predicate pushdown optimization
+        // Process each file sequentially
         for (File dataFile : dataFiles) {
             try {
                 Map<String, Long> fileOccurrences = getRuleOccurrenceCountsFromFile(
-                    dataFile.getAbsolutePath(), ruleId, valid);
+                    dataFile.getAbsolutePath(), ruleId, valid, filters);
                 
                 // Merge counts from this file
                 for (Map.Entry<String, Long> entry : fileOccurrences.entrySet()) {
                     occurrenceCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
                 }
-                
-                logger.debug("RULE OCCURRENCES PREDICATE: File {} contributed {} unique occurrences", 
-                           dataFile.getName(), fileOccurrences.size());
                            
             } catch (Exception e) {
-                logger.error("RULE OCCURRENCES PREDICATE: Error processing file {} for snapshot {}", 
-                           dataFile.getName(), snapshotId, e);
+                logger.error("Error processing file {} for snapshot {}", dataFile.getName(), snapshotId, e);
                 // Continue with other files
             }
         }
         
-        logger.info("RULE OCCURRENCES PREDICATE: OPTIMIZED results - Found {} unique occurrences for rule {} (valid: {}) across {} files using PREDICATE PUSHDOWN", 
-                   occurrenceCounts.size(), ruleId, valid, dataFiles.length);
+        logger.debug("Found {} unique occurrences for rule {} ({} map) across {} files", 
+                   occurrenceCounts.size(), ruleId, valid ? "valid" : "invalid", dataFiles.length);
         
         return occurrenceCounts;
     }
     
     /**
-     * OPTIMIZED: Procesa conteos de ocurrencias de reglas con predicate pushdown
-     * Utiliza filtros optimizados a nivel de columna para maximizar rendimiento
+     * Procesa conteos de ocurrencias de reglas con filtros adicionales
+     * El parámetro 'valid' indica si buscar en validOccurrencesByRuleID o invalidOccurrencesByRuleID
+     * Los filtros permiten contar solo ocurrencias en registros que cumplen criterios específicos
      */
-    private Map<String, Long> getRuleOccurrenceCountsFromFile(String filePath, String ruleId, boolean valid) throws IOException {
+    private Map<String, Long> getRuleOccurrenceCountsFromFile(String filePath, String ruleId, boolean valid, Map<String, Object> filters) throws IOException {
         Map<String, Long> fileOccurrenceCounts = new HashMap<>();
         
         File file = new File(filePath);
         if (!file.exists()) {
-            logger.debug("RULE OCCURRENCES PREDICATE: File does not exist: {}", filePath);
+            logger.debug("File does not exist: {}", filePath);
             return fileOccurrenceCounts;
         }
         
-        // Crear filtro para predicate pushdown usando isValid
-        AggregationFilter filter = new AggregationFilter();
-        filter.setIsValid(valid); // Filtrar por validez para optimizar
-        
-        FilterPredicate predicate = buildFilterPredicate(filter);
-        
-        logger.debug("RULE OCCURRENCES PREDICATE: Processing {} for rule {} (valid: {}) with predicate pushdown", 
-                   file.getName(), ruleId, valid);
+        logger.debug("Processing {} for rule {} ({} map)", file.getName(), ruleId, valid ? "valid" : "invalid");
         
         int totalRecords = 0;
-        int pushedDownRecords = 0;
-        int recordsWithOccurrences = 0;
+        int recordsWithMap = 0;
+        int recordsWhereRuleFound = 0;
+        int recordsFilteredOut = 0;
         
         try {
-            // Crear reader con predicate pushdown
             ParquetReader.Builder<GenericRecord> readerBuilder = AvroParquetReader.<GenericRecord>builder(
                 HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
                 .withConf(hadoopConf);
-            
-            // Aplicar predicate pushdown si está disponible
-            if (predicate != null) {
-                readerBuilder = readerBuilder.withFilter(FilterCompat.get(predicate));
-                logger.debug("RULE OCCURRENCES PREDICATE: Applied isValid filter for rule {} (valid: {})", ruleId, valid);
-            }
             
             try (ParquetReader<GenericRecord> reader = readerBuilder.build()) {
                 GenericRecord record;
                 while ((record = reader.read()) != null) {
                     totalRecords++;
-                    pushedDownRecords++;
                     
-                    // Get the appropriate occurrences map based on valid flag
+                    // Apply filters if present
+                    if (!filters.isEmpty() && !matchesFilters(record, filters, ruleId, valid)) {
+                        recordsFilteredOut++;
+                        continue;
+                    }
+                    
                     String fieldName = valid ? "validOccurrencesByRuleID" : "invalidOccurrencesByRuleID";
                     Object occurrenceMapObj = record.get(fieldName);
                     
                     if (occurrenceMapObj != null) {
+                        recordsWithMap++;
                         @SuppressWarnings("unchecked")
                         Map<Object, Object> occurrenceMap = (Map<Object, Object>) occurrenceMapObj;
                         
-                        // Use helper method to find the rule regardless of String/Utf8 type
                         Object occurrencesObj = findValueInAvroMap(occurrenceMap, ruleId);
                         
                         if (occurrencesObj != null) {
-                            recordsWithOccurrences++;
+                            recordsWhereRuleFound++;
                             @SuppressWarnings("unchecked")
                             List<Object> occurrences = (List<Object>) occurrencesObj;
                             
-                            // Count each occurrence
                             for (Object occurrence : occurrences) {
                                 String occurrenceStr = avroToString(occurrence);
                                 if (occurrenceStr != null) {
@@ -1801,14 +1798,59 @@ public class ValidationStatParquetRepository {
                 }
             }
         } catch (Exception e) {
-            logger.error("RULE OCCURRENCES PREDICATE: Error with predicate pushdown for file {}", file.getName(), e);
-            throw new IOException("Failed to process rule occurrences with predicate pushdown: " + file.getName(), e);
+            logger.error("Error processing file {}", file.getName(), e);
+            throw new IOException("Failed to process rule occurrences: " + file.getName(), e);
         }
         
-        logger.debug("RULE OCCURRENCES PREDICATE: File {} - Total: {}, Pushdown: {}, WithOccurrences: {}, UniqueOccurrences: {}", 
-                   file.getName(), totalRecords, pushedDownRecords, recordsWithOccurrences, fileOccurrenceCounts.size());
+        logger.debug("File {} - Total: {}, Filtered: {}, WithMap: {}, RuleFound: {}, Unique: {}", 
+                   file.getName(), totalRecords, recordsFilteredOut, recordsWithMap, 
+                   recordsWhereRuleFound, fileOccurrenceCounts.size());
         
         return fileOccurrenceCounts;
+    }
+    
+    /**
+     * Verifica si un registro cumple con los filtros especificados
+     */
+    private boolean matchesFilters(GenericRecord record, Map<String, Object> filters, String ruleId, boolean valid) {
+        for (Map.Entry<String, Object> filter : filters.entrySet()) {
+            String filterKey = filter.getKey();
+            Object filterValue = filter.getValue();
+            
+            switch (filterKey) {
+                case "valid_rules":
+                    if (!valid) return false;
+                    Object validMapObj = record.get("validOccurrencesByRuleID");
+                    if (validMapObj == null) return false;
+                    @SuppressWarnings("unchecked")
+                    Map<Object, Object> validMap = (Map<Object, Object>) validMapObj;
+                    if (findValueInAvroMap(validMap, filterValue.toString()) == null) return false;
+                    break;
+                    
+                case "invalid_rules":
+                    if (valid) return false;
+                    Object invalidMapObj = record.get("invalidOccurrencesByRuleID");
+                    if (invalidMapObj == null) return false;
+                    @SuppressWarnings("unchecked")
+                    Map<Object, Object> invalidMap = (Map<Object, Object>) invalidMapObj;
+                    if (findValueInAvroMap(invalidMap, filterValue.toString()) == null) return false;
+                    break;
+                    
+                case "isValid":
+                    Boolean isValid = (Boolean) filterValue;
+                    Object recordIsValidObj = record.get("isValid");
+                    if (recordIsValidObj == null || !recordIsValidObj.equals(isValid)) return false;
+                    break;
+                    
+                case "isTransformed":
+                    Boolean isTransformed = (Boolean) filterValue;
+                    Object recordIsTransformedObj = record.get("isTransformed");
+                    if (recordIsTransformedObj == null || !recordIsTransformedObj.equals(isTransformed)) return false;
+                    break;
+            }
+        }
+        
+        return true;
     }
     
     /**
@@ -1895,7 +1937,7 @@ public class ValidationStatParquetRepository {
             // Invalidar cache de conteo ya que se agregaron nuevos datos
             invalidateCountCache(snapshotId);
             
-            logger.info("BUFFER: Flushed {} records for snapshot {} (buffer remaining: {})", 
+            logger.debug("BUFFER: Flushed {} records for snapshot {} (buffer remaining: {})", 
                        recordsToWrite.size(), snapshotId, buffer.size());
         }
         
@@ -1923,7 +1965,7 @@ public class ValidationStatParquetRepository {
         int nextFileIndex = snapshotFileCounters.getOrDefault(snapshotId, 0);
         String filePath = getDataFilePath(snapshotId, nextFileIndex);
         
-        logger.info("BUFFER: Writing {} records to file: {}", observations.size(), filePath);
+        logger.debug("BUFFER: Writing {} records to file: {}", observations.size(), filePath);
         
         org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(filePath);
         try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
@@ -1939,7 +1981,7 @@ public class ValidationStatParquetRepository {
                 writer.write(toGenericRecord(obs));
             }
             
-            logger.info("BUFFER: Successfully wrote {} records to {}", observations.size(), filePath);
+            logger.debug("BUFFER: Successfully wrote {} records to {}", observations.size(), filePath);
         }
         
         // Update file counter for this snapshot
@@ -1988,20 +2030,20 @@ public class ValidationStatParquetRepository {
      * FORCE FLUSH: Write any remaining buffered records (useful for shutdown or testing)
      */
     public synchronized void flushAllBuffers() throws IOException {
-        logger.info("BUFFER: Force flushing all snapshot buffers");
+        logger.debug("BUFFER: Force flushing all snapshot buffers");
         
         for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : snapshotBuffers.entrySet()) {
             Long snapshotId = entry.getKey();
             List<ValidationStatObservationParquet> buffer = entry.getValue();
             
             if (!buffer.isEmpty()) {
-                logger.info("BUFFER: Force flushing {} remaining records for snapshot {}", buffer.size(), snapshotId);
+                logger.debug("BUFFER: Force flushing {} remaining records for snapshot {}", buffer.size(), snapshotId);
                 writeBufferToFile(snapshotId, new ArrayList<>(buffer));
                 buffer.clear();
             }
         }
         
-        logger.info("BUFFER: All buffers flushed");
+        logger.debug("BUFFER: All buffers flushed");
     }
     
     /**

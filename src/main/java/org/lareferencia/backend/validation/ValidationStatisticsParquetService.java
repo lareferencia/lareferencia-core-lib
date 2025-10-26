@@ -264,9 +264,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 try {
                     logger.debug("CACHE ATTEMPT: Trying memory cache for filtered stats (snapshot {})", snapshot.getId());
                     filteredStats = parquetRepository.getAggregatedStatsWithFilterFromCache(snapshot.getId(), aggregationFilter);
-                    logger.info("ULTRA-FAST CACHE HIT: Used memory cache for filtered stats (response in milliseconds)");
+                    logger.debug("ULTRA-FAST CACHE HIT: Used memory cache for filtered stats (response in milliseconds)");
                 } catch (Exception e) {
-                    logger.info("CACHE MISS/LOADING: Loading data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshot.getId(), e.getMessage());
+                    logger.debug("CACHE MISS/LOADING: Loading data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshot.getId(), e.getMessage());
                     filteredStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
                 }
                 logger.debug("MAIN STATS: Filtered stats result: {}", filteredStats);
@@ -314,9 +314,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 Map<String, Object> aggregatedStats;
                 try {
                     aggregatedStats = parquetRepository.getAggregatedStatsFromCache(snapshot.getId());
-                    logger.info("ULTRA-FAST CACHE HIT: Used memory cache for aggregated stats (response in milliseconds)");
+                    logger.debug("ULTRA-FAST CACHE HIT: Used memory cache for aggregated stats (response in milliseconds)");
                 } catch (Exception e) {
-                    logger.info("CACHE MISS/LOADING: Loading data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshot.getId(), e.getMessage());
+                    logger.debug("CACHE MISS/LOADING: Loading data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshot.getId(), e.getMessage());
                     aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
                 }
                 
@@ -429,65 +429,85 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
     /**
      * Query valid rule occurrences count by snapshot ID and rule ID
+     * Soporta filtros para analizar solo ocurrencias en registros que cumplen criterios específicos
      */
     public ValidationRuleOccurrencesCount queryValidRuleOccurrencesCountBySnapshotID(Long snapshotID, Long ruleID, List<String> fq) {
 
+        logger.debug("Query rule occurrences - snapshotID: {}, ruleID: {}, filters: {}", snapshotID, ruleID, fq);
+        
         ValidationRuleOccurrencesCount result = new ValidationRuleOccurrencesCount();
 
         try {
             String ruleIdStr = ruleID.toString();
             
-            // Get valid and invalid occurrence counts
-            Map<String, Long> validOccurrences = parquetRepository.getRuleOccurrenceCounts(snapshotID, ruleIdStr, true);
-            Map<String, Long> invalidOccurrences = parquetRepository.getRuleOccurrenceCounts(snapshotID, ruleIdStr, false);
+            // Parse filters to determine which occurrences to analyze
+            Map<String, Object> filters = parseFilterQueries(fq);
+            
+            // Determine if we should analyze valid occurrences, invalid occurrences, or both
+            boolean analyzeValidOccurrences = true;
+            boolean analyzeInvalidOccurrences = true;
+            
+            // Check if there's a filter for valid_rules or invalid_rules
+            if (filters.containsKey("valid_rules")) {
+                String validRulesFilter = filters.get("valid_rules").toString();
+                if (validRulesFilter.equals(ruleIdStr)) {
+                    analyzeInvalidOccurrences = false; // Solo válidas
+                } else {
+                    // La regla no está en el filtro, no hay nada que analizar
+                    result.setValidRuleOccrs(new ArrayList<>());
+                    result.setInvalidRuleOccrs(new ArrayList<>());
+                    return result;
+                }
+            }
+            
+            if (filters.containsKey("invalid_rules")) {
+                String invalidRulesFilter = filters.get("invalid_rules").toString();
+                if (invalidRulesFilter.equals(ruleIdStr)) {
+                    analyzeValidOccurrences = false; // Solo inválidas
+                } else {
+                    // La regla no está en el filtro, no hay nada que analizar
+                    result.setValidRuleOccrs(new ArrayList<>());
+                    result.setInvalidRuleOccrs(new ArrayList<>());
+                    return result;
+                }
+            }
+            
+            // Get occurrence counts based on what we should analyze
+            Map<String, Long> validOccurrences = new HashMap<>();
+            Map<String, Long> invalidOccurrences = new HashMap<>();
+            
+            if (analyzeValidOccurrences) {
+                validOccurrences = parquetRepository.getRuleOccurrenceCounts(snapshotID, ruleIdStr, true, filters);
+            }
+            
+            if (analyzeInvalidOccurrences) {
+                invalidOccurrences = parquetRepository.getRuleOccurrenceCounts(snapshotID, ruleIdStr, false, filters);
+            }
 
             List<OccurrenceCount> validRuleOccurrence = validOccurrences.entrySet().stream()
                     .map(entry -> new OccurrenceCount(entry.getKey(), entry.getValue().intValue()))
-                    .sorted((a, b) -> Integer.compare(b.getCount(), a.getCount())) // Sort by count descending
+                    .sorted((a, b) -> Integer.compare(b.getCount(), a.getCount()))
                     .collect(Collectors.toList());
 
             List<OccurrenceCount> invalidRuleOccurrence = invalidOccurrences.entrySet().stream()
                     .map(entry -> new OccurrenceCount(entry.getKey(), entry.getValue().intValue()))
-                    .sorted((a, b) -> Integer.compare(b.getCount(), a.getCount())) // Sort by count descending
+                    .sorted((a, b) -> Integer.compare(b.getCount(), a.getCount()))
                     .collect(Collectors.toList());
 
             result.setValidRuleOccrs(validRuleOccurrence);
             result.setInvalidRuleOccrs(invalidRuleOccurrence);
 
+            logger.debug("Rule occurrences for snapshotID={}, ruleID={}: {} valid, {} invalid", 
+                       snapshotID, ruleID, validRuleOccurrence.size(), invalidRuleOccurrence.size());
+
         } catch (IOException e) {
-            logger.error("Error querying rule occurrences", e);
+            logger.error("Error querying rule occurrences for snapshotID={}, ruleID={}", snapshotID, ruleID, e);
             result.setValidRuleOccrs(new ArrayList<>());
             result.setInvalidRuleOccrs(new ArrayList<>());
         }
 
         return result;
     }
-
-    // /**
-    //  * Query validation observations by snapshot ID with OPTIMIZED pagination (never loads all records in memory)
-    //  */
-    // public List<ValidationStatObservationParquet> queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, int page, int size) {
-    //     logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, page, size);
-        
-    //     try {
-    //         // Apply filters if present
-    //         Map<String, Object> filters = parseFilterQueries(fq);
-            
-    //         if (filters.isEmpty()) {
-    //             return parquetRepository.findBySnapshotIdWithPagination(snapshotID, page, size);
-    //         } else {
-    //             logger.debug("Applying optimized filters: {}", filters);
-                
-    //             // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
-    //             ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
-                
-    //             return parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, page, size);
-    //         }
-    //     } catch (IOException e) {
-    //         logger.error("Error querying optimized observations", e);
-    //         return new ArrayList<>();
-    //     }
-    // }
 
     /**
      * Query validation statistics observations by snapshot ID with pagination (never loads all records in memory)
@@ -516,9 +536,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                     logger.debug("CACHE ATTEMPT: Trying memory cache for filtered pagination (snapshot {})", snapshotID);
                     pageResults = parquetRepository.findWithFilterAndPaginationFromCache(snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
                     totalElements = parquetRepository.countRecordsWithFilterFromCache(snapshotID, aggregationFilter);
-                    logger.info("ULTRA-FAST CACHE HIT: Used memory cache for filtered pagination (response in milliseconds)");
+                    logger.debug("ULTRA-FAST CACHE HIT: Used memory cache for filtered pagination (response in milliseconds)");
                 } catch (Exception e) {
-                    logger.info("CACHE MISS/LOADING: Loading paginated data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshotID, e.getMessage());
+                    logger.debug("CACHE MISS/LOADING: Loading paginated data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshotID, e.getMessage());
                     pageResults = parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
                     totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
                 }
@@ -876,20 +896,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             throw new ValidationStatisticsException("Error guardando observaciones de validación", e);
         }
     }
-
-    // @Override
-    // public ValidationStatsQueryResult queryValidatorRulesStatsBySnapshot(Long snapshotID, List<String> filters) throws ValidationStatisticsException {
-    //     try {
-    //         Map<String, Object> stats = queryValidatorRulesStatsBySnapshot(snapshotID);
-    //         ValidationStatsQueryResult result = new ValidationStatsQueryResult();
-    //         result.setAggregations(stats);
-    //         result.setMetadata(Map.of("snapshotId", snapshotID, "implementationType", "parquet"));
-    //         return result;
-    //     } catch (Exception e) {
-    //         throw new ValidationStatisticsException("Error consultando estadísticas de reglas", e);
-    //     }
-    // }
-
     @Override
     public void deleteValidationStatsObservationsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
         try {
