@@ -35,7 +35,7 @@ public interface IValidationStatisticsService {
     
     /**
      * Consulta estadísticas de reglas de validación por snapshot
-     * @param snapshotID ID del snapshot
+     * @param snapshot El snapshot para el cual consultar estadísticas
      * @param filters Lista de filtros aplicados
      * @return Estadísticas agregadas por reglas
      * @throws ValidationStatisticsException Si ocurre un error durante la consulta

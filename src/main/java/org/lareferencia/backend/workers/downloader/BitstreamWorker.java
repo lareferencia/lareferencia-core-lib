@@ -118,10 +118,10 @@ public class BitstreamWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCo
 	}
 
 	/**
-	 * Crea una lista de los bitstreams
+	 * Almacena los bitstreams del registro
 	 * 
-	 * @param record
-	 * @return
+	 * @param record el registro OAI del cual almacenar los bitstreams
+	 * @param deleteExistingFirst indica si debe eliminar bitstreams existentes primero
 	 */
 
 	public void storeRecordBitstreams(OAIRecord record, boolean deleteExistingFirst) {

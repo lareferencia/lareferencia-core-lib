@@ -32,10 +32,12 @@ public interface ITransformer {
 	public void setRules(List<ITransformerRule> validators);
 
 	/**
+	 * Transforma el registro OAI
 	 * 
-	 * @param metadata
+	 * @param record el registro OAI a transformar
+	 * @param metadata los metadatos del registro
 	 * @return Retorna true si hizo alguna transformación
-	 * @throws Exception
+	 * @throws ValidationException si ocurre un error durante la transformación
 	 */
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 }

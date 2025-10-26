@@ -107,10 +107,11 @@ public class ValidationService {
 	}
 
 	/**
-	 * Crea un transformador a partir de un validador modelo
+	 * Crea un transformador a partir de un modelo de transformador
 	 * 
-	 * @param vmodel
-	 * @return
+	 * @param tmodel el modelo del transformador
+	 * @return una instancia de ITransformer
+	 * @throws ValidationException si ocurre un error al crear el transformador
 	 */
 	public ITransformer createTransformerFromModel(Transformer tmodel) throws ValidationException {
 

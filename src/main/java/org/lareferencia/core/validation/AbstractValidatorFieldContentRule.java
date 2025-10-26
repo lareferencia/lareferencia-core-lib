@@ -138,8 +138,8 @@ public abstract class AbstractValidatorFieldContentRule extends AbstractValidato
 	 * Esta función abstracta será implementada en las derivadas y determina la
 	 * valides de un string
 	 * 
-	 * @param String
-	 * @return
+	 * @param string el contenido a validar
+	 * @return resultado de la validación
 	 */
 	public abstract ContentValidatorResult validate(String string);
 }
