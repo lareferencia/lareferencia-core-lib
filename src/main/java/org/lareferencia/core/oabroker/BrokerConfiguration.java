@@ -36,14 +36,10 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
  */
 @EntityScan( basePackages= { "org.lareferencia.core.oabroker" } )
 @EnableJpaRepositories( basePackages={ "org.lareferencia.core.oabroker" } )
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class BrokerConfiguration {
 
-	/**
-	 * Private constructor to prevent instantiation of configuration class.
-	 */
-	private BrokerConfiguration() {
-		throw new UnsupportedOperationException("Configuration class");
-	}
-
+	// Constructor público necesario para Spring Boot 3.x CGLIB proxies
+	// Se usa proxyBeanMethods=false para evitar la necesidad de proxies CGLIB
+	
 }
