@@ -65,38 +65,40 @@
 		</dependency>
 
 		<!-- Parquet and Hadoop dependencies for file-based storage -->
+		<!-- Apache Parquet dependencies -->
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-hadoop</artifactId>
-			<version>1.12.3</version>
+			<version>1.14.3</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-avro</artifactId>
-			<version>1.12.3</version>
+			<version>1.14.3</version>
 		</dependency>
 		
 		<!-- Dependencias adicionales para optimizaciones avanzadas de Parquet -->
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-column</artifactId>
-			<version>1.12.3</version>
+			<version>1.14.3</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-common</artifactId>
-			<version>1.12.3</version>
+			<version>1.14.3</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-encoding</artifactId>
-			<version>1.12.3</version>
+			<version>1.14.3</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-format-structures</artifactId>
-			<version>1.12.3</version>
+			<version>1.14.3</version>
 		</dependency>
+		
 		<dependency>
 			<groupId>org.apache.hadoop</groupId>
 			<artifactId>hadoop-client</artifactId>

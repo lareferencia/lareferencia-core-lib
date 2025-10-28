@@ -49,25 +49,16 @@ import lombok.Getter;
 /**
  * Validation statistics service based on Parquet files.
  * 
- * ARCHITECTURE:
- * - Replaces Solr usage with efficient filesystem-based Parquet storage
- * - Multi-file structure per snapshot for optimal performance with large datasets
- * - Supports memory-efficient streaming for millions of validation records
+ * SIMPLIFIED ARCHITECTURE:
+ * - All caching logic is encapsulated in ValidationStatParquetRepository
+ * - Service focuses on business logic and data transformation
+ * - Repository handles performance optimizations transparently
  * 
- * FILTERING SYSTEM:
- * - Dual format support: "field:value" (standard) and "field@@value" (legacy)
- * - Boolean and string value conversion with quote handling
- * - Optimized aggregation filters for multi-file queries
- * 
- * DELETION OPERATIONS:
- * - deleteValidationStatsObservationsBySnapshotID: Removes entire snapshot data
- * - deleteValidationStatsObservationByRecordAndSnapshotID: Removes specific record
- * - deleteValidationStatsBySnapshotID: Cleanup operation (same as first one)
- * 
- * PERFORMANCE FEATURES:
- * - Intelligent buffering system for batch operations
- * - Multi-file pagination with offset/limit optimization  
- * - Memory-efficient aggregated statistics without full record loading
+ * RESPONSIBILITIES:
+ * - Transform validation results to observations
+ * - Parse and convert filter queries
+ * - Build result objects for API responses
+ * - Delegate all storage operations to repository
  */
 @Service
 @Scope("prototype")
@@ -281,117 +272,53 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }   
 
     /**
-     * Query validation rule statistics by snapshot
+     * Query validation rule statistics by snapshot - repository handles caching transparently
      */
                            
     public ValidationStatsResult queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws ValidationStatisticsException {
-        logger.debug("ENTERING: queryValidatorRulesStatsBySnapshot with NetworkSnapshot {} and filters: {}", snapshot.getId(), fq);
+        logger.debug("Querying validation statistics for snapshot {} with filters: {}", snapshot.getId(), fq);
 
         ValidationStatsResult result = new ValidationStatsResult();
 
         try {
-            // If there are filters, apply them to both statistics and facets
+            Map<String, Object> aggregatedStats;
+            
             if (fq != null && !fq.isEmpty()) {
-                logger.debug("MAIN STATS: Applying filters to main statistics: {}", fq);
-                
-                // Process filters
+                // With filters - repository handles optimization
                 Map<String, Object> filters = parseFilterQueries(fq);
-                logger.debug("MAIN STATS: Parsed filters: {}", filters);
-                
                 ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshot.getId());
-                logger.debug("MAIN STATS: Created aggregation filter: isValid={}, identifier={}", 
-                    aggregationFilter.getIsValid(), aggregationFilter.getRecordOAIId());
-                
-                // TRY ULTRA-FAST CACHE FIRST, fallback to disk if needed
-                Map<String, Object> filteredStats;
-                try {
-                    logger.debug("CACHE ATTEMPT: Trying memory cache for filtered stats (snapshot {})", snapshot.getId());
-                    filteredStats = parquetRepository.getAggregatedStatsWithFilterFromCache(snapshot.getId(), aggregationFilter);
-                    logger.debug("ULTRA-FAST CACHE HIT: Used memory cache for filtered stats (response in milliseconds)");
-                } catch (Exception e) {
-                    logger.debug("CACHE MISS/LOADING: Loading data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshot.getId(), e.getMessage());
-                    filteredStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
-                }
-                logger.debug("MAIN STATS: Filtered stats result: {}", filteredStats);
-                
-                result.setSize(((Number) filteredStats.getOrDefault("totalCount", 0L)).intValue());
-                result.setValidSize(((Number) filteredStats.getOrDefault("validCount", 0L)).intValue());
-                result.setTransformedSize(((Number) filteredStats.getOrDefault("transformedCount", 0L)).intValue());
-                
-                logger.debug("OPTIMIZED filtered statistics: {} total, {} valid, {} transformed", 
-                    result.getSize(), result.getValidSize(), result.getTransformedSize());
-                
-                // Build facets with filters using optimized method
-                result.setFacets(buildSimulatedFacets(snapshot.getId(), fq));
-                
-                // Get rule counts from filtered stats for building rule statistics
-                @SuppressWarnings("unchecked")
-                Map<String, Long> validRuleCounts = (Map<String, Long>) filteredStats.getOrDefault("validRuleCounts", new HashMap<>());
-                @SuppressWarnings("unchecked")
-                Map<String, Long> invalidRuleCounts = (Map<String, Long>) filteredStats.getOrDefault("invalidRuleCounts", new HashMap<>());
-                
-                // Build rule statistics using filtered counts
-                if (snapshot.getNetwork().getValidator() != null) {
-                    for (ValidatorRule rule : snapshot.getNetwork().getValidator().getRules()) {
-
-                        String ruleID = rule.getId().toString();
-
-                        ValidationRuleStat ruleResult = new ValidationRuleStat();
-
-                        ruleResult.setRuleID(rule.getId());
-                        ruleResult.setValidCount(validRuleCounts.getOrDefault(ruleID, 0L).intValue());
-                        ruleResult.setInvalidCount(invalidRuleCounts.getOrDefault(ruleID, 0L).intValue());
-                        ruleResult.setName(rule.getName());
-                        ruleResult.setDescription(rule.getDescription());
-                        ruleResult.setMandatory(rule.getMandatory());
-                        ruleResult.setQuantifier(rule.getQuantifier());
-
-                        result.getRulesByID().put(ruleID, ruleResult);
-                    }
-                }
-                
+                aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
             } else {
-                // TRY ULTRA-FAST CACHE FIRST, fallback to disk if needed
-                logger.debug("CACHE ATTEMPT: Trying memory cache for complete aggregated statistics (snapshot {})", snapshot.getId());
-                
-                Map<String, Object> aggregatedStats;
-                try {
-                    aggregatedStats = parquetRepository.getAggregatedStatsFromCache(snapshot.getId());
-                    logger.debug("ULTRA-FAST CACHE HIT: Used memory cache for aggregated stats (response in milliseconds)");
-                } catch (Exception e) {
-                    logger.debug("CACHE MISS/LOADING: Loading data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshot.getId(), e.getMessage());
-                    aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
-                }
-                
-                result.setSize(((Number) aggregatedStats.get("totalCount")).intValue());
-                result.setValidSize(((Number) aggregatedStats.get("validCount")).intValue());
-                result.setTransformedSize(((Number) aggregatedStats.get("transformedCount")).intValue());
-
-                @SuppressWarnings("unchecked")
-                Map<String, Long> validRuleCounts = (Map<String, Long>) aggregatedStats.get("validRuleCounts");
-                @SuppressWarnings("unchecked")
-                Map<String, Long> invalidRuleCounts = (Map<String, Long>) aggregatedStats.get("invalidRuleCounts");
-
-                // Build facets without filters
-                result.setFacets(buildSimulatedFacets(snapshot.getId(), fq));
-
-                if (snapshot.getNetwork().getValidator() != null) {
-                    for (ValidatorRule rule : snapshot.getNetwork().getValidator().getRules()) {
-
-                        String ruleID = rule.getId().toString();
-
-                        ValidationRuleStat ruleResult = new ValidationRuleStat();
-
-                        ruleResult.setRuleID(rule.getId());
-                        ruleResult.setValidCount(validRuleCounts.getOrDefault(ruleID, 0L).intValue());
-                        ruleResult.setInvalidCount(invalidRuleCounts.getOrDefault(ruleID, 0L).intValue());
-                        ruleResult.setName(rule.getName());
-                        ruleResult.setDescription(rule.getDescription());
-                        ruleResult.setMandatory(rule.getMandatory());
-                        ruleResult.setQuantifier(rule.getQuantifier());
-
-                        result.getRulesByID().put(ruleID, ruleResult);
-                    }
+                // Without filters - repository handles optimization
+                aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
+            }
+            
+            // Build result from aggregated stats
+            result.setSize(((Number) aggregatedStats.getOrDefault("totalCount", 0L)).intValue());
+            result.setValidSize(((Number) aggregatedStats.getOrDefault("validCount", 0L)).intValue());
+            result.setTransformedSize(((Number) aggregatedStats.getOrDefault("transformedCount", 0L)).intValue());
+            
+            @SuppressWarnings("unchecked")
+            Map<String, Long> validRuleCounts = (Map<String, Long>) aggregatedStats.getOrDefault("validRuleCounts", new HashMap<>());
+            @SuppressWarnings("unchecked")
+            Map<String, Long> invalidRuleCounts = (Map<String, Long>) aggregatedStats.getOrDefault("invalidRuleCounts", new HashMap<>());
+            
+            // Build facets
+            result.setFacets(buildSimulatedFacets(snapshot.getId(), fq));
+            
+            // Build rule statistics
+            if (snapshot.getNetwork().getValidator() != null) {
+                for (ValidatorRule rule : snapshot.getNetwork().getValidator().getRules()) {
+                    String ruleID = rule.getId().toString();
+                    ValidationRuleStat ruleResult = new ValidationRuleStat();
+                    ruleResult.setRuleID(rule.getId());
+                    ruleResult.setValidCount(validRuleCounts.getOrDefault(ruleID, 0L).intValue());
+                    ruleResult.setInvalidCount(invalidRuleCounts.getOrDefault(ruleID, 0L).intValue());
+                    ruleResult.setName(rule.getName());
+                    ruleResult.setDescription(rule.getDescription());
+                    ruleResult.setMandatory(rule.getMandatory());
+                    ruleResult.setQuantifier(rule.getQuantifier());
+                    result.getRulesByID().put(ruleID, ruleResult);
                 }
             }
 
@@ -412,67 +339,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         } catch (Exception e) {
             logger.error("Error checking parquet service availability", e);
             return false;
-        }
-    }
-    
-    // ==================== MEMORY CACHE INTEGRATION ====================
-    
-    /**
-     * PRE-WARM CACHE: Manually load snapshot data into memory cache for ultra-fast queries.
-     * Call this method after validation completion to prepare for dashboard queries.
-     * 
-     * @param snapshotId the snapshot ID to pre-warm in cache
-     */
-    public void warmUpCacheForSnapshot(Long snapshotId) {
-        try {
-            logger.info("CACHE WARMUP: Pre-warming memory cache for snapshot {}", snapshotId);
-            parquetRepository.warmUpCache(snapshotId);
-            logger.info("CACHE WARMUP: Successfully warmed up cache for snapshot {}", snapshotId);
-        } catch (Exception e) {
-            logger.warn("CACHE WARMUP: Failed to warm up cache for snapshot {} - {}", snapshotId, e.getMessage());
-        }
-    }
-    
-    /**
-     * CACHE INFO: Get memory cache statistics and performance metrics.
-     * 
-     * @return a map containing cache information and performance metrics
-     */
-    public Map<String, Object> getCacheInfo() {
-        try {
-            return parquetRepository.getMemoryCacheInfo();
-        } catch (Exception e) {
-            logger.error("Error getting cache info", e);
-            Map<String, Object> errorInfo = new HashMap<>();
-            errorInfo.put("error", e.getMessage());
-            errorInfo.put("enabled", false);
-            return errorInfo;
-        }
-    }
-    
-    /**
-     * CACHE CONTROL: Clear cache for specific snapshot (useful when data changes).
-     * 
-     * @param snapshotId the snapshot ID to evict from cache
-     */
-    public void evictSnapshotFromCache(Long snapshotId) {
-        try {
-            parquetRepository.evictFromCache(snapshotId);
-            logger.info("CACHE EVICT: Evicted snapshot {} from memory cache", snapshotId);
-        } catch (Exception e) {
-            logger.warn("CACHE EVICT: Failed to evict snapshot {} - {}", snapshotId, e.getMessage());
-        }
-    }
-    
-    /**
-     * CACHE CONTROL: Clear entire memory cache
-     */
-    public void clearMemoryCache() {
-        try {
-            parquetRepository.clearMemoryCache();
-            logger.info("CACHE CLEAR: Cleared entire memory cache");
-        } catch (Exception e) {
-            logger.warn("CACHE CLEAR: Failed to clear cache - {}", e.getMessage());
         }
     }
 
@@ -781,37 +647,17 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     private Map<String, List<FacetFieldEntry>> buildSimulatedFacets(Long snapshotId, List<String> fq) throws IOException {
         Map<String, List<FacetFieldEntry>> facets = new HashMap<>();
         
-        // OPTIMIZED: Use aggregated statistics instead of loading all records
         Map<String, Object> aggregatedStats;
         
         if (fq != null && !fq.isEmpty()) {
-            // TRY ULTRA-FAST CACHE FIRST for filtered stats
             Map<String, Object> filters = parseFilterQueries(fq);
             ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotId);
-            
-            try {
-                logger.debug("FACETS CACHE ATTEMPT: Trying memory cache for filtered facets (snapshot {})", snapshotId);
-                aggregatedStats = parquetRepository.getAggregatedStatsWithFilterFromCache(snapshotId, aggregationFilter);
-                logger.debug("ULTRA-FAST FACETS HIT: Used memory cache for filtered stats (millisecond response)");
-            } catch (Exception e) {
-                logger.debug("FACETS CACHE MISS: Loading filtered stats from disk for snapshot {} - subsequent queries will be ultra-fast", snapshotId);
-                aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshotId, aggregationFilter);
-            }
-            logger.debug("FACETS: Using filtered aggregated stats for snapshot {} with filters: {}", snapshotId, filters);
+            aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshotId, aggregationFilter);
         } else {
-            // TRY ULTRA-FAST CACHE FIRST for complete stats
-            try {
-                logger.debug("FACETS CACHE ATTEMPT: Trying memory cache for complete facets (snapshot {})", snapshotId);
-                aggregatedStats = parquetRepository.getAggregatedStatsFromCache(snapshotId);
-                logger.debug("ULTRA-FAST FACETS HIT: Used memory cache for complete stats (millisecond response)");
-            } catch (Exception e) {
-                logger.debug("FACETS CACHE MISS: Loading complete stats from disk for snapshot {} - subsequent queries will be ultra-fast", snapshotId);
-                aggregatedStats = parquetRepository.getAggregatedStats(snapshotId);
-            }
-            logger.debug("FACETS: Using complete aggregated stats for snapshot {}", snapshotId);
+            aggregatedStats = parquetRepository.getAggregatedStats(snapshotId);
         }
         
-        // Build facets from aggregated statistics (MEMORY EFFICIENT)
+        // Build facets from aggregated statistics
         facets.put("record_is_valid", buildFacetFromAggregatedStats(aggregatedStats, "isValid"));
         facets.put("record_is_transformed", buildFacetFromAggregatedStats(aggregatedStats, "isTransformed"));
         facets.put("institution_name", buildFacetForInstitutionName(aggregatedStats));
@@ -819,7 +665,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         facets.put("valid_rules", buildFacetForValidRulesFromStats(aggregatedStats));
         facets.put("invalid_rules", buildFacetForInvalidRulesFromStats(aggregatedStats));
         
-        logger.debug("FACETS: Built {} facet fields", facets.size());
         return facets;
     }
 

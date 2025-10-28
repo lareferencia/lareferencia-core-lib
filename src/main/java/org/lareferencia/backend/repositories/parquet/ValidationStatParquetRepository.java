@@ -1317,14 +1317,41 @@ public class ValidationStatParquetRepository {
 
 
     /**
-     * Obtains aggregated statistics by snapshot ID using the optimized multi-file version.
-     * Uses the query engine to avoid loading all records into memory.
+     * Obtains aggregated statistics by snapshot ID - automatically uses cache when beneficial.
+     * 
+     * INTELLIGENT CACHING:
+     * - If memory cache is enabled, tries cache first
+     * - Falls back to disk-based aggregation if cache not available
+     * - Transparently handles cache loading and eviction
      *
      * @param snapshotId the ID of the snapshot
      * @return a map containing aggregated statistics (totalCount, validCount, transformedCount, rule counts)
      * @throws IOException if an I/O error occurs during file operations
      */
     public Map<String, Object> getAggregatedStats(Long snapshotId) throws IOException {
+        // TRY CACHE FIRST if enabled
+        if (memoryCacheEnabled) {
+            try {
+                logger.debug("CACHE ATTEMPT: Trying memory cache for aggregated stats (snapshot {})", snapshotId);
+                return getAggregatedStatsFromCache(snapshotId);
+            } catch (Exception e) {
+                logger.debug("Cache miss or loading - using disk query: {}", e.getMessage());
+            }
+        }
+        
+        // FALLBACK: Use disk-based aggregation
+        return getAggregatedStatsFromDisk(snapshotId);
+    }
+
+    /**
+     * INTERNAL: Disk-based aggregated statistics (used as fallback when cache not available).
+     * Uses the optimized multi-file version with query engine to avoid loading all records.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @return a map containing aggregated statistics
+     * @throws IOException if an I/O error occurs during file operations
+     */
+    private Map<String, Object> getAggregatedStatsFromDisk(Long snapshotId) throws IOException {
         String snapshotDir = getSnapshotDirectoryPath(snapshotId);
         File dir = new File(snapshotDir);
         
@@ -1410,7 +1437,12 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Obtains aggregated statistics with specific filters optimized using predicate pushdown.
+     * Obtains aggregated statistics with filters - automatically uses cache when beneficial.
+     * 
+     * INTELLIGENT CACHING:
+     * - If memory cache is enabled, tries cache first
+     * - Falls back to disk-based filtered aggregation if cache not available
+     * - Transparently handles cache loading and eviction
      *
      * @param snapshotId the ID of the snapshot
      * @param filter the filters to apply (isValid, isTransformed, ruleIds, etc.)
@@ -1418,6 +1450,30 @@ public class ValidationStatParquetRepository {
      * @throws IOException if an I/O error occurs during file operations
      */
     public Map<String, Object> getAggregatedStatsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
+        // TRY CACHE FIRST if enabled
+        if (memoryCacheEnabled) {
+            try {
+                logger.debug("CACHE ATTEMPT: Trying memory cache for filtered stats (snapshot {})", snapshotId);
+                return getAggregatedStatsWithFilterFromCache(snapshotId, filter);
+            } catch (Exception e) {
+                logger.debug("Cache miss or loading - using disk query: {}", e.getMessage());
+            }
+        }
+        
+        // FALLBACK: Use disk-based filtered aggregation
+        return getAggregatedStatsWithFilterFromDisk(snapshotId, filter);
+    }
+
+    /**
+     * INTERNAL: Disk-based aggregated statistics with filters (used as fallback when cache not available).
+     * Optimized using predicate pushdown.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param filter the filters to apply
+     * @return filtered aggregated statistics map
+     * @throws IOException if an I/O error occurs during file operations
+     */
+    private Map<String, Object> getAggregatedStatsWithFilterFromDisk(Long snapshotId, AggregationFilter filter) throws IOException {
         String snapshotDir = getSnapshotDirectoryPath(snapshotId);
         File dir = new File(snapshotDir);
         
