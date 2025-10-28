@@ -20,22 +20,45 @@
 
 package org.lareferencia.core.harvester;
 
+/**
+ * Exception thrown when an OAI-PMH harvest operation returns no matching records.
+ * This typically occurs when the harvest request with specified parameters yields no results.
+ */
 public class NoRecordsMatchException extends Exception {
 
 	private static final long serialVersionUID = -5913401195836497654L;
 
+	/**
+	 * Constructs a new no records match exception with no detail message.
+	 */
 	public NoRecordsMatchException() {
 		super();
 	}
 
+	/**
+	 * Constructs a new no records match exception with the specified detail message.
+	 * 
+	 * @param message the detail message describing why no records matched
+	 */
 	public NoRecordsMatchException(String message) {
 		super(message);
 	}
 
+	/**
+	 * Constructs a new no records match exception with the specified detail message and cause.
+	 * 
+	 * @param message the detail message describing why no records matched
+	 * @param cause the cause of the exception
+	 */
 	public NoRecordsMatchException(String message, Throwable cause) {
 		super(message, cause);
 	}
 
+	/**
+	 * Constructs a new no records match exception with the specified cause.
+	 * 
+	 * @param cause the cause of the exception
+	 */
 	public NoRecordsMatchException(Throwable cause) {
 		super(cause);
 	}

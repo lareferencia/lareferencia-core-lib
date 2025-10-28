@@ -22,27 +22,53 @@ package org.lareferencia.backend.validation;
 
 /**
  * Auxiliary class to simulate Solr's FacetFieldEntry.
- * Represents a facet value with its occurrence count.
+ * <p>
+ * Represents a facet value with its occurrence count in search results.
+ * </p>
+ * 
+ * @author LA Referencia Team
  */
 public class FacetFieldEntry {
     private String value;
     private long valueCount;
     private FacetKey key;
 
+    /**
+     * Creates a facet field entry with the specified values.
+     * 
+     * @param value the facet value
+     * @param valueCount the number of occurrences
+     * @param keyName the facet field name
+     */
     public FacetFieldEntry(String value, long valueCount, String keyName) {
         this.value = value;
         this.valueCount = valueCount;
         this.key = new FacetKey(keyName);
     }
 
+    /**
+     * Gets the facet value.
+     * 
+     * @return the value
+     */
     public String getValue() {
         return value;
     }
 
+    /**
+     * Gets the number of occurrences for this facet value.
+     * 
+     * @return the occurrence count
+     */
     public long getValueCount() {
         return valueCount;
     }
     
+    /**
+     * Gets the facet key.
+     * 
+     * @return the facet key
+     */
     public FacetKey getKey() {
         return key;
     }

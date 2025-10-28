@@ -43,7 +43,13 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
+ * Entity representing the metadata XML content of an OAI record.
+ * <p>
+ * Stores the actual metadata payload harvested from OAI-PMH sources,
+ * identified by a hash to avoid duplication.
+ * </p>
  * 
+ * @author LA Referencia Team
  */
 @Getter
 @Entity
@@ -52,6 +58,9 @@ public class OAIMetadata implements Persistable<String> {
 	
 	private static Logger logger = LogManager.getLogger(OAIMetadata.class);
 	
+	/**
+	 * MD5 hash of the metadata content, used as primary key.
+	 */
 	@Id
 	@Column(nullable = false, length = 32, unique = true)
 	private String hash;
@@ -62,6 +71,12 @@ public class OAIMetadata implements Persistable<String> {
 	private String metadata;
 	
 
+	/**
+	 * Constructs a new OAI metadata entity with the specified content and hash.
+	 * 
+	 * @param metadata the XML metadata content
+	 * @param hash the content hash used as the primary key
+	 */
 	public OAIMetadata(String metadata, String hash) {
 		super();
 		this.metadata = metadata;

@@ -27,10 +27,20 @@ import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
 import java.sql.Timestamp;
- 
+
+/**
+ * JPA attribute converter for LocalDateTime to SQL Timestamp conversion.
+ */
 @Converter(autoApply = true)
 public class LocalDateTimeAttributeConverter implements AttributeConverter<LocalDateTime, Timestamp> {
      
+	/**
+	 * Constructs a new LocalDateTime attribute converter.
+	 */
+	public LocalDateTimeAttributeConverter() {
+		// Default constructor
+	}
+
     @Override
     public Timestamp convertToDatabaseColumn(LocalDateTime locDateTime) {
         return locDateTime == null ? null : Timestamp.valueOf(locDateTime);

@@ -20,8 +20,18 @@
 
 package org.lareferencia.core.harvester;
 
+/**
+ * Interface for classes that handle harvesting events.
+ * 
+ * @author LA Referencia Team
+ */
 public interface IHarvestingEventListener {
 
+	/**
+	 * Handles a harvesting event occurrence.
+	 * 
+	 * @param event the harvesting event that occurred
+	 */
 	public void harvestingEventOccurred(HarvestingEvent event);
 
 }

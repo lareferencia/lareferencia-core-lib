@@ -31,6 +31,10 @@ import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Represents the result of a validation process.
+ * Contains the overall validation status and detailed results for each validation rule.
+ */
 @Getter
 @Setter
 public class ValidatorResult {
@@ -38,10 +42,19 @@ public class ValidatorResult {
 	private boolean valid;
 	private List<ValidatorRuleResult> rulesResults = new ArrayList<ValidatorRuleResult>();
 
+	/**
+	 * Constructs a new ValidatorResult with an empty list of rule results.
+	 */
 	public ValidatorResult() {
 		rulesResults = new ArrayList<ValidatorRuleResult>();
 	}
 
+	/**
+	 * Gets a detailed string representation of validation content results.
+	 * Returns received values for each rule in the format "ruleId:value;ruleId:value;..."
+	 *
+	 * @return a string containing validation content details
+	 */
 	public String getValidationContentDetails() {
 
 		StringBuilder sb = new StringBuilder();
@@ -62,7 +75,10 @@ public class ValidatorResult {
 		return sb.toString();
 	}
 
-	
+	/**
+	 * Resets the validator result to its initial state.
+	 * Sets valid to false and clears all rule results.
+	 */
 	public void reset() {
 		valid = false;
 		rulesResults.clear();

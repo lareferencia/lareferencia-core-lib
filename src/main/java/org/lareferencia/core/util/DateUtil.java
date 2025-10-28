@@ -28,7 +28,23 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.TimeZone;
 
+/**
+ * Utility class for date parsing and formatting operations.
+ * <p>
+ * Provides methods to parse dates from various string formats and
+ * manipulate date values for OAI-PMH operations.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class DateUtil {
+
+	/**
+	 * Private constructor to prevent instantiation of utility class.
+	 */
+	private DateUtil() {
+		throw new UnsupportedOperationException("Utility class");
+	}
 
 	private static final String[] timeFormats = { "HH:mm:ss", "HH:mm" };
 	private static final String[] dateSeparators = { "/", "-", " " };
@@ -39,9 +55,18 @@ public class DateUtil {
 	private static final String ymd_template = "\\d{4}{sep}\\d{2}{sep}\\d{2}.*";
 	private static final String dmy_template = "\\d{2}{sep}\\d{2}{sep}\\d{4}.*";
 	
+	/**
+	 * Standard OAI-PMH date format with UTC timezone indicator.
+	 */
 	public static DateFormat OAIPMH_DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"); // Quoted "Z" to indicate UTC, no timezone offset
 
-
+	/**
+	 * Parses a date string in various accepted formats.
+	 * 
+	 * @param input the date string to parse
+	 * @return the parsed Date
+	 * @throws IllegalArgumentException if the format is not recognized
+	 */
 	public static Date stringToDate(String input) {
 		Date date = null;
 		String dateFormat = getDateFormat(input);
@@ -68,6 +93,12 @@ public class DateUtil {
 		return date;
 	}
 	
+	/**
+	 * Sets the time of a date to 23:59:59.999 (end of day).
+	 * 
+	 * @param date the date to modify
+	 * @return the date with time set to end of day
+	 */
 	public static Date atEndOfDay (Date date){
 	    
 	    Calendar cal = Calendar.getInstance();
@@ -78,8 +109,14 @@ public class DateUtil {
 	    cal.set(Calendar.MILLISECOND, 999);
 	    
 	    return cal.getTime();
-		}
+	}
 
+	/**
+	 * Determines the date format pattern from the input string.
+	 * 
+	 * @param date the date string to analyze
+	 * @return the matching date format pattern, or null if not recognized
+	 */
 	private static String getDateFormat(String date) {
 		for (String sep : dateSeparators) {
 			String ymdPattern = patternForSeparator(ymd_template, sep);

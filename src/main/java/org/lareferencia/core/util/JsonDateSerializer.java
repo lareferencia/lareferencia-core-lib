@@ -32,8 +32,18 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.SerializerProvider;
 
+/**
+ * JSON serializer for LocalDateTime objects.
+ */
 @Component
 public class JsonDateSerializer extends JsonSerializer<LocalDateTime> {
+
+	/**
+	 * Constructs a new JSON date serializer.
+	 */
+	public JsonDateSerializer() {
+		super();
+	}
 
 	@Override
 	public void serialize(LocalDateTime date, JsonGenerator gen, SerializerProvider provider) throws IOException, JsonProcessingException {

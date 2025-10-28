@@ -39,7 +39,7 @@ public class NetworkActionkManager {
 	
 	private static Logger logger = LogManager.getLogger(NetworkActionkManager.class);
 
-	
+	/** Task manager for scheduling and executing network actions. */
 	@Getter
 	@Autowired
 	private TaskManager taskManager;
@@ -51,7 +51,12 @@ public class NetworkActionkManager {
 
 	
 	/**
-	 * Esto permite que se programen inicialmente todas las redes cuando se inicializa el repository
+	 * Sets the network repository and schedules all networks.
+	 * <p>
+	 * This allows all networks to be initially scheduled when the repository is initialized.
+	 * </p>
+	 *
+	 * @param repository the network repository
 	 */
 	@Autowired
 	public void setNetworkRepository(NetworkRepository repository) {
@@ -59,17 +64,33 @@ public class NetworkActionkManager {
 		scheduleAllNetworks();
 	}
 
+	/**
+	 * Constructs a new network action manager with empty actions.
+	 */
 	public NetworkActionkManager() {
 		actionsByName = new HashMap<String, NetworkAction>();
 		actions = new ArrayList<NetworkAction>();		
 	}
 	
+	/**
+	 * Gets the list of all available network actions.
+	 *
+	 * @return list of network actions
+	 */
 	@Getter
 	List<NetworkAction> actions;
 	
+	/**
+	 * Map of actions indexed by their name for quick lookup.
+	 */
 	private Map<String, NetworkAction> actionsByName;
 	
 	
+	/**
+	 * Gets all configuration properties from all available actions.
+	 * 
+	 * @return list of network properties from all actions
+	 */
 	public List<NetworkProperty> getProperties() {
 		
 		ArrayList<NetworkProperty> properties = new ArrayList<NetworkProperty>();
@@ -83,8 +104,14 @@ public class NetworkActionkManager {
 
 	
 	/**
-	 * Lanza los workers asociados a cada acción
-	 * @param network
+	 * Executes workers associated with each action for the given network.
+	 * <p>
+	 * For each action, it checks if any property is true (or if allwaysRunOnSchedule is set),
+	 * and if the action should run on schedule. If conditions are met, it launches
+	 * the associated workers.
+	 * </p>
+	 *
+	 * @param network the network to execute actions for
 	 */
 	public void executeActions(Network network) {
 		
@@ -121,8 +148,15 @@ public class NetworkActionkManager {
 	}
 	
 	/**
-	 * Lanza los workers asociados a cada acción
-	 * @param network
+	 * Executes a specific action by name for the given network.
+	 * <p>
+	 * Launches all workers associated with the named action, setting them
+	 * to run in incremental or full mode as specified.
+	 * </p>
+	 *
+	 * @param actionName the name of the action to execute
+	 * @param isIncremental whether to run in incremental mode
+	 * @param network the network to execute the action for
 	 */
 	public synchronized void executeAction(String actionName, boolean isIncremental,  Network network) {
 		
@@ -155,8 +189,12 @@ public class NetworkActionkManager {
 	}
 	
 	/**
-	 * Limpia la cola de proceso y el proceos actual de una red
-	 * @param network
+	 * Kills and unqueues all actions for a network.
+	 * <p>
+	 * Clears the process queue and kills the current process for the given network.
+	 * </p>
+	 *
+	 * @param network the network to clean up
 	 */
 	public void killAndUnqueueActions(Network network) {
 		
@@ -165,6 +203,11 @@ public class NetworkActionkManager {
 			
 	}
 
+	/**
+	 * Sets the list of available actions and builds the action name map.
+	 *
+	 * @param actions list of network actions
+	 */
 	public void setActions(List<NetworkAction> actions) {
 		
 		actionsByName = new HashMap<String, NetworkAction>();
@@ -176,6 +219,13 @@ public class NetworkActionkManager {
 	}
 
 	
+	/**
+	 * Schedules harvest actions for all networks.
+	 * <p>
+	 * Iterates through all networks and schedules their workers based on
+	 * their cron expressions.
+	 * </p>
+	 */
 	public void scheduleAllNetworks() {
 
 		Collection<Network> networks = networkRepository.findAll();
@@ -189,6 +239,15 @@ public class NetworkActionkManager {
 		}
 	}
 	
+	/**
+	 * Reschedules harvest actions for a specific network.
+	 * <p>
+	 * Clears the current schedule and creates a new one based on the
+	 * network's cron expression.
+	 * </p>
+	 *
+	 * @param network the network to reschedule
+	 */
 	public void rescheduleNetwork(Network network) {
 		
 		taskManager.clearScheduleByRunningContextID( NetworkRunningContext.buildID(network) );

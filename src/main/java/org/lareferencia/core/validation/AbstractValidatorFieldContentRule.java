@@ -34,13 +34,17 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 
 /**
- * La clase abstracta BaseContentVRule implementa los mecanismos comunes para la
- * evaluación de contenidos de distintas ocurrencias de un mismo metadato.
+ * Abstract base class for field content validation rules.
+ * <p>
+ * Implements common mechanisms for evaluating content across multiple
+ * occurrences of the same metadata field. Provides quantifier-based
+ * validation (e.g., ONE_OR_MORE, ZERO_OR_MORE).
+ * </p>
  * 
- * @author lmatas
- * 
+ * @author LA Referencia Team
+ * @see AbstractValidatorRule
+ * @see IValidatorFieldContentRule
  */
-
 @Getter
 @Setter
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
@@ -49,15 +53,19 @@ public abstract class AbstractValidatorFieldContentRule extends AbstractValidato
 	@JsonProperty("fieldname")
 	private String fieldname;
 
+	/**
+	 * Creates a new field content validator rule.
+	 */
 	public AbstractValidatorFieldContentRule() {
 	}
 
 	/**
-	 * Esta función abstracta será implementada en las derivadas y determina la
-	 * valides de un string
+	 * Validates the metadata by checking field content.
+	 * This abstract method is implemented by derived classes to determine
+	 * content validity based on specific criteria.
 	 * 
-	 * @param metadata
-	 * @return
+	 * @param metadata the metadata to validate
+	 * @return the validation result with status and details
 	 */
 	public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
 

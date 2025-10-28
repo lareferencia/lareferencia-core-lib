@@ -20,13 +20,50 @@
 
 package org.lareferencia.core.worker;
 
+/**
+ * Interface for workers that process data in batches.
+ * <p>
+ * Batch workers iterate through pages of items, processing each item
+ * and tracking completion progress. Supports pre/post page hooks.
+ * </p>
+ * 
+ * @param <I> the type of items being processed
+ * @param <C> the running context type
+ * @author LA Referencia Team
+ * @see IWorker
+ * @see IPaginator
+ */
 public interface IBatchWorker<I,C extends IRunningContext> extends IWorker<C> {
 	
+	/**
+	 * Processes a single item from the batch.
+	 * 
+	 * @param item the item to process
+	 */
 	void processItem(I item);
+	
+	/**
+	 * Hook called before processing each page of items.
+	 */
 	void prePage();
+	
+	/**
+	 * Hook called after processing each page of items.
+	 */
 	void postPage();
 	
+	/**
+	 * Gets the completion rate as a percentage.
+	 * 
+	 * @return completion rate from 0.0 to 1.0
+	 */
 	double getCompletionRate();
+	
+	/**
+	 * Sets the paginator for iterating through items.
+	 * 
+	 * @param paginator the paginator to use
+	 */
 	void setPaginator(IPaginator<I> paginator);
 	
 }

@@ -33,6 +33,16 @@ import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.lareferencia.core.validation.IValidatorFieldContentRule;
 import org.w3c.dom.Node;
 
+/**
+ * Transformation rule that normalizes field content.
+ * <p>
+ * Can remove invalid occurrences based on a validation rule,
+ * and/or remove duplicated values from metadata fields.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ */
 @Getter
 @Setter
 public class FieldContentNormalizeRule extends AbstractTransformerRule {
@@ -50,6 +60,9 @@ public class FieldContentNormalizeRule extends AbstractTransformerRule {
 	private Boolean removeInvalidOccurrences = false;
 	private Boolean removeDuplicatedOccurrences = false;
 
+	/**
+	 * Creates a new field content normalization rule.
+	 */
 	public FieldContentNormalizeRule() {
 	}
 

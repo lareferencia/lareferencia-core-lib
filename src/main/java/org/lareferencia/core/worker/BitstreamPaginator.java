@@ -32,6 +32,21 @@ import org.springframework.data.domain.PageRequest;
 
 import java.util.List;
 
+/**
+ * Paginator for OAI bitstreams.
+ * <p>
+ * Implements pagination logic for processing bitstreams associated with
+ * harvested records. Supports filtering by network and status.
+ * </p>
+ * <p>
+ * This implementation always requests the first page restricted to IDs
+ * greater than the last processed, enabling efficient incremental processing.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see IPaginator
+ * @see OAIBitstream
+ */
 public class BitstreamPaginator implements IPaginator<OAIBitstream>  {
 
 	// implements dummy starting page
@@ -54,9 +69,13 @@ public class BitstreamPaginator implements IPaginator<OAIBitstream>  {
 	private boolean negateStatus = false;
 	
 	/**
-	 * Este pedido paginado pide siempre la primera página
-	 * restringida a que el id sea mayor al ultimo anterior
-	 **/
+	 * Creates a paginator for bitstreams filtered by network and status.
+	 * 
+	 * @param repository the bitstream repository
+	 * @param network the network to filter by
+	 * @param status the bitstream status to filter by
+	 * @param negateStatus if true, inverts the status filter (NOT status)
+	 */
 	public BitstreamPaginator(OAIBitstreamRepository repository, Network network, OAIBitstreamStatus status, boolean negateStatus) {
 		
 		logger.debug("Creando paginador bistream - network: " + network.getAcronym() + " status: " + status + " negado?: " + negateStatus  );
@@ -72,11 +91,24 @@ public class BitstreamPaginator implements IPaginator<OAIBitstream>  {
 
 	}
 
+	/**
+	 * Creates a paginator for bitstreams filtered by network and status.
+	 * Status filter is not negated.
+	 * 
+	 * @param repository the bitstream repository
+	 * @param network the network to filter by
+	 * @param status the bitstream status to filter by
+	 */
 	public BitstreamPaginator(OAIBitstreamRepository repository, Network network, OAIBitstreamStatus status) {
 		this(repository, network, status, false);
 	}
 	
-	 
+	/**
+	 * Creates a paginator for all bitstreams in the given network.
+	 * 
+	 * @param repository the bitstream repository
+	 * @param network the network to filter by
+	 */
 	public BitstreamPaginator(OAIBitstreamRepository repository, Network network ) {
 		
 		logger.debug("Creando paginador bitstream - network: " + network.getAcronym() + " status: indistinto"  );
@@ -90,6 +122,10 @@ public class BitstreamPaginator implements IPaginator<OAIBitstream>  {
 
 	}
 	
+	/**
+	 * Creates an empty paginator with no data.
+	 * Used as a default constructor.
+	 */
 	public BitstreamPaginator() {
 		
 		this.totalPages = 0;

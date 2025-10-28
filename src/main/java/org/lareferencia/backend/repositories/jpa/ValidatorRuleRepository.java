@@ -24,6 +24,10 @@ import org.lareferencia.backend.domain.ValidatorRule;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 
+/**
+ * JPA repository for managing {@link ValidatorRule} entities.
+ * Provides standard CRUD operations for validation rules.
+ */
 @RepositoryRestResource(path = "validatorRule", collectionResourceRel = "validatorRule")
 public interface ValidatorRuleRepository extends JpaRepository<ValidatorRule, Long> {
 

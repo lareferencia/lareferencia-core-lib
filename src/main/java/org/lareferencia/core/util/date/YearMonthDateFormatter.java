@@ -26,13 +26,26 @@ import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
 
 /**
- * DateTimeFormatter for date with format yyyy-MM
+ * Date formatter supporting year-month patterns (yyyy-MM or yyyy/MM).
+ * Defaults day to 1 and time components to midnight.
  * 
  * @author pgraca
- *
  */
 public class YearMonthDateFormatter implements IDateTimeFormatter {
 
+	/**
+	 * Constructs a new year-month date formatter.
+	 */
+	public YearMonthDateFormatter() {
+		// Default constructor
+	}
+
+	/**
+	 * Returns a DateTimeFormatter configured to parse year-month patterns.
+	 * Supports formats: yyyy-MM, yyyy/MM with defaults for day and time.
+	 *
+	 * @return the configured DateTimeFormatter
+	 */
     @Override
     public DateTimeFormatter getFormatter() {
         return new DateTimeFormatterBuilder().appendPattern("[yyyy-MM][yyyy/MM]").parseDefaulting(ChronoField.DAY_OF_MONTH, 1)

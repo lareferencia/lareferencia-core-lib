@@ -23,10 +23,41 @@ package org.lareferencia.core.validation;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 
+/**
+ * Interface for metadata transformation rules.
+ * <p>
+ * Defines the contract for rules that transform metadata records.
+ * Implementations provide specific transformation logic such as field
+ * mapping, value translation, or metadata enrichment.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ */
 public interface ITransformerRule {
 
+	/**
+	 * Transforms the metadata of the given record.
+	 * 
+	 * @param record the OAI record being processed
+	 * @param metadata the metadata to transform
+	 * @return true if a transformation was applied, false otherwise
+	 * @throws ValidationException if an error occurs during transformation
+	 */
 	abstract boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
+	
+	/**
+	 * Gets the unique identifier of this rule.
+	 * 
+	 * @return the rule ID
+	 */
 	public Long getRuleId();
+	
+	/**
+	 * Sets the unique identifier of this rule.
+	 * 
+	 * @param id the rule ID to set
+	 */
 	public void setRuleId(Long id);
 
 }

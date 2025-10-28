@@ -30,22 +30,49 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 
+/**
+ * Abstract base class for transformation rules.
+ * <p>
+ * Provides the foundation for all metadata transformation rules in the system.
+ * Concrete implementations define specific transformation operations that modify,
+ * enrich, or restructure metadata records.
+ * </p>
+ * <p>
+ * Transformation rules are serialized to/from JSON for storage and configuration,
+ * using Jackson's type information to preserve the concrete rule class.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see ITransformerRule
+ */
 @Getter
 @Setter
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
 public abstract class AbstractTransformerRule implements ITransformerRule {
 
+	/**
+	 * The unique identifier of this rule in the database.
+	 */
 	@JsonIgnore
 	protected Long ruleId;
 	
+	/**
+	 * Default constructor.
+	 */
 	public AbstractTransformerRule() {
 	}
 
 	/**
+	 * Transforms the metadata of the given record.
+	 * <p>
+	 * Implementations should modify the metadata object in place and return true
+	 * if any transformation was actually applied.
+	 * </p>
 	 * 
-	 * @param metadata
-	 * @return Retorna true si fue necesario aplicar una transformación
-	 * @throws ValidationException 
+	 * @param record the OAI record being processed
+	 * @param metadata the metadata to transform
+	 * @return true if a transformation was applied, false otherwise
+	 * @throws ValidationException if an error occurs during transformation
 	 */
 	public abstract boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 	

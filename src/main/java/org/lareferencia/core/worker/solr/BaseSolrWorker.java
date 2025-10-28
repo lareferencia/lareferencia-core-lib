@@ -30,39 +30,100 @@ import org.apache.solr.client.solrj.request.DirectXmlRequest;
 import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.IRunningContext;
 
+/**
+ * Base class for workers that interact with Solr.
+ * <p>
+ * Provides common functionality for sending updates, commits, and deletes
+ * to a Solr search index.
+ * </p>
+ * 
+ * @param <C> the running context type
+ * @author LA Referencia Team
+ * @see BaseWorker
+ */
 public abstract class BaseSolrWorker<C extends IRunningContext> extends BaseWorker<C> {
+    /**
+     * Solr HTTP client for server communication.
+     */
     protected HttpSolrClient solrClient;
+    
     private static Logger logger = LogManager.getLogger(BaseSolrWorker.class);
 
+    /**
+     * Creates a Solr worker with the specified Solr URL.
+     * 
+     * @param solrURL the Solr server URL
+     */
     public BaseSolrWorker(String solrURL) {
         super();
         this.solrClient = new HttpSolrClient.Builder(solrURL).build();
     }
 
+    /**
+     * Sends an update request to Solr.
+     * 
+     * @param data the XML data to send
+     * @throws SolrServerException if Solr encounters an error
+     * @throws IOException if an I/O error occurs
+     * @throws HttpSolrClient.RemoteSolrException if a remote error occurs
+     */
     protected void sendUpdateToSolr(String data)
             throws SolrServerException, IOException, HttpSolrClient.RemoteSolrException {
         DirectXmlRequest request = new DirectXmlRequest("/update", data);
         solrClient.request(request);
     }
 
+    /**
+     * Commits pending changes to Solr.
+     * 
+     * @throws Exception if the commit fails
+     */
     protected void solrCommit() throws Exception {
         this.sendUpdateToSolr("<commit/>");
     }
 
+    /**
+     * Rolls back pending changes in Solr.
+     * 
+     * @throws Exception if the rollback fails
+     */
     protected void solrRollback() throws Exception {
         this.sendUpdateToSolr("<rollback/>");
     }
 
+    /**
+     * Deletes documents from Solr by field value.
+     * 
+     * @param field the field name
+     * @param value the field value
+     * @throws Exception if the delete fails
+     */
     protected void deleteByField(String field, String value) throws Exception {
         this.sendUpdateToSolr("<delete><query>" + field + ":" + value + "</query></delete>");
     }
 
+    /**
+     * Hook called before worker execution starts.
+     * 
+     * @throws RunningSolrException if an error occurs during pre-run
+     */
     protected void preRun() throws RunningSolrException {
 
     }
 
+    /**
+     * Main execution method to be implemented by subclasses.
+     * 
+     * @throws RunningSolrException if an error occurs during execution
+     */
     protected abstract void execute() throws RunningSolrException;
 
+    /**
+     * Hook called after worker execution completes.
+     * Automatically commits changes to Solr.
+     * 
+     * @throws RunningSolrException if an error occurs during post-run
+     */
     protected void postRun() throws RunningSolrException {
         try {
             this.solrCommit();

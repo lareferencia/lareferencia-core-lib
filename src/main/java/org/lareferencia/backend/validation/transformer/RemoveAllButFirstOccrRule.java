@@ -33,16 +33,33 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Transformer rule that removes all occurrences of a field except the first one.
+ * Useful for ensuring single-valued fields when duplicates exist.
+ */
 public class RemoveAllButFirstOccrRule extends AbstractTransformerRule {
 	
+	/**
+	 * Name of the metadata field to process, keeping only the first occurrence.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
 	String fieldName;
 	
+	/**
+	 * Constructs a new RemoveAllButFirstOccrRule instance.
+	 */
 	public RemoveAllButFirstOccrRule() {
 	}
 
+	/**
+	 * Transforms the record by removing all but the first occurrence of the specified field.
+	 *
+	 * @param record the OAI record being processed
+	 * @param metadata the record's metadata containing the field to transform
+	 * @return true if any occurrences were removed, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 

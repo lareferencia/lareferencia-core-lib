@@ -28,6 +28,14 @@ import org.lareferencia.core.worker.solr.BaseSolrWorker;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Worker that removes all records from the Solr index for a specific network.
+ * <p>
+ * Used for full index cleanup operations.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class FullUnindexerWorker extends BaseSolrWorker<NetworkRunningContext> {
 
     private static Logger logger = LogManager.getLogger(IndexerWorker.class);
@@ -40,10 +48,18 @@ public class FullUnindexerWorker extends BaseSolrWorker<NetworkRunningContext> {
     @Setter
     private String solrRecordIDField = "id";
 
+    /**
+     * Creates a full unindexer worker with the specified Solr URL.
+     * 
+     * @param solrURL the Solr server URL
+     */
     public FullUnindexerWorker(String solrURL) {
         super(solrURL);
     }
 
+    /**
+     * Executes the unindexing operation for the network.
+     */
     @Override
     public void execute() {
         String networkAcronym = runningContext.getNetwork().getAcronym();

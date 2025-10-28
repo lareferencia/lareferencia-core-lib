@@ -55,7 +55,15 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 import lombok.Getter;
 import lombok.Setter;
 
-
+/**
+ * Worker that performs OAI-PMH harvesting operations.
+ * <p>
+ * Handles the complete harvesting workflow including metadata fetching,
+ * validation, and storage.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implements IWorker<NetworkRunningContext>, IHarvestingEventListener {
 
 	private static final String DEFAULT_GRANDULARITY = "YYYY-MM-DDThh:mm:ssZ";
@@ -72,9 +80,14 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 	@Autowired
 	private ValidationService validationManager;
 	
+	/**
+	 * Validator for harvested records.
+	 */
 	private IValidator validator;
 
-	
+	/**
+	 * Creates a new harvesting worker.
+	 */
 	public HarvestingWorker()  {
 		super();
 		setIncremental(false);
@@ -95,8 +108,16 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 	private SnapshotLogService snapshotLogService;
 
 
+	/**
+	 * The harvester instance for fetching records.
+	 */
 	private IHarvester harvester;
 
+	/**
+	 * Sets the harvester and registers this worker as event listener.
+	 * 
+	 * @param harvester the harvester to use
+	 */
 	@Autowired
 	public void setHarvester(IHarvester harvester) {
 		this.harvester = harvester;
@@ -119,6 +140,11 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 	private  String currentSetSpec = null;
 
 
+	/**
+	 * Creates a harvesting worker for a specific network.
+	 * 
+	 * @param network the network to harvest
+	 */
 	public HarvestingWorker(Network network) {
 		super( new NetworkRunningContext(network) );
 	};
@@ -128,6 +154,9 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 //		return snapshotId;
 //	}
 
+	/**
+	 * Stops the harvesting process.
+	 */
 	@Override
 	public void stop() {
 

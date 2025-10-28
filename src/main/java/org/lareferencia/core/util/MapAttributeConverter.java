@@ -31,6 +31,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * JPA attribute converter for storing Map objects as JSON in database.
+ */
 public class MapAttributeConverter implements AttributeConverter< Map<String,Object>, String > {
 
     private static Logger logger = LogManager.getLogger(MapAttributeConverter.class);
@@ -38,6 +41,13 @@ public class MapAttributeConverter implements AttributeConverter< Map<String,Obj
  
     static ObjectMapper objectMapper = new ObjectMapper();
     
+	/**
+	 * Constructs a new map attribute converter.
+	 */
+	public MapAttributeConverter() {
+		// Default constructor
+	}
+
     @Override
     public String convertToDatabaseColumn(Map<String, Object> data) {
  

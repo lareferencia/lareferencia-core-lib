@@ -39,35 +39,60 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * NationalNetwork Entity
+ * JPA entity representing a validation configuration for metadata records.
+ * <p>
+ * A Validator contains a collection of {@link ValidatorRule} instances that define
+ * the validation criteria applied to harvested metadata records. Validators are
+ * associated with {@link Network} entities and can be used as either pre-validators
+ * or main validators in the processing pipeline.
+ * </p>
+ * <p>
+ * The validation rules are applied sequentially to check metadata quality,
+ * completeness, and conformance to specific standards or requirements.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see ValidatorRule
+ * @see Network
  */
 @Entity
 @Getter
 @Setter
 public class Validator {
 
+	/** Unique identifier for the validator. */
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	protected Long id = null;
 
+	/** Name of the validator. */
 	@Column(nullable = false)
 	private String name;
 
+	/** Description of the validator's purpose and functionality. */
 	@Column(nullable = true)
 	private String description;
 
+	/** Ordered list of validation rules to apply. */
 	@OneToMany(cascade = CascadeType.ALL)
 	@JoinColumn(name = "validator_id")
 	@LazyCollection(LazyCollectionOption.FALSE)
 	private List<ValidatorRule> rules = new ArrayList<ValidatorRule>();
 
+	/**
+	 * Constructs a new Validator with an empty rules list.
+	 */
 	public Validator() {
 		super();
 		rules = new ArrayList<ValidatorRule>();
 	}
 
 	/**
-	 * Reset all ids
+	 * Resets the ID of this validator and all associated rules.
+	 * <p>
+	 * Useful when creating a copy or clone of a validator configuration
+	 * to ensure new database entries are created.
+	 * </p>
 	 */
 	public void resetId() {
 		this.id = null;

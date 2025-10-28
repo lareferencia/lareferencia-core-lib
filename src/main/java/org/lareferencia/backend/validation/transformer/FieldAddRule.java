@@ -28,6 +28,16 @@ import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 
+/**
+ * Transformation rule that adds a new field occurrence with a specified value.
+ * <p>
+ * This simple rule adds a static value to a target field in the metadata.
+ * It can be used to inject constant values, labels, or identifiers into records.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ */
 public class FieldAddRule extends AbstractTransformerRule {
 
 	@Setter
@@ -38,7 +48,9 @@ public class FieldAddRule extends AbstractTransformerRule {
 	@Getter
 	String value;
 
-
+	/**
+	 * Creates a new field addition rule.
+	 */
 	public FieldAddRule() {
 		
 	}

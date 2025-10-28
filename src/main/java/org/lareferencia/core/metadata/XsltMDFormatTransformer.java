@@ -42,6 +42,10 @@ import java.io.StringWriter;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Metadata format transformer using XSLT stylesheets for conversion between formats.
+ * Transforms XML metadata from one format to another using configurable XSLT transformations.
+ */
 public class XsltMDFormatTransformer implements IMDFormatTransformer {
 
 
@@ -49,63 +53,103 @@ public class XsltMDFormatTransformer implements IMDFormatTransformer {
 
 
 
+	/**
+	 * The source metadata format identifier.
+	 */
 	@Getter
 	private String sourceMDFormat;
+	
+	/**
+	 * The target metadata format identifier.
+	 */
 	@Getter
 	private String targetMDFormat;
 
 
 	private Transformer trf = null;
 
+	/**
+	 * Constructs a new XSLT metadata transformer with the specified formats and stylesheet.
+	 * Validates stylesheet existence and initializes the transformer with output properties.
+	 *
+	 * @param sourceMDFormat the source metadata format name
+	 * @param targetMDFormat the target metadata format name
+	 * @param stylesheetFileName the path to the XSLT stylesheet file
+	 * @throws IllegalArgumentException if the stylesheet file does not exist
+	 * @throws RuntimeException if transformer creation fails
+	 */
 	public XsltMDFormatTransformer(String sourceMDFormat, String targetMDFormat, String stylesheetFileName)  {
 
 		File stylesheetFile = new File(stylesheetFileName);
+		
+		if (!stylesheetFile.exists()) {
+			String errorMsg = "XSLT stylesheet file not found: " + stylesheetFileName;
+			logger.error(errorMsg);
+			throw new IllegalArgumentException(errorMsg);
+		}
 
 		try {
-
 			trf = buildXSLTTransformer(stylesheetFile);
 			trf.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
 			trf.setOutputProperty(OutputKeys.INDENT, "yes");
 			trf.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
 
 		} catch (TransformerConfigurationException e) {
-			logger.error("Error en la creacion de transformador de formato de metadatatos. " + sourceMDFormat + " -> " + targetMDFormat + " :: "+ stylesheetFileName);
-			logger.error( e.getMessage() );
-
+			String errorMsg = "Error creating XSLT transformer from " + sourceMDFormat + 
+			                  " to " + targetMDFormat + " using stylesheet: " + stylesheetFileName;
+			logger.error(errorMsg, e);
+			throw new RuntimeException(errorMsg, e);
 		}
-
-
-
 
 		this.sourceMDFormat = sourceMDFormat;
 		this.targetMDFormat = targetMDFormat;
-
-
 	}
 
 	@Override
 	public void setParameter(String name, List<String> values) {
+		if (name == null) {
+			logger.warn("Attempted to set parameter with null name, ignoring");
+			return;
+		}
+		if (values == null) {
+			logger.warn("Attempted to set null values for parameter: " + name + ", ignoring");
+			return;
+		}
+		
 		try {
 			DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 			DocumentBuilder db = dbf.newDocumentBuilder();
 			Document xmlDoc = db.newDocument();
-			Element root = xmlDoc.createElement("items");  							        
-			for (String value:values) {					
-				Node item = xmlDoc.createElement("item");		        
-				item.appendChild(xmlDoc.createTextNode(value));		        
-				root.appendChild(item);			        
+			Element root = xmlDoc.createElement("items");
+			
+			for (String value : values) {
+				if (value != null) {  // Skip null values in the list
+					Node item = xmlDoc.createElement("item");
+					item.appendChild(xmlDoc.createTextNode(value));
+					root.appendChild(item);
+				}
 			}
 			xmlDoc.appendChild(root);
 			trf.setParameter(name, xmlDoc);
-			//trf.setParameter (name, values);			
-		} catch (Exception e) {
-			logger.error("Error setting parameter: " + name);
-			logger.error( e.getMessage() );
+		} catch (ParserConfigurationException e) {
+			logger.error("Error creating XML document for parameter: " + name, e);
+			throw new RuntimeException("Error creating XML document for parameter: " + name, e);
+		} catch (DOMException e) {
+			logger.error("Error building parameter XML for: " + name, e);
+			throw new RuntimeException("Error building parameter XML for: " + name, e);
 		}
 	}
 
 	@Override
 	public void setParameter(String name, String value) {
+		if (name == null) {
+			logger.warn("Attempted to set parameter with null name, ignoring");
+			return;
+		}
+		if (value == null) {
+			logger.warn("Attempted to set null value for parameter: " + name + ", ignoring");
+			return;
+		}
 		trf.setParameter(name, value);
 	}
 

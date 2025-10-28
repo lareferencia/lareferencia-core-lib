@@ -21,12 +21,21 @@
 
 package org.lareferencia.core.worker.solr;
 
+/**
+ * Exception thrown when errors occur during Solr operations in worker processes.
+ * Indicates failures in Solr indexing, querying, or other search operations.
+ */
 public class RunningSolrException extends Exception {
     /**
-     * 
+     * Serial version UID for serialization compatibility.
      */
     private static final long serialVersionUID = 3914924271893913943L;
 
+    /**
+     * Constructs a new RunningSolrException with the specified detail message.
+     *
+     * @param string the detail message explaining the Solr error
+     */
     public RunningSolrException(String string) {
         super(string);
     }

@@ -32,7 +32,12 @@ import jakarta.persistence.*;
 import java.util.Date;
 
 /**
+ * Entity representing a bitstream associated with an OAI record.
+ * <p>
+ * Stores information about binary files (PDFs, documents, etc.) that are part of harvested records.
+ * </p>
  * 
+ * @author LA Referencia Team
  */
 @Getter
 @Setter
@@ -40,6 +45,9 @@ import java.util.Date;
 @JsonIgnoreProperties({})
 public class OAIBitstream  {
 	
+	/**
+	 * Composite primary key for the bitstream.
+	 */
 	@EmbeddedId
 	private OAIBitstreamId id;
 	
@@ -69,6 +77,10 @@ public class OAIBitstream  {
 	@JdbcTypeCode(SqlTypes.LONGVARCHAR)
 	private String fulltext;
 	
+	/**
+	 * Constructs a new OAI bitstream with default values.
+	 * Sets the status to NEW and the datestamp to the current date.
+	 */
 	public OAIBitstream() {
 		super();
 		this.status = OAIBitstreamStatus.NEW;
@@ -77,6 +89,15 @@ public class OAIBitstream  {
 		
 	}
 	
+	/**
+	 * Constructs a new OAI bitstream from metadata information.
+	 * Creates the bitstream ID from network, identifier and checksum, and updates fields from metadata.
+	 * If no checksum is provided, generates one using MD5 hash of the URL.
+	 * 
+	 * @param network the network this bitstream belongs to
+	 * @param identifier the record identifier this bitstream is associated with
+	 * @param mdbs the metadata bitstream containing file information
+	 */
 	public OAIBitstream(Network network, String identifier, OAIMetadataBitstream mdbs) {
 		this();
 	
@@ -88,6 +109,13 @@ public class OAIBitstream  {
 		this.updateFromMetadata(mdbs);
 	}
 	
+	/**
+	 * Updates this bitstream's fields from metadata information.
+	 * Copies filename, URL, SID, type, and MIME type from the metadata.
+	 * Defaults to "application/pdf" if no format is specified.
+	 * 
+	 * @param mdbs the metadata bitstream containing updated file information
+	 */
 	public void updateFromMetadata(OAIMetadataBitstream mdbs) {
 		
 		this.filename = mdbs.getName();

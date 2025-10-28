@@ -29,6 +29,16 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.RepositoryNameHelper;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 
+/**
+ * Transformation rule that adds repository and institution names to metadata.
+ * <p>
+ * Enriches records with repository name, institution name, and institution
+ * acronym fields. Can append or replace existing values with configured prefixes.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ */
 public class AddRepoNameRule extends AbstractTransformerRule {
 
 	private RepositoryNameHelper repositoryNameHelper;
@@ -73,6 +83,9 @@ public class AddRepoNameRule extends AbstractTransformerRule {
 	@Setter
 	private String instAcronPrefix = "instacron:";
 
+	/**
+	 * Creates a new repository name addition rule.
+	 */
 	public AddRepoNameRule() {
 	}
 

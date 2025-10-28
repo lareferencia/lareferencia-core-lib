@@ -21,23 +21,46 @@
 
 package org.lareferencia.core.metadata;
 
+/**
+ * Exception thrown when parsing OAI record metadata fails.
+ * Indicates errors in XML parsing or metadata structure validation.
+ */
 public class OAIRecordMetadataParseException extends Exception {
 
 
 	private static final long serialVersionUID = 2279626648050333938L;
 
+	/**
+	 * Constructs a new OAI record metadata parse exception with no detail message.
+	 */
 	public OAIRecordMetadataParseException() {
 		super();
 	}
 
+	/**
+	 * Constructs a new OAI record metadata parse exception with the specified detail message and cause.
+	 * 
+	 * @param message the detail message describing the parsing error
+	 * @param cause the cause of the exception
+	 */
 	public OAIRecordMetadataParseException(String message, Throwable cause) {
 		super(message, cause);
 	}
 
+	/**
+	 * Constructs a new OAI record metadata parse exception with the specified detail message.
+	 * 
+	 * @param message the detail message describing the parsing error
+	 */
 	public OAIRecordMetadataParseException(String message) {
 		super(message);
 	}
 
+	/**
+	 * Constructs a new OAI record metadata parse exception with the specified cause.
+	 * 
+	 * @param cause the cause of the exception
+	 */
 	public OAIRecordMetadataParseException(Throwable cause) {
 		super(cause);
 	}

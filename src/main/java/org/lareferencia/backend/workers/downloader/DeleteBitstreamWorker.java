@@ -34,6 +34,17 @@ import org.springframework.beans.factory.annotation.Value;
 import java.io.File;
 import java.text.NumberFormat;
 
+/**
+ * Worker that deletes bitstream files from the file system.
+ * <p>
+ * Processes bitstreams marked for deletion and removes their
+ * corresponding files from storage.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see BaseBatchWorker
+ * @see OAIBitstream
+ */
 public class DeleteBitstreamWorker extends BaseBatchWorker<OAIBitstream, NetworkRunningContext>  {
 	
 	
@@ -51,7 +62,9 @@ public class DeleteBitstreamWorker extends BaseBatchWorker<OAIBitstream, Network
 	@Autowired
 	private OAIBitstreamRepository bitstreamRepository;
 
-
+	/**
+	 * Creates a new delete bitstream worker.
+	 */
 	public DeleteBitstreamWorker() {
 		super();
 

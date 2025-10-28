@@ -28,20 +28,52 @@ import org.lareferencia.backend.domain.Validator;
 import java.io.File;
 import java.io.IOException;
 
+/**
+ * Helper class for JSON serialization and deserialization operations.
+ */
 public class JSONSerializerHelper {
 
+	/**
+	 * Private constructor to prevent instantiation of utility class.
+	 */
+	private JSONSerializerHelper() {
+		throw new UnsupportedOperationException("Utility class");
+	}
 
+	/**
+	 * Serializes an object to a JSON string.
+	 *
+	 * @param obj the object to serialize
+	 * @return JSON string representation
+	 * @throws JsonProcessingException if serialization fails
+	 */
     public static String serializeToJsonString(Object obj) throws JsonProcessingException {
         ObjectMapper mapper = new ObjectMapper();
         return mapper.writeValueAsString(obj);
 
     }
 
+	/**
+	 * Deserializes a JSON string to an object of the specified class.
+	 *
+	 * @param jsonString the JSON string
+	 * @param retClass the target class
+	 * @return deserialized object
+	 * @throws JsonProcessingException if deserialization fails
+	 */
     public static Object deserializeFromJsonString(String jsonString, Class retClass) throws JsonProcessingException {
         ObjectMapper mapper = new ObjectMapper();
         return mapper.readValue(jsonString, retClass);
     }
 
+	/**
+	 * Deserializes a JSON file to an object of the specified class.
+	 *
+	 * @param file the JSON file
+	 * @param retClass the target class
+	 * @return deserialized object
+	 * @throws IOException if file reading or deserialization fails
+	 */
     public static Object deserializeFromFile(File file, Class retClass) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
         return mapper.readValue(file, retClass);

@@ -29,12 +29,28 @@ import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 
 
 
+/**
+ * JPA repository for managing OAI metadata entities.
+ * Provides query methods for checking existence, retrieving metadata content, and deleting orphan metadata.
+ */
 @RepositoryRestResource(path = "metadata", collectionResourceRel = "metadata")
 public interface OAIMetadataRepository extends JpaRepository<OAIMetadata, String> {
 	
+	/**
+	 * Checks if metadata exists for the given hash.
+	 * 
+	 * @param hash the metadata content hash to check
+	 * @return true if metadata with the hash exists, false otherwise
+	 */
 	@Query(value="SELECT EXISTS( SELECT 1 FROM oaimetadata WHERE hash = ?1 )", nativeQuery=true)
 	Boolean checkIfExists(String hash);
 
+	/**
+	 * Retrieves the raw metadata content for the given hash.
+	 * 
+	 * @param hash the metadata content hash
+	 * @return the metadata content as a string
+	 */
 	//@Transactional(readOnly = true)
 	@Query(value="SELECT m.metadata from oaimetadata m where m.hash = ?1", nativeQuery=true)
 	String getMetadata(String hash);

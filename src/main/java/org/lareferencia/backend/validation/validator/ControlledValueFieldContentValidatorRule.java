@@ -31,19 +31,41 @@ import lombok.Setter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
+/**
+ * Validator rule that checks if field values are in a controlled vocabulary.
+ * <p>
+ * Validates that field content matches one of the predefined allowed values.
+ * Useful for enforcing controlled vocabularies, taxonomies, or enumerated lists.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractValidatorFieldContentRule
+ */
 @Getter
 @Setter
 public class ControlledValueFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
 	private static final int MAX_EXPECTED_LENGTH = 100;
 
+	/**
+	 * List of allowed values for field content validation.
+	 */
 	protected List<String> controlledValues;
 
+	/**
+	 * Creates a new controlled value validator with an empty list of allowed values.
+	 */
 	public ControlledValueFieldContentValidatorRule() {
 		super();
 		this.controlledValues = new ArrayList<String>();
 	}
 
+	/**
+	 * Validates if the content matches one of the controlled values.
+	 * 
+	 * @param content the field content to validate
+	 * @return validation result indicating if content is in the controlled list
+	 */
 	@Override
 	public ContentValidatorResult validate(String content) {
 

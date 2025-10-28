@@ -41,6 +41,17 @@ import org.lareferencia.core.worker.BaseBatchWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
 
+/**
+ * Worker for processing bitstreams associated with harvested records.
+ * <p>
+ * Handles the download and processing of binary files (bitstreams) referenced
+ * in metadata records. Uses the last good known snapshot to track processing state.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see BaseBatchWorker
+ * @see OAIBitstream
+ */
 public class BitstreamWorker extends BaseBatchWorker<OAIRecord, NetworkRunningContext> {
 
 
@@ -56,6 +67,9 @@ public class BitstreamWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCo
 	@Autowired
 	private OAIBitstreamRepository bitstreamRepository;
 
+	/**
+	 * Creates a new bitstream worker instance.
+	 */
 	public BitstreamWorker() {
 		super();
 

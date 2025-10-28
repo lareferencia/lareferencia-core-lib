@@ -22,15 +22,29 @@ package org.lareferencia.backend.validation;
 
 /**
  * Auxiliary class representing a facet key.
- * Used to identify facet fields in search results.
+ * <p>
+ * Used to identify facet fields in search results and validation processes.
+ * </p>
+ * 
+ * @author LA Referencia Team
  */
 public class FacetKey {
     private String name;
     
+    /**
+     * Creates a facet key with the specified name.
+     * 
+     * @param name the facet field name
+     */
     public FacetKey(String name) {
         this.name = name;
     }
     
+    /**
+     * Gets the facet field name.
+     * 
+     * @return the field name
+     */
     public String getName() {
         return name;
     }

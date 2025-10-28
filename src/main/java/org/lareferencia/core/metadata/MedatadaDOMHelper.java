@@ -49,7 +49,17 @@ import org.w3c.dom.Text;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
+/**
+ * Abstract helper class for DOM manipulation of metadata XML documents.
+ */
 public abstract class MedatadaDOMHelper {
+
+	/**
+	 * Private constructor to prevent instantiation of abstract utility class.
+	 */
+	private MedatadaDOMHelper() {
+		throw new UnsupportedOperationException("Utility class");
+	}
 
 	private static Element namespaceElement = null;
 	private static DocumentBuilderFactory factory;
@@ -86,6 +96,12 @@ public abstract class MedatadaDOMHelper {
 	}
 	
 	
+	/**
+	 * Creates a new Document from a DOM Node.
+	 *
+	 * @param node the source node
+	 * @return a new Document containing the node
+	 */
 	public static Document  createDocumentFromNode(Node node) {
 		DocumentBuilder builder = obtainThreadBuider();
 		Document document = builder.newDocument();
@@ -98,16 +114,29 @@ public abstract class MedatadaDOMHelper {
 		return document;
 	}
 	
+	/**
+	 * Converts an XML string to a Document object.
+	 *
+	 * @param xmlstring the XML string to parse
+	 * @return the parsed Document
+	 * @throws ParserConfigurationException if parser configuration error occurs
+	 * @throws SAXException if XML parsing error occurs
+	 * @throws IOException if I/O error occurs
+	 */
 	public static Document XMLString2Document(String xmlstring) throws ParserConfigurationException, SAXException, IOException {
 		InputSource is = new InputSource();
 		is.setCharacterStream(new StringReader(xmlstring));
 		return obtainThreadBuider().parse(is);
 	}
 	
+	/**
+	 * Converts a Document to an XML string.
+	 *
+	 * @param document the document to convert
+	 * @return the XML string representation
+	 */
 	public static String document2XMLString(Document document) {
-
 		try {
-			
 			StringWriter sw = new StringWriter();
 			Result output = new StreamResult(sw);
 			Transformer idTransformer = xformFactory.newTransformer();
@@ -116,22 +145,31 @@ public abstract class MedatadaDOMHelper {
 			idTransformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
 			idTransformer.transform(new DOMSource(document), output);
 			return sw.toString();
-
-		 
-		} catch (ClassCastException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
 		} catch (TransformerException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} 
-		return "ERROR";
+			throw new RuntimeException("Error converting document to XML string", e);
+		}
 	}
 	
+	/**
+	 * Evaluates an XPath expression and returns matching nodes.
+	 *
+	 * @param node the context node
+	 * @param xpath the XPath expression
+	 * @return list of matching nodes
+	 * @throws TransformerException if XPath evaluation fails
+	 */
 	public static NodeList getNodeList(Node node, String xpath) throws TransformerException {
 		return XPathAPI.selectNodeList(node, xpath, namespaceElement);
 	}
 	
+	/**
+	 * Gets a list of nodes matching the XPath expression (excludes text-only nodes).
+	 *
+	 * @param node the context node
+	 * @param xpath the XPath expression
+	 * @return list of matching nodes with children
+	 * @throws TransformerException if XPath evaluation fails
+	 */
 	public static List<Node> getListOfNodes(Node node, String xpath) throws TransformerException {
 		NodeList nodelist = XPathAPI.selectNodeList(node, xpath, namespaceElement);
 		
@@ -145,6 +183,14 @@ public abstract class MedatadaDOMHelper {
 		return result;
 	}
 	
+	/**
+	 * Gets a list of text nodes matching the XPath expression.
+	 *
+	 * @param node the context node
+	 * @param xpath the XPath expression
+	 * @return list of matching text nodes
+	 * @throws TransformerException if XPath evaluation fails
+	 */
 	public static List<Node> getListOfTextNodes(Node node, String xpath) throws TransformerException {
 		NodeList nodelist = XPathAPI.selectNodeList(node, xpath, namespaceElement);
 		
@@ -158,29 +204,66 @@ public abstract class MedatadaDOMHelper {
 		return result;
 	}
 	
+	/**
+	 * Checks if a node exists for the given XPath expression.
+	 *
+	 * @param node the context node
+	 * @param xpath the XPath expression
+	 * @return true if node exists, false otherwise
+	 */
 	public static boolean isNodeDefined(Node node, String xpath)  {
-	
 		try {
 			return getNodeList(node, xpath).getLength() > 0;
 		} catch (TransformerException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return false;
+			throw new RuntimeException("Error evaluating XPath: " + xpath, e);
 		}
 	}
 
+	/**
+	 * Evaluates an XPath expression and returns the result as a string.
+	 *
+	 * @param node the context node
+	 * @param xpath the XPath expression
+	 * @return the string result
+	 * @throws TransformerException if XPath evaluation fails
+	 */
 	public static String getSingleString(Node node, String xpath) throws TransformerException {
 		return XPathAPI.eval(node, xpath, namespaceElement).str();
 	}
 
+	/**
+	 * Evaluates an XPath expression and returns the result as an XObject.
+	 *
+	 * @param node the context node
+	 * @param xpath the XPath expression
+	 * @return the XObject result
+	 * @throws TransformerException if XPath evaluation fails
+	 */
 	public static XObject getSingleXObjet(Node node, String xpath) throws TransformerException {
 		return XPathAPI.eval(node, xpath, namespaceElement);
 	}
 	
+	/**
+	 * Selects a single node matching the XPath expression.
+	 *
+	 * @param node the context node
+	 * @param xpath the XPath expression
+	 * @return the matching node or null if not found
+	 * @throws TransformerException if XPath evaluation fails
+	 */
 	public static Node getSingleNode(Node node, String xpath) throws TransformerException {
 		return XPathAPI.selectSingleNode(node, xpath);
 	}
 	
+	/**
+	 * Adds a child element with a name attribute to the given node.
+	 *
+	 * @param node the parent node
+	 * @param elementName the name of the new element
+	 * @param nameAttrValue the value for the name attribute
+	 * @return the newly created element
+	 * @throws TransformerException if element creation fails
+	 */
 	public static Node addChildElementWithNameAttr(Node node, String elementName, String nameAttrValue) throws TransformerException {
 		
 		Document doc = node.getOwnerDocument();
@@ -193,21 +276,38 @@ public abstract class MedatadaDOMHelper {
 		return newDomElement;
 	}
 	
+	/**
+	 * Removes a node and its empty parent nodes recursively.
+	 *
+	 * @param node the node to remove
+	 * @throws TransformerException if removal fails
+	 */
 	public static void removeNodeAndEmptyParents(Node node) throws TransformerException {
-		
 		Node parentNode = node.getParentNode();
+		
+		// Cannot remove root node
+		if (parentNode == null) {
+			return;
+		}
+		
 		parentNode.removeChild(node); 
 		
 		while ( parentNode != null && node != parentNode && countChildsOfTypeElement(parentNode) == 0) {
-		
 			node = parentNode; 
 			parentNode = node.getParentNode();
 			
-			parentNode.removeChild(node);
+			if (parentNode != null) {
+				parentNode.removeChild(node);
+			}
 		}
-		
 	}
 	
+	/**
+	 * Counts the number of child elements (excluding text nodes) of a node.
+	 *
+	 * @param node the parent node
+	 * @return count of element children
+	 */
 	private static int countChildsOfTypeElement(Node node) {
 		
 		int size = 0;
@@ -221,6 +321,14 @@ public abstract class MedatadaDOMHelper {
 	}
 
 	
+	/**
+	 * Sets the text content of a node.
+	 *
+	 * @param node the node to modify
+	 * @param content the text content
+	 * @return the modified node
+	 * @throws TransformerException if modification fails
+	 */
 	public static Node setNodeText(Node node, String content) throws TransformerException {
 		
 		
@@ -236,6 +344,11 @@ public abstract class MedatadaDOMHelper {
 	
 	
 	
+	/**
+	 * Obtains a thread-local DocumentBuilder instance.
+	 *
+	 * @return the DocumentBuilder for the current thread
+	 */
 	protected static DocumentBuilder obtainThreadBuider() {
 
 		DocumentBuilder builder = builderMap.get(Thread.currentThread().getName());
@@ -251,6 +364,17 @@ public abstract class MedatadaDOMHelper {
 		return builder;
 	}
 
+	/**
+	 * Converts a DOM Node to an XML string representation.
+	 * <p>
+	 * Transforms the node using Saxon transformer with indentation and UTF-8 encoding.
+	 * The XML declaration is omitted from the output.
+	 * </p>
+	 *
+	 * @param node the DOM node to convert
+	 * @return the XML string representation
+	 * @throws TransformerException if transformation error occurs
+	 */
 	public static String Node2XMLString(Node node) throws TransformerException {
 
 		StringWriter sw = new StringWriter();

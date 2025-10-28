@@ -25,11 +25,24 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 
 /**
- * DateTimeFormatter for date with format yyyy-MM-ddTHH:mm:ssZ like:
- * 2013-01-01T00:00:00Z
+ * Date formatter for ISO 8601 zoned date-time format.
+ * Handles formats like: 2013-01-01T00:00:00Z (yyyy-MM-ddTHH:mm:ssZ).
  */
 public class SystemDateFormatter implements IDateTimeFormatter {
 
+	/**
+	 * Constructs a new system date formatter.
+	 */
+	public SystemDateFormatter() {
+		// Default constructor
+	}
+
+	/**
+	 * Returns a DateTimeFormatter configured for ISO zoned date-time parsing.
+	 * Uses case-insensitive parsing for ISO 8601 formats.
+	 *
+	 * @return the configured DateTimeFormatter
+	 */
     @Override
     public DateTimeFormatter getFormatter() {
         return new DateTimeFormatterBuilder().parseCaseInsensitive().append(DateTimeFormatter.ISO_ZONED_DATE_TIME)

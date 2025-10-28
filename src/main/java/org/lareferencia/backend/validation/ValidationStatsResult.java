@@ -36,14 +36,22 @@ import lombok.Setter;
 @Setter
 public class ValidationStatsResult {
 
+	/**
+	 * Constructs a new ValidationStatsResult with empty facets and rules maps.
+	 */
     public ValidationStatsResult() {
         facets = new HashMap<>();
         rulesByID = new HashMap<>();
     }
 
+	/** Total number of records in the snapshot */
     Integer size;
+    /** Number of records that were transformed */
     Integer transformedSize;
+    /** Number of records that passed validation */
     Integer validSize;
+    /** Map of validation rule statistics by rule ID */
     Map<String, ValidationRuleStat> rulesByID;
+    /** Map of faceted field entries for search and filtering */
     Map<String, List<FacetFieldEntry>> facets;
 }

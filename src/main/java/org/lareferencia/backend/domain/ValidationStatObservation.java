@@ -58,6 +58,9 @@ public class ValidationStatObservation {
 	private List<String> validRulesID;
 	private List<String> invalidRulesID;
 
+	/**
+	 * Default constructor that initializes collections for rule tracking.
+	 */
 	public ValidationStatObservation() {
 		super();
 		

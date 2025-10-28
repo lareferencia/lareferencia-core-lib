@@ -25,19 +25,38 @@ import java.util.List;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 
+/**
+ * Interface for metadata transformers.
+ * <p>
+ * Transformers apply a list of transformation rules to modify
+ * metadata records according to configured rules.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public interface ITransformer {
 
+	/**
+	 * Gets the list of transformation rules.
+	 * 
+	 * @return the list of rules
+	 */
 	public List<ITransformerRule> getRules();
 
+	/**
+	 * Sets the list of transformation rules.
+	 * 
+	 * @param validators the list of rules to apply
+	 */
 	public void setRules(List<ITransformerRule> validators);
 
 	/**
-	 * Transforma el registro OAI
+	 * Transforms the OAI record.
 	 * 
-	 * @param record el registro OAI a transformar
-	 * @param metadata los metadatos del registro
-	 * @return Retorna true si hizo alguna transformación
-	 * @throws ValidationException si ocurre un error durante la transformación
+	 * @param record the OAI record to transform
+	 * @param metadata the record metadata
+	 * @return true if any transformation was applied, false otherwise
+	 * @throws ValidationException if transformation fails
 	 */
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 }

@@ -23,10 +23,26 @@ package org.lareferencia.core.harvester;
 import java.util.LinkedList;
 import java.util.List;
 
+/**
+ * Base implementation for harvesting event sources.
+ * <p>
+ * Manages event listener registration and provides methods
+ * to fire harvesting events to all registered listeners.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see IHarvestingEventSource
+ */
 public abstract class BaseHarvestingEventSource implements IHarvestingEventSource {
 
+	/**
+	 * List of registered event listeners.
+	 */
 	protected List<IHarvestingEventListener> listeners;
 
+	/**
+	 * Creates a new event source with an empty listener list.
+	 */
 	public BaseHarvestingEventSource() {
 		listeners = new LinkedList<IHarvestingEventListener>();
 	}
@@ -41,6 +57,11 @@ public abstract class BaseHarvestingEventSource implements IHarvestingEventSourc
 		listeners.remove(listener);
 	}
 
+	/**
+	 * Fires a harvesting event to all registered listeners.
+	 * 
+	 * @param event the event to fire
+	 */
 	public void fireHarvestingEvent(HarvestingEvent event) {
 		for (IHarvestingEventListener listener : listeners) {
 			listener.harvestingEventOccurred(event);

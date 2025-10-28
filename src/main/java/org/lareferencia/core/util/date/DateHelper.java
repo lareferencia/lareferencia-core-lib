@@ -31,6 +31,14 @@ import java.util.Set;
 
 import lombok.Setter;
 
+/**
+ * Utility class for date parsing and validation with multiple format support.
+ * <p>
+ * Provides flexible date handling using configurable formatters.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class DateHelper {
 
     @Setter
@@ -39,13 +47,19 @@ public class DateHelper {
     static DateTimeFormatter HUMAN_DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 	static DateTimeFormatter MACHINE_DATE_TIME_FORMATTER =  DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'"); // Quoted "Z" to indicate UTC, no timezone offset
 
+    /**
+     * Creates a new date helper with default settings.
+     */
+    public DateHelper() {
+    }
 
     /**
      * Parses a string date and return a LocalDateTime can throw an exception if
      * string date doesn't match any pre-configured dateTimeFormatters
      * 
-     * @param strDate
-     * @return
+     * @param strDate the date string to parse
+     * @return the parsed LocalDateTime, or null if input is null
+     * @throws DateTimeParseException if the date format is not supported
      */
     public LocalDateTime parseDate(String strDate) {
         if (strDate == null) {
@@ -66,8 +80,8 @@ public class DateHelper {
     /**
      * Get Instant string
      * 
-     * @param date
-     * @return
+     * @param date the LocalDateTime to convert
+     * @return the ISO instant string representation
      */
     public static String getInstantDateString(LocalDateTime date) {
         return DateTimeFormatter.ISO_INSTANT.format(date.toInstant(ZoneOffset.UTC));
@@ -77,8 +91,8 @@ public class DateHelper {
      * From a date, returns a preformatted String with the<br/>
      * pattern: "yyyy-MM-dd'T'HH:mm:ss'Z'"
      * 
-     * @param date
-     * @return
+     * @param date the LocalDateTime to format
+     * @return the formatted date string
      */
     public static String getDateTimeMachineString(LocalDateTime date) {
         return MACHINE_DATE_TIME_FORMATTER.format(date);
@@ -89,10 +103,9 @@ public class DateHelper {
      * From a date, returns a preformatted String with the<br/>
      * pattern: "yyyy-MM-dd HH:mm:ss"
      *
-     * @param date
-     * @param pattern
-     *
-     * @return
+     * @param date the LocalDateTime to format
+     * @param pattern the date/time pattern to apply
+     * @return the formatted date string
      */
     public static String getDateTimeFormattedString(LocalDateTime date, String pattern) {
         return DateTimeFormatter.ofPattern(pattern).format(date);
@@ -102,10 +115,9 @@ public class DateHelper {
      * From a date, returns a preformatted String with the<br/>
      * pattern derived from granularity "yyyy-MM-ddTHH:mm:ssZ"
      *
-     * @param date
-     * @param granularity
-     *
-     * @return
+     * @param date the LocalDateTime to format
+     * @param granularity the date granularity (e.g., "yyyy-MM-dd", "yyyy-MM-ddTHH:mm:ssZ")
+     * @return the formatted date string
      */
     public static String getDateTimeFormattedStringFromGranularity(LocalDateTime date, String granularity) {
         return getDateTimeFormattedString(date, getPatternFromGranularity(granularity));
@@ -157,8 +169,8 @@ public class DateHelper {
      * From a date, returns a preformatted String with the<br/>
      * pattern: "yyyy-MM-dd HH:mm:ss"
      * 
-     * @param date
-     * @return
+     * @param date the LocalDateTime to format
+     * @return the formatted date string for human readability
      */
     public static String getDateTimeHumanString(LocalDateTime date) {
         return HUMAN_DATE_TIME_FORMATTER.format(date);
@@ -168,8 +180,8 @@ public class DateHelper {
      * Validates if a string date is a valid date according to configured
      * DateTimeFormatters
      * 
-     * @param dateStr
-     * @return
+     * @param dateStr the date string to validate
+     * @return true if the string represents a valid date, false otherwise
      */
     public boolean isValid(String dateStr) {
 
@@ -185,10 +197,10 @@ public class DateHelper {
     }
 
     /**
-     * Get the proper DateTimeFromatter that verifies that a string is a date
+     * Gets the DateTimeFormatter that can successfully parse the given date string.
      * 
-     * @param dateStr
-     * @return
+     * @param dateStr the date string to parse
+     * @return an Optional containing the matching formatter, or empty if none found
      */
     public Optional<DateTimeFormatter> getDateFormatterFromString(String dateStr) {
 
@@ -204,10 +216,10 @@ public class DateHelper {
     }
 
     /**
-     * Validates if a LocalDateTime is a valid date
+     * Validates if a LocalDateTime represents a valid date.
      *
-     * @param dateTime
-     * @return
+     * @param dateTime the LocalDateTime to validate
+     * @return true if valid, false otherwise
      */
     public boolean isValidLocalDateTime(LocalDateTime dateTime) {
         try {

@@ -35,9 +35,22 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
+/**
+ * Validator rule that checks if year values are within a dynamic range.
+ * <p>
+ * Validates that extracted year values from field content fall within
+ * configured lower and upper limits. Supports regex-based year extraction.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractValidatorFieldContentRule
+ */
 @ToString(exclude = { "pattern" })
 public class DynamicYearRangeFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
+	/**
+	 * Creates a new dynamic year range validator.
+	 */
 	public DynamicYearRangeFieldContentValidatorRule() {
 		super();
 		if (regexString != null)
@@ -64,6 +77,11 @@ public class DynamicYearRangeFieldContentValidatorRule extends AbstractValidator
 
 	private Pattern pattern;
 
+	/**
+	 * Sets the regex string for year extraction.
+	 * 
+	 * @param reString the regex pattern
+	 */
 	public void setRegexString(String reString) {
 		this.regexString = reString;
 		this.pattern = Pattern.compile(reString);

@@ -78,15 +78,27 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     @Autowired
     private ValidationStatParquetRepository parquetRepository;
 
+    /**
+     * Field name for repository information.
+     */
     @Value("${reponame.fieldname}")
     private String repositoryFieldName;
 
+    /**
+     * Prefix for repository field values.
+     */
     @Value("${reponame.prefix}")
     private String repositoryPrefix;
 
+    /**
+     * Field name for institution information.
+     */
     @Value("${instname.fieldname}")
     private String institutionFieldName;
 
+    /**
+     * Prefix for institution field values.
+     */
     @Value("${instname.prefix}")
     private String institutionPrefix;
 
@@ -97,7 +109,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     boolean detailedDiagnose = false;
 
     /**
-     * Configures whether detailed diagnosis should be performed
+     * Configures whether detailed diagnosis should be performed.
+     * 
+     * @param detailedDiagnose true to enable detailed diagnosis, false otherwise
      */
     public void setDetailedDiagnose(boolean detailedDiagnose) {
         this.detailedDiagnose = detailedDiagnose;
@@ -107,10 +121,33 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     @Autowired
     private IRecordFingerprintHelper fingerprintHelper;
 
+    /**
+     * Constructs a new ValidationStatisticsParquetService instance.
+     */
+    public ValidationStatisticsParquetService() {
+        // Default constructor for Spring dependency injection
+    }
+
     // Constants similar to the original service
+    
+    /**
+     * Field names used for faceting validation statistics queries.
+     */
     public static final String[] FACET_FIELDS = { "record_is_valid", "record_is_transformed", "valid_rules", "invalid_rules", "institution_name", "repository_name" };
+    
+    /**
+     * Field name for snapshot identifier in statistics records.
+     */
     public static final String SNAPSHOT_ID_FIELD = "snapshot_id";
+    
+    /**
+     * Suffix appended to rule names for invalid occurrence counts.
+     */
     public static final String INVALID_RULE_SUFFIX = "_rule_invalid_occrs";
+    
+    /**
+     * Suffix appended to rule names for valid occurrence counts.
+     */
     public static final String VALID_RULE_SUFFIX = "_rule_valid_occrs";
 
     /**
@@ -134,7 +171,11 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Builds a validation observation from validator result
+     * Builds a validation observation from validator result.
+     * 
+     * @param record the OAI record being validated
+     * @param validationResult the validation result to build observation from
+     * @return the validation statistics observation
      */
     public ValidationStatObservationParquet buildObservation(OAIRecord record, ValidatorResult validationResult) {
 
@@ -204,6 +245,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * - For existing files: Read + merge + write (limitation of Parquet format)
      * - Memory usage: O(existing_file_size + 1000) instead of O(massive_dataset)
      * - CPU usage: Optimized for frequent small writes vs. rare large writes
+     * 
+     * @param validationStatsObservations the list of validation observations to register
      */
     public void registerObservations(List<ValidationStatObservationParquet> validationStatsObservations) {
         if (validationStatsObservations == null || validationStatsObservations.isEmpty()) {
@@ -375,8 +418,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     // ==================== MEMORY CACHE INTEGRATION ====================
     
     /**
-     * PRE-WARM CACHE: Manually load snapshot data into memory cache for ultra-fast queries
-     * Call this method after validation completion to prepare for dashboard queries
+     * PRE-WARM CACHE: Manually load snapshot data into memory cache for ultra-fast queries.
+     * Call this method after validation completion to prepare for dashboard queries.
+     * 
+     * @param snapshotId the snapshot ID to pre-warm in cache
      */
     public void warmUpCacheForSnapshot(Long snapshotId) {
         try {
@@ -389,7 +434,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
     
     /**
-     * CACHE INFO: Get memory cache statistics and performance metrics
+     * CACHE INFO: Get memory cache statistics and performance metrics.
+     * 
+     * @return a map containing cache information and performance metrics
      */
     public Map<String, Object> getCacheInfo() {
         try {
@@ -404,7 +451,9 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
     
     /**
-     * CACHE CONTROL: Clear cache for specific snapshot (useful when data changes)
+     * CACHE CONTROL: Clear cache for specific snapshot (useful when data changes).
+     * 
+     * @param snapshotId the snapshot ID to evict from cache
      */
     public void evictSnapshotFromCache(Long snapshotId) {
         try {
@@ -620,7 +669,11 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Deletes validation observation by record
+     * Deletes validation observation by record.
+     * 
+     * @param snapshotID the snapshot ID containing the record
+     * @param record the record whose validation observation should be deleted
+     * @throws ValidationStatisticsException if deletion fails
      */
     public void deleteValidationStatsObservationByRecordAndSnapshotID(Long snapshotID, OAIRecord record) throws ValidationStatisticsException {
         try {
@@ -632,7 +685,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Copies validation observations from one snapshot to another
+     * Copies validation observations from one snapshot to another.
+     * 
+     * @param originalSnapshotId the source snapshot ID
+     * @param newSnapshotId the destination snapshot ID
+     * @return true if copy was successful
+     * @throws ValidationStatisticsException if copy operation fails
      */
     public boolean copyValidationStatsObservationsFromTo(Long originalSnapshotId, Long newSnapshotId) throws ValidationStatisticsException {
         try {
@@ -644,7 +702,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Deletes validation statistics by snapshot ID
+     * Deletes validation statistics by snapshot ID.
+     * 
+     * @param snapshotID the snapshot ID whose validation statistics should be deleted
+     * @throws ValidationStatisticsException if deletion fails
      */
     public void deleteValidationStatsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
         try {
@@ -932,6 +993,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * 
      * NOTE: Cache pre-warming is now handled automatically on first query for better performance
      * and to avoid unnecessary memory usage if data is never queried.
+     * 
+     * @param snapshotId the snapshot ID to flush data for
      */
     public void flushValidationData(Long snapshotId) {
         try {

@@ -25,14 +25,62 @@ import java.util.List;
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
 
+/**
+ * Interface for metadata format transformation.
+ * <p>
+ * Transforms metadata documents from one format to another (e.g., oai_dc to mods).
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public interface IMDFormatTransformer {
 
+	/**
+	 * Transforms a metadata document to the target format.
+	 * 
+	 * @param source the source document
+	 * @return the transformed document
+	 * @throws MDFormatTranformationException if transformation fails
+	 */
 	Document transform(Document source) throws MDFormatTranformationException;
+	
+	/**
+	 * Transforms a metadata document to string representation.
+	 * 
+	 * @param source the source document
+	 * @return the transformed document as string
+	 * @throws MDFormatTranformationException if transformation fails
+	 */
 	String   transformToString(Document source) throws MDFormatTranformationException;
+	
+	/**
+	 * Sets a transformation parameter with multiple values.
+	 * 
+	 * @param name the parameter name
+	 * @param values the parameter values
+	 */
 	void setParameter(String name, List<String> values);
+	
+	/**
+	 * Sets a transformation parameter with a single value.
+	 * 
+	 * @param name the parameter name
+	 * @param value the parameter value
+	 */
 	void setParameter(String name, String value);
 
+	/**
+	 * Gets the source metadata format identifier.
+	 * 
+	 * @return the source format name
+	 */
 	String getSourceMDFormat();
+	
+	/**
+	 * Gets the target metadata format identifier.
+	 * 
+	 * @return the target format name
+	 */
 	String getTargetMDFormat();
 
 }

@@ -24,6 +24,16 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
+/**
+ * Result of field content validation.
+ * <p>
+ * Contains validation status and the value that was validated.
+ * Used by field content validator rules to return validation outcomes.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see org.lareferencia.core.validation.AbstractValidatorFieldContentRule
+ */
 @Getter
 @Setter
 @ToString
@@ -32,9 +42,18 @@ public class ContentValidatorResult {
 	private boolean valid;
 	private String receivedValue;
 
+	/**
+	 * Creates an empty validation result.
+	 */
 	public ContentValidatorResult() {
 	}
 
+	/**
+	 * Creates a validation result with the specified status and value.
+	 * 
+	 * @param valid whether the validation passed
+	 * @param receivedValue the value that was validated
+	 */
 	public ContentValidatorResult(boolean valid, String receivedValue) {
 		super();
 		this.valid = valid;

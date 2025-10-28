@@ -27,8 +27,32 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-public class MDTransformerParameterSetter {
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+/**
+ * Utility class for setting transformer parameters from objects or maps using reflection.
+ * Allows dynamic parameter configuration for metadata format transformers.
+ */
+public class MDTransformerParameterSetter {
+	
+	private static Logger logger = LogManager.getLogger(MDTransformerParameterSetter.class);
+
+	/**
+	 * Private constructor to prevent instantiation of utility class.
+	 */
+	private MDTransformerParameterSetter() {
+		throw new UnsupportedOperationException("Utility class");
+	}
+
+	/**
+	 * Sets transformer parameters from an object's getter methods using reflection.
+	 * Parameters are prefixed with the specified name and values are obtained by invoking getter methods.
+	 * 
+	 * @param transformer the metadata format transformer to configure
+	 * @param parameterNamePrefix prefix to add to parameter names (getter method name minus "get")
+	 * @param obj the object whose getter methods provide parameter values
+	 */
 	public static void setParametersFromObject(IMDFormatTransformer transformer, String parameterNamePrefix, Object obj) {
 
 		if ( obj != null && parameterNamePrefix != null ) {
@@ -60,16 +84,23 @@ public class MDTransformerParameterSetter {
 						}
 	
 					} catch (IllegalArgumentException | IllegalAccessException e) {
-						e.printStackTrace();
+						logger.error("Error setting parameter from reflection for method: " + method.getName(), e);
 					} catch (InvocationTargetException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+						logger.error("Error invoking getter method: " + method.getName(), e);
 					}
 				}
 			} 
 		}
 	}
 	
+	/**
+	 * Sets transformer parameters from a map of key-value pairs.
+	 * Parameters are prefixed with the specified name and values are obtained from the map.
+	 * 
+	 * @param transformer the metadata format transformer to configure
+	 * @param parameterNamePrefix prefix to add to parameter names from the map keys
+	 * @param map the map containing parameter names and values
+	 */
 	public static void setParametersFromMap(IMDFormatTransformer transformer, String parameterNamePrefix, Map<String,Object> map) {
 
 		if ( map != null && parameterNamePrefix != null ) {
@@ -84,6 +115,7 @@ public class MDTransformerParameterSetter {
 						// set the parameter using the prefixed name of field and the string value of the field 
 						String fieldName = parameterNamePrefix + name.toLowerCase(); 
 						if (valueOfResult instanceof List) {
+							@SuppressWarnings("unchecked")
 							List<String> items = (List<String>) valueOfResult; 
 							transformer.setParameter(fieldName, items);
 						} else {

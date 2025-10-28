@@ -34,21 +34,42 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Transformer rule that reduces heavy records by removing specified fields.
+ * Useful for handling oversized metadata records that exceed processing limits.
+ */
 public class ReduceHeavyRecords extends AbstractTransformerRule {
 	
+	/**
+	 * Maximum allowed record size (currently not actively used in transformation logic).
+	 * Defaults to 1.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("maxRecordSize")
 	int maxRecordSize = 1;
 	
+	/**
+	 * List of field names to remove from heavy records to reduce their size.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldsToRemove")
 	List<String> fieldsToRemove;
 	
+	/**
+	 * Constructs a new ReduceHeavyRecords instance.
+	 */
 	public ReduceHeavyRecords() {
 	}
 
+	/**
+	 * Transforms the record by removing all occurrences of the specified fields.
+	 *
+	 * @param record the OAI record being processed
+	 * @param metadata the record's metadata from which fields will be removed
+	 * @return true if any fields were removed, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 		

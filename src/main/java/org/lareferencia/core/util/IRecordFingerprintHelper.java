@@ -23,13 +23,43 @@ package org.lareferencia.core.util;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 
+/**
+ * Interface for generating unique fingerprints and statistics IDs from records.
+ * 
+ * @author LA Referencia Team
+ */
 public interface IRecordFingerprintHelper {
 	
+	/**
+	 * Gets the fingerprint for an OAI record.
+	 * 
+	 * @param record the OAI record
+	 * @return the fingerprint string
+	 */
 	public String getFingerprint(OAIRecord record);
 
+	/**
+	 * Gets the fingerprint for a validation observation.
+	 * 
+	 * @param observation the validation observation
+	 * @return the fingerprint string
+	 */
 	public String getFingerprint(ValidationStatObservationParquet observation);
 
+	/**
+	 * Gets the statistics ID from an OAI record.
+	 * 
+	 * @param record the OAI record
+	 * @return the stats ID string
+	 */
 	public String getStatsIDfromRecord(OAIRecord record);
+	
+	/**
+	 * Gets the statistics ID from a validation observation.
+	 * 
+	 * @param observation the validation observation
+	 * @return the stats ID string
+	 */
 	public String getStatsIDfromValidationStatObservation(ValidationStatObservationParquet observation);
 
 

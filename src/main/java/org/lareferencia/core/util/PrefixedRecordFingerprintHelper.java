@@ -30,22 +30,43 @@ import lombok.Getter;
 import lombok.Setter;
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
 
+/**
+ * Helper for generating record fingerprints with configurable prefix and network acronym translation.
+ * Transforms record identifiers by adding prefixes and optionally translating network acronyms
+ * for fingerprint uniqueness and traceability.
+ */
 public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper {
 
+	/**
+	 * Prefix to prepend to record identifiers when generating fingerprints.
+	 */
 	@Getter
 	@Setter
 	private String prefix="";
 	
+	/**
+	 * Map for translating network acronyms in fingerprint generation.
+	 * Keys are original network acronyms, values are translated forms.
+	 */
 	@Getter
 	@Setter
 	private Map<String,String> translateMap = new HashMap<String,String>();
 	
-	
+	/**
+	 * Constructs a new PrefixedRecordFingerprintHelper with empty prefix and translation map.
+	 */
 	public PrefixedRecordFingerprintHelper() {
 		this.prefix = "";
 		translateMap = new HashMap<String,String>();
 	}
 
+	/**
+	 * Generates a unique fingerprint for the given record by applying prefix and optional
+	 * network acronym translation to the record identifier.
+	 *
+	 * @param record the OAI record to generate a fingerprint for
+	 * @return the generated fingerprint string
+	 */
 	@Override
 	public String getFingerprint(OAIRecord record) {
 		

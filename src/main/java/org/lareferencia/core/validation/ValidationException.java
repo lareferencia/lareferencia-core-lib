@@ -20,30 +20,55 @@
 
 package org.lareferencia.core.validation;
 
+/**
+ * Exception thrown when validation errors occur during record processing.
+ */
 public class ValidationException extends Exception {
 
+	/**
+	 * Constructs a new ValidationException with no detail message.
+	 */
 	public ValidationException() {
-		// TODO Auto-generated constructor stub
 	}
 
+	/**
+	 * Constructs a new ValidationException with the specified detail message.
+	 *
+	 * @param message the detail message
+	 */
 	public ValidationException(String message) {
 		super(message);
-		// TODO Auto-generated constructor stub
 	}
 
+	/**
+	 * Constructs a new ValidationException with the specified cause.
+	 *
+	 * @param cause the cause of the exception
+	 */
 	public ValidationException(Throwable cause) {
 		super(cause);
-		// TODO Auto-generated constructor stub
 	}
 
+	/**
+	 * Constructs a new ValidationException with the specified detail message and cause.
+	 *
+	 * @param message the detail message
+	 * @param cause the cause of the exception
+	 */
 	public ValidationException(String message, Throwable cause) {
 		super(message, cause);
-		// TODO Auto-generated constructor stub
 	}
 
+	/**
+	 * Constructs a new ValidationException with full control over exception handling.
+	 *
+	 * @param message the detail message
+	 * @param cause the cause of the exception
+	 * @param enableSuppression whether suppression is enabled
+	 * @param writableStackTrace whether the stack trace should be writable
+	 */
 	public ValidationException(String message, Throwable cause, boolean enableSuppression, boolean writableStackTrace) {
 		super(message, cause, enableSuppression, writableStackTrace);
-		// TODO Auto-generated constructor stub
 	}
 
 }

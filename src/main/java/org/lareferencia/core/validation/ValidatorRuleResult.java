@@ -28,6 +28,10 @@ import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Represents the result of applying a single validation rule.
+ * Contains the validation status and detailed results for each content validation.
+ */
 @Getter
 @Setter
 public class ValidatorRuleResult {
@@ -37,10 +41,20 @@ public class ValidatorRuleResult {
 
 	private List<ContentValidatorResult> results;
 
+	/**
+	 * Constructs a new ValidatorRuleResult with an empty results list.
+	 */
 	public ValidatorRuleResult() {
 		results = new ArrayList<ContentValidatorResult>();
 	}
 
+	/**
+	 * Constructs a new ValidatorRuleResult with all details.
+	 *
+	 * @param rule the validation rule that was applied
+	 * @param isValid whether the rule validation succeeded
+	 * @param contentResults the detailed content validation results
+	 */
 	public ValidatorRuleResult(IValidatorRule rule, Boolean isValid, List<ContentValidatorResult> contentResults) {
 		this.valid = isValid;
 		this.results = contentResults;

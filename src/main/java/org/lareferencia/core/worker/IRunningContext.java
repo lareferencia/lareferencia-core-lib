@@ -21,8 +21,21 @@
 
 package org.lareferencia.core.worker;
 
+/**
+ * Interface for worker running context.
+ * <p>
+ * Provides contextual information and state for worker execution.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public interface IRunningContext {
 	
+	/**
+	 * Gets the context identifier.
+	 * 
+	 * @return the context ID
+	 */
 	String getId();
 
 }

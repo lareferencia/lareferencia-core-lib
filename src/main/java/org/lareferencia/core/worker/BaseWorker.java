@@ -28,8 +28,17 @@ import org.apache.logging.log4j.Logger;
 import lombok.Getter;
 import lombok.Setter;
 
-
-
+/**
+ * Base implementation for all workers.
+ * <p>
+ * Provides common functionality including lifecycle management, scheduling,
+ * and context handling for background processing tasks.
+ * </p>
+ * 
+ * @param <C> the running context type
+ * @author LA Referencia Team
+ * @see IWorker
+ */
 public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C> {
 	
     private static Logger logger = LogManager.getLogger(BaseWorker.class);
@@ -38,26 +47,46 @@ public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C
 	@Setter
 	ScheduledFuture<?> scheduledFuture;
 	
+	/**
+	 * The context containing state and configuration for this worker's execution.
+	 */
 	@Getter
 	@Setter
 	protected
 	C runningContext;
 	
+	/**
+	 * Identifier for serializing worker execution within a lane.
+	 */
 	@Getter
 	@Setter 
 	protected Long serialLaneId = -1L;
 	
+	/**
+	 * Indicates whether this worker operates in incremental mode.
+	 */
 	protected boolean incremental = false;
 
+	/**
+	 * Human-readable name for this worker instance.
+	 */
     @Getter
     @Setter
 	protected String name = "BaseWorker";
 	
+	/**
+	 * Creates a worker with default settings.
+	 */
 	public BaseWorker() {
 		this.serialLaneId = -1L;
 		this.name = this.getClass().getSimpleName();
 	}
 	
+	/**
+	 * Creates a worker with the specified context.
+	 * 
+	 * @param context the running context
+	 */
 	public BaseWorker(C context) {
 		this.runningContext = context;
 		this.name = this.getClass().getSimpleName();

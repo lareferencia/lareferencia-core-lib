@@ -46,6 +46,11 @@ import org.springframework.data.domain.PageRequest;
 
 import lombok.Getter;
 
+/**
+ * Implementation of the metadata record store service for managing network snapshots and OAI records.
+ * Provides operations for creating, retrieving, updating, and deleting snapshots and their associated records.
+ * Manages the storage and retrieval of metadata using both SQL database and file system storage.
+ */
 public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreService {
 	
 	private static final Logger logger = LogManager.getLogger(MetadataRecordStoreServiceImpl.class);
@@ -97,6 +102,13 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 	@Autowired
 	private SnapshotLogService snapshotLogService;
 
+	/**
+	 * Constructs a new metadata record store service implementation.
+	 * Dependencies are injected via Spring's autowiring mechanism.
+	 */
+	public MetadataRecordStoreServiceImpl() {
+		// Default constructor for Spring dependency injection
+	}
 	
 	@Override
 	public Long createSnapshot(Network network) {
@@ -151,6 +163,12 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		}
 	};
 	
+	/**
+	 * Cleans snapshot data by deleting log entries and records.
+	 * For valid snapshots, marks them as deleted; for failed snapshots, removes them entirely.
+	 * 
+	 * @param snapshotId the ID of the snapshot to clean
+	 */
 	@Override
 	public void cleanSnapshotData(Long snapshotId) {
 
@@ -232,6 +250,12 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		}
 	}
 
+	/**
+	 * Sets the ID of the previous snapshot for incremental harvest tracking.
+	 * 
+	 * @param snapshotId the ID of the current snapshot
+	 * @param previousSnapshotId the ID of the previous snapshot to reference
+	 */
 	@Override
 	public void setPreviousSnapshotId(Long snapshotId, Long previousSnapshotId) {
 		NetworkSnapshot snapshot;
@@ -245,11 +269,22 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		}
 	}
 
+	/**
+	 * Optimizes the metadata store by cleaning unused data and performing optimization operations.
+	 */
 	@Override
 	public void optimizeStore() {
 		metadataStore.cleanAndOptimizeStore();
 	}
 
+	/**
+	 * Resets validation counts for a snapshot, preparing it for re-validation.
+	 * Sets valid and transformed sizes to zero, status to HARVESTING_FINISHED_VALID,
+	 * and index status to UNKNOWN.
+	 * 
+	 * @param snapshotId the ID of the snapshot to reset
+	 * @throws MetadataRecordStoreException if the snapshot cannot be accessed
+	 */
 	@Override
 	public void resetSnapshotValidationCounts(Long snapshotId) throws MetadataRecordStoreException {
 		NetworkSnapshot snapshot = getSnapshot(snapshotId);
@@ -295,6 +330,15 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 	 * @throws MetadataRecordStoreException ********************************************/
 
 	
+	/**
+	 * Creates a new metadata record in the specified snapshot.
+	 * Stores the metadata content, creates the record entity, and associates it with the snapshot.
+	 * 
+	 * @param snapshotId the ID of the snapshot where the record will be created
+	 * @param metadata the OAI record metadata to store
+	 * @return the created OAI record entity
+	 * @throws MetadataRecordStoreException if the snapshot cannot be accessed or record creation fails
+	 */
 	@Override
 	public OAIRecord createRecord(Long snapshotId, OAIRecordMetadata metadata) throws MetadataRecordStoreException {
 
@@ -674,7 +718,10 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		return new RecordIdentifierPaginator(snapshotId, status);
 	}
 
-
+	/**
+	 * Paginator implementation for iterating through OAI records in a snapshot.
+	 * Provides page-by-page access to records with configurable page size and filtering by status.
+	 */
 	public class RecordPaginator implements IPaginator<OAIRecord> {
 
 		// implements dummy starting page
@@ -697,9 +744,17 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		private LocalDateTime from;
 
 		/**
-		 * Este pedido paginado pide siempre la primera página restringida a que el id
-		 * sea mayor al ultimo anterior
-		 **/
+		 * Creates a new record paginator for iterating through metadata records.
+		 * <p>
+		 * This paginated request always asks for the first page restricted to records
+		 * with an ID greater than the last one processed.
+		 * </p>
+		 *
+		 * @param snapshotID the snapshot ID to filter records
+		 * @param status the record status to filter by
+		 * @param negateStatus if true, negates the status filter
+		 * @param from the starting date/time for filtering records
+		 */
 		public RecordPaginator(Long snapshotID, RecordStatus status,
 				boolean negateStatus, LocalDateTime from) {
 
@@ -772,23 +827,50 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 
 		}
 
+		/**
+		 * Constructs a record paginator for records with a specific status.
+		 * 
+		 * @param snapshotID the snapshot ID to paginate records from
+		 * @param status the record status to filter by
+		 * @param negateStatus whether to negate the status filter
+		 */
 		public RecordPaginator(Long snapshotID, RecordStatus status,
 				boolean negateStatus) {
 			this(snapshotID, status, negateStatus, null);
 		}
 
+		/**
+		 * Constructs a record paginator for records with a specific status.
+		 * 
+		 * @param snapshotID the snapshot ID to paginate records from
+		 * @param status the record status to filter by
+		 */
 		public RecordPaginator(Long snapshotID, RecordStatus status) {
 			this(snapshotID, status, false);
 		}
 
+		/**
+		 * Constructs a record paginator for all records in a snapshot.
+		 * 
+		 * @param snapshotID the snapshot ID to paginate records from
+		 */
 		public RecordPaginator(Long snapshotID) {
 			this(snapshotID, null, false, null);
 		}
 
+		/**
+		 * Constructs a record paginator for records created after a specific date.
+		 * 
+		 * @param snapshotID the snapshot ID to paginate records from
+		 * @param from the date to filter records from
+		 */
 		public RecordPaginator(Long snapshotID, LocalDateTime from) {
 			this(snapshotID, null, false, from);
 		}
 
+		/**
+		 * Constructs an empty record paginator with no snapshot or status filter.
+		 */
 		public RecordPaginator() {
 
 			this.totalPages = 0;
@@ -810,7 +892,10 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 
 	}
 
-
+	/**
+	 * Paginator implementation for iterating through record identifiers in a snapshot.
+	 * Provides page-by-page access to record identifiers with configurable page size and status filtering.
+	 */
 	public class RecordIdentifierPaginator implements IPaginator<String> {
 
 		private static final int DEFAULT_PAGE_SIZE = 1000;
@@ -842,6 +927,12 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 
 		}
 
+		/**
+		 * Constructs a record identifier paginator for records with a specific status.
+		 * 
+		 * @param snapshotId the snapshot ID to paginate identifiers from
+		 * @param status the record status to filter by
+		 */
 		public RecordIdentifierPaginator(Long snapshotId, RecordStatus status) {
 			this.snapshotID = snapshotId;
 			this.status = status;

@@ -26,6 +26,10 @@ import lombok.ToString;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/**
+ * Represents a translation rule for string transformation.
+ * Maps a search pattern to its replacement value.
+ */
 @Setter
 @Getter
 @ToString
@@ -37,12 +41,21 @@ public class Translation {
 	@JsonProperty("replace")
 	String replace;
 
+	/**
+	 * Constructs a new Translation with search and replace patterns.
+	 *
+	 * @param search the search pattern
+	 * @param replace the replacement value
+	 */
 	public Translation(@JsonProperty("search") String search, @JsonProperty("replace") String replace) {
 		super();
 		this.search = search;
 		this.replace = replace;
 	}
 
+	/**
+	 * Constructs a new Translation with default values.
+	 */
 	public Translation() {
 		super();
 	}

@@ -25,22 +25,49 @@ import java.util.List;
 
 import org.lareferencia.core.metadata.OAIMetadataElement.Type;
 
+/**
+ * Helper class for building XPath expressions for XOAI metadata elements.
+ * Provides utilities to convert field names into XPath queries for metadata extraction.
+ */
 public class XOAIXPATHHelper {
 
 	private static String XPATH_XOAI_RECORD_ROOT = "/*[local-name()='metadata']";
 	private static String ELEMENT_SEPARATOR = "\\.";
 	private static String FIELD_SEPARATOR = ":";
 
+	/**
+	 * Constructs a new XOAIXPATHHelper instance.
+	 */
+	public XOAIXPATHHelper() {
+	}
 	
+	/**
+	 * Gets the root XPath for XOAI records.
+	 *
+	 * @return the root XPath expression
+	 */
 	public static String getRootXPATH() {
 		return XPATH_XOAI_RECORD_ROOT;
 	}
 	
-	
+	/**
+	 * Generates an XPath expression for the given field name.
+	 *
+	 * @param fieldName the field name to convert to XPath
+	 * @return the XPath expression
+	 */
 	public static String getXPATH(String fieldName) {
 		return getXPATH(fieldName,true,true);
 	}
 
+	/**
+	 * Generates an XPath expression for the given field name with options.
+	 *
+	 * @param fieldName the field name to convert to XPath
+	 * @param includeFieldNodes whether to include field nodes in the result
+	 * @param includeDocumentRoot whether to include the document root in the result
+	 * @return the XPath expression
+	 */
 	public static String getXPATH(String fieldName, Boolean includeFieldNodes, Boolean includeDocumentRoot) {
 		
 		List<OAIMetadataElement> elements = getXPATHList(fieldName, false, includeDocumentRoot );
@@ -56,12 +83,24 @@ public class XOAIXPATHHelper {
 		return stringBuffer.toString();
 	}
 	
-	
-	
+	/**
+	 * Gets a list of OAI metadata elements representing the XPath components.
+	 *
+	 * @param fieldName the field name to parse
+	 * @return a list of OAI metadata elements
+	 */
 	public static List<OAIMetadataElement> getXPATHList(String fieldName) {
 		return getXPATHList(fieldName,true,true);
 	}
 	
+	/**
+	 * Gets a list of OAI metadata elements representing the XPath components with options.
+	 *
+	 * @param fieldName the field name to parse
+	 * @param fullXPATHForEachElement whether to generate full XPath for each element
+	 * @param includeDocumentRoot whether to include the document root
+	 * @return a list of OAI metadata elements
+	 */
 	private static List<OAIMetadataElement> getXPATHList(String fieldName, boolean fullXPATHForEachElement, boolean includeDocumentRoot) {
 		
 		

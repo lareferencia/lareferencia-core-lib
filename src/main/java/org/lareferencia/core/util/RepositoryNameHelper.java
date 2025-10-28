@@ -27,11 +27,18 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Node;
 
+/**
+ * Utility class for managing repository names and metadata field operations.
+ * Provides methods for appending and managing repository-related information in OAI metadata.
+ */
 @Component
 public class RepositoryNameHelper {
 
 	
 	
+	/**
+	 * Constructs a new RepositoryNameHelper instance.
+	 */
 	public RepositoryNameHelper() {
 		
 		/*
@@ -70,11 +77,24 @@ public class RepositoryNameHelper {
 		return result;
 	}
 */
+	/**
+	 * Default name for repositories that cannot be classified.
+	 */
 	public static String UNKNOWN = "No clasificados";
 	
 	
 	
 
+	/**
+	 * Appends a name value to a metadata field with a specified prefix.
+	 * Optionally replaces an existing field occurrence with the same prefix.
+	 * 
+	 * @param metadata the OAI record metadata to modify
+	 * @param fieldname the name of the field to append to
+	 * @param prefix the prefix to use for the value
+	 * @param value the value to append
+	 * @param replaceExisting true to replace existing occurrences with the same prefix, false to keep them
+	 */
 	public void appendNameToMetadata(OAIRecordMetadata metadata, String fieldname, String prefix, String value, Boolean replaceExisting) {
 
 		Node existingNode = null;
@@ -99,6 +119,14 @@ public class RepositoryNameHelper {
 		}
 	}
 	
+	/**
+	 * Removes duplicate field occurrences with a specified prefix from the metadata.
+	 * 
+	 * @param metadata the OAI record metadata to modify
+	 * @param fieldname the name of the field to check for duplicates
+	 * @param prefix the prefix to match for removal
+	 * @return true if duplicates were found and removed, false otherwise
+	 */
 	public static boolean removeDuplicates(OAIRecordMetadata metadata, String fieldname, String prefix) {
 		
 		List<Node> matchingNodeList = new ArrayList<Node>();

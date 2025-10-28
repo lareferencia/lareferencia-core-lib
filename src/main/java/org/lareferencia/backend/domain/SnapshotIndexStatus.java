@@ -20,9 +20,32 @@
 
 package org.lareferencia.backend.domain;
 
+/**
+ * Enumeration representing the indexing status of a network snapshot.
+ * <p>
+ * Tracks whether the records from a {@link NetworkSnapshot} have been successfully
+ * indexed into the search engine (typically Solr).
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see NetworkSnapshot
+ */
 public enum SnapshotIndexStatus {
-	FAILED, INDEXED, UNKNOWN; 
+	/** Indexing operation failed */
+	FAILED,
+	
+	/** Records successfully indexed */
+	INDEXED,
+	
+	/** Indexing status is unknown */
+	UNKNOWN; 
 
+	/**
+	 * Converts a string representation to a SnapshotIndexStatus enum value.
+	 * 
+	 * @param text the string representation of the index status
+	 * @return the matching SnapshotIndexStatus enum value, or null if no match found
+	 */
 	public static SnapshotIndexStatus fromString(String text) {
 		for (SnapshotIndexStatus s : SnapshotIndexStatus.values()) {
 			if (s.toString().equals(text)) {

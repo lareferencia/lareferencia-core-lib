@@ -34,13 +34,38 @@ import java.time.LocalDateTime;
 import jakarta.persistence.*;
 
 /**
+ * JPA entity representing a harvesting snapshot of a network.
+ * <p>
+ * A NetworkSnapshot captures the state and results of a harvesting operation
+ * performed on a {@link Network}. It stores metadata about the harvest including
+ * timestamps, record counts, validation statistics, and current processing status.
+ * <p>
+ * Each snapshot tracks:
+ * </p>
+ * <ul>
+ *   <li>Harvest timing (start, end, last incremental update)</li>
+ *   <li>Record counts (total, valid, transformed)</li>
+ *   <li>Processing status (harvesting, validating, indexing, etc.)</li>
+ *   <li>OAI-PMH resumption token for incremental harvesting</li>
+ * </ul>
+ * <p>
+ * Snapshots support incremental harvesting by maintaining references to previous
+ * snapshots and storing resumption tokens.
+ * </p>
  * 
+ * @author LA Referencia Team
+ * @see Network
+ * @see SnapshotStatus
+ * @see SnapshotIndexStatus
  */
 @Entity
 @JsonIgnoreProperties({ "network" })
 @JsonAutoDetect
 public class NetworkSnapshot  {
 	
+	/**
+	 * Unique identifier for the network snapshot.
+	 */
 	@Id
 	@Getter
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -109,6 +134,9 @@ public class NetworkSnapshot  {
 	@Setter
 	boolean deleted;
 
+	/**
+	 * Constructs a new network snapshot with default values.
+	 */
 	public NetworkSnapshot() {
 		super();
 		this.status = SnapshotStatus.INITIALIZED;
@@ -120,22 +148,52 @@ public class NetworkSnapshot  {
 		this.deleted = false;
 	}
 
+	/**
+	 * Increments the total record count for this snapshot.
+	 * <p>
+	 * Called when a new record is added to the snapshot during harvesting.
+	 * </p>
+	 */
 	public void incrementSize() {
 		size++;
 	}
 
+	/**
+	 * Increments the valid record count for this snapshot.
+	 * <p>
+	 * Called when a record passes validation successfully.
+	 * </p>
+	 */
 	public void incrementValidSize() {
 		validSize++;
 	}
 	
+	/**
+	 * Decrements the valid record count for this snapshot.
+	 * <p>
+	 * Called when a previously valid record becomes invalid.
+	 * </p>
+	 */
 	public void decrementValidSize() {
 		validSize--;
 	}
 
+	/**
+	 * Increments the transformed record count for this snapshot.
+	 * <p>
+	 * Called when a record is successfully transformed.
+	 * </p>
+	 */
 	public void incrementTransformedSize() {
 		transformedSize++;
 	}
 	
+	/**
+	 * Decrements the transformed record count for this snapshot.
+	 * <p>
+	 * Called when a previously transformed record is reverted or invalidated.
+	 * </p>
+	 */
 	public void decrementTransformedSize() {
 		transformedSize--;
 	}

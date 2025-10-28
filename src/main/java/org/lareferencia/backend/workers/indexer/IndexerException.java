@@ -20,22 +20,46 @@
 
 package org.lareferencia.backend.workers.indexer;
 
+/**
+ * Exception thrown during indexing operations.
+ * 
+ * @author LA Referencia Team
+ */
 public class IndexerException extends Exception {
 
 	private static final long serialVersionUID = -5913401095836497654L;
 
+	/**
+	 * Creates a new indexer exception.
+	 */
 	public IndexerException() {
 		super();
 	}
 
+	/**
+	 * Creates a new indexer exception with a message.
+	 * 
+	 * @param message the error message
+	 */
 	public IndexerException(String message) {
 		super(message);
 	}
 
+	/**
+	 * Creates a new indexer exception with a message and cause.
+	 * 
+	 * @param message the error message
+	 * @param cause the underlying cause
+	 */
 	public IndexerException(String message, Throwable cause) {
 		super(message, cause);
 	}
 
+	/**
+	 * Creates a new indexer exception with a cause.
+	 * 
+	 * @param cause the underlying cause
+	 */
 	public IndexerException(Throwable cause) {
 		super(cause);
 	}

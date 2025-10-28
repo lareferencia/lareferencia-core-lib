@@ -29,6 +29,10 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Service for managing network snapshot log entries.
+ * Provides operations to add and delete log entries associated with snapshots.
+ */
 @Component
 @Scope("singleton")
 public class SnapshotLogService {
@@ -38,9 +42,18 @@ public class SnapshotLogService {
 
 	private static Logger logger = LogManager.getLogger(SnapshotLogService.class);
 
+	/**
+	 * Constructs a new SnapshotLogService instance.
+	 */
 	public SnapshotLogService() {
 	}
 	
+	/**
+	 * Adds a log entry for a specific snapshot.
+	 *
+	 * @param snapshotId the ID of the snapshot
+	 * @param message the log message to add
+	 */
 	@Transactional
 	public void addEntry(Long snapshotId, String message) {
 				
@@ -52,6 +65,11 @@ public class SnapshotLogService {
 		}
 	}
 	
+	/**
+	 * Deletes all log entries associated with a specific snapshot.
+	 *
+	 * @param snapshotId the ID of the snapshot whose logs should be deleted
+	 */
 	@Transactional
 	public void deleteSnapshotLog(Long snapshotId) {
 		logger.debug("Deleting log entries, snapshotId: " + snapshotId);

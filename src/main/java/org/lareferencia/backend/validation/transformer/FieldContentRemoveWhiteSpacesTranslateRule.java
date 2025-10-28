@@ -30,12 +30,31 @@ import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/**
+ * Transformation rule that removes whitespace from field values.
+ * <p>
+ * Trims leading and trailing whitespace from field occurrences.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ */
 public class FieldContentRemoveWhiteSpacesTranslateRule extends AbstractTransformerRule {
 
+	/**
+	 * Name of the field to process for removing whitespace.
+	 */
     @Setter
     @Getter
     @JsonProperty("fieldName")
     String fieldName;
+
+	/**
+	 * Constructs a new field content whitespace removal rule.
+	 */
+	public FieldContentRemoveWhiteSpacesTranslateRule() {
+		super();
+	}
 
     @Override
     public String toString() {

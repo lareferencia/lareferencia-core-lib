@@ -33,33 +33,72 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * JPA repository for managing OAI bitstream entities.
+ * Provides query methods for finding and deleting bitstreams by network, identifier, status, and hash.
+ */
 @RepositoryRestResource(path = "file", collectionResourceRel = "file")
 public interface OAIBitstreamRepository extends JpaRepository<OAIBitstream, OAIBitstreamId> {
 	
 	
-	
-	/* obtener registro por network_id e identifier */
+	/**
+	 * Finds a single bitstream by its content hash.
+	 * 
+	 * @param hash the content checksum to search for
+	 * @return the bitstream with the specified hash, or null if not found
+	 */
 	@Query("select rc from OAIBitstream rc where rc.id.checksum = ?1")
 	OAIBitstream findOneByHash(String hash);
 	
+	/**
+	 * Finds all bitstreams for a specific network and record identifier.
+	 * 
+	 * @param networkID the network ID
+	 * @param identifier the record identifier
+	 * @return list of bitstreams matching the criteria
+	 */
 	@Query("select r from OAIBitstream r where r.id.network.id = ?1 and r.id.identifier = ?2")
 	List<OAIBitstream> findByNetworkIdAndIdentifier(Long networkID, String identifier);
 	
-//
-//	/* Paginación optimizada por network_id y status, con posibilidad de negar el status*/
+	/**
+	 * Finds bitstreams by network and status with optional status negation.
+	 * 
+	 * @param networkID the network ID
+	 * @param status the bitstream status to filter by
+	 * @param negateStatus if true, finds bitstreams NOT matching the status; if false, finds matching status
+	 * @param pageable pagination parameters
+	 * @return page of bitstreams matching the criteria
+	 */
 	@Query("select rc from OAIBitstream rc where rc.id.network.id = ?1 and ((false=?3 AND rc.status=?2) OR (true=?3 AND rc.status<>?2))")
 	Page<OAIBitstream> findByNetworkIdAndStatus(Long networkID, OAIBitstreamStatus status, Boolean negateStatus, Pageable pageable);
 	
-//	/* Paginación optimizada por networkID */
+	/**
+	 * Finds all bitstreams for a specific network with pagination.
+	 * 
+	 * @param networkID the network ID
+	 * @param pageable pagination parameters
+	 * @return page of bitstreams for the network
+	 */
 	@Query("select rc from OAIBitstream rc where rc.id.network.id = ?1")
 	Page<OAIBitstream> findByNetworkId(Long networkID, Pageable pageable);
 
 
+	/**
+	 * Deletes all bitstreams for a specific network.
+	 * 
+	 * @param networkID the network ID whose bitstreams should be deleted
+	 */
 	@Modifying
 	@Transactional
 	@Query("delete from OAIBitstream r where r.id.network.id = ?1")
 	void deleteByNetworkID(Long networkID);
 	
+	/**
+	 * Deletes all bitstreams for a specific network and record identifier.
+	 * 
+	 * @param networkID the network ID
+	 * @param identifier the record identifier whose bitstreams should be deleted
+	 */
 	@Modifying
 	@Transactional
 	@Query("delete from OAIBitstream r where r.id.network.id = ?1 and r.id.identifier = ?2")

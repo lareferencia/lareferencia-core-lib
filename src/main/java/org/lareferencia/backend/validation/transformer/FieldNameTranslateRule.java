@@ -29,6 +29,14 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
 
+/**
+ * Transformation rule that translates field names from source to target.
+ * <p>
+ * Renames all occurrences of the source field to the target field name.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class FieldNameTranslateRule extends AbstractTransformerRule {
 
 	static int MAX_NODE_COUNT = 100;
@@ -41,9 +49,19 @@ public class FieldNameTranslateRule extends AbstractTransformerRule {
 	@Getter
 	String targetFieldName;
 
+	/**
+	 * Creates a new field name translation rule.
+	 */
 	public FieldNameTranslateRule() {
 	}
 
+	/**
+	 * Transforms the record by renaming fields from source to target.
+	 * 
+	 * @param record the OAI record to transform
+	 * @param metadata the metadata to transform
+	 * @return true if any field name was translated, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 

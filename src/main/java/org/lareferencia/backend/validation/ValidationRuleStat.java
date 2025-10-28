@@ -32,11 +32,26 @@ import lombok.Setter;
 @Getter
 @Setter
 public class ValidationRuleStat {
+	
+	/**
+	 * Constructs a new validation rule statistics container.
+	 */
+	public ValidationRuleStat() {
+		// Default constructor
+	}
+	
+	/** The unique identifier of the validation rule */
     Long ruleID;
+    /** The name of the validation rule */
     String name;
+    /** Description of what the rule validates */
     String description;
+    /** The quantifier constraint for this rule */
     QuantifierValues quantifier;
+    /** Whether this rule is mandatory for record validity */
     Boolean mandatory;
+    /** Number of times the rule validated successfully */
     Integer validCount;
+    /** Number of times the rule validation failed */
     Integer invalidCount;
 }

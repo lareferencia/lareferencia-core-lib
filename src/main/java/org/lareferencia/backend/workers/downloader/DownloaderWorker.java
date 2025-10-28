@@ -38,7 +38,17 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.NumberFormat;
 
-
+/**
+ * Worker that downloads bitstreams from remote URLs.
+ * <p>
+ * Processes bitstream URLs and downloads their content to local storage.
+ * Supports incremental downloads and configurable timeouts.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see BaseBatchWorker
+ * @see OAIBitstream
+ */
 public class DownloaderWorker extends BaseBatchWorker<OAIBitstream, NetworkRunningContext>  {
 	
 	
@@ -59,7 +69,9 @@ public class DownloaderWorker extends BaseBatchWorker<OAIBitstream, NetworkRunni
 	@Autowired
 	private OAIBitstreamRepository bitstreamRepository;
 
-
+	/**
+	 * Creates a new downloader worker with default timeout.
+	 */
 	public DownloaderWorker() {
 		super();
 		this.timeOut = 10000;

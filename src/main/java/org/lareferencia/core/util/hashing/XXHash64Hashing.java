@@ -21,18 +21,40 @@
 
 package org.lareferencia.core.util.hashing;
 
-import lombok.NoArgsConstructor;
 import net.openhft.hashing.LongHashFunction;
 
-@NoArgsConstructor
+/**
+ * Hashing implementation using the XXHash64 algorithm.
+ * Provides high-performance non-cryptographic hashing for metadata strings
+ * using the OpenHFT xxHash library.
+ */
 public class XXHash64Hashing implements IHashingHelper {
 
+	/**
+	 * Constructs a new XXHash64Hashing instance.
+	 */
+	public XXHash64Hashing() {
+		super();
+	}
+
+	/**
+	 * Calculates a hexadecimal hash string for the given metadata using XXHash64.
+	 *
+	 * @param metadata the metadata string to hash
+	 * @return a 16-character hexadecimal string representing the hash value
+	 */
 	@Override
 	public String calculateHash(String metadata) {
 	   	return String.format("%016X", LongHashFunction.xx().hashBytes(  metadata.toString().getBytes() )) ;  
 
 	}
 
+	/**
+	 * Calculates a numeric hash value for the given metadata using XXHash64.
+	 *
+	 * @param metadata the metadata string to hash
+	 * @return a Long value representing the hash
+	 */
 	public static Long calculateHashLong(String metadata) {
 	   	return LongHashFunction.xx().hashBytes(  metadata.toString().getBytes() );  
 	}

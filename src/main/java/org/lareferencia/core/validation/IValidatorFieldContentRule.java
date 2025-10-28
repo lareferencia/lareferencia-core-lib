@@ -25,9 +25,26 @@ import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 
+/**
+ * Interface for validation rules that check field content.
+ * <p>
+ * Defines the contract for validators that examine individual field
+ * values and determine their validity based on specific criteria.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see IValidatorRule
+ * @see AbstractValidatorFieldContentRule
+ */
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
 public interface IValidatorFieldContentRule extends IValidatorRule {
 
+	/**
+	 * Validates a field content string.
+	 * 
+	 * @param string the field content to validate
+	 * @return the validation result
+	 */
 	ContentValidatorResult validate(String string);
 
 }

@@ -31,25 +31,47 @@ import jakarta.persistence.ManyToOne;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Composite primary key for OAI bitstreams.
+ * Uniquely identifies a bitstream by its network, record identifier, and content checksum.
+ */
 @Embeddable
 @Getter
 @Setter
 public class OAIBitstreamId implements Serializable {
 
+	/**
+	 * The network this bitstream belongs to.
+	 */
 	@ManyToOne
     @JoinColumn(name = "network_id")
     private Network network;
  
+	/**
+	 * The record identifier.
+	 */
     @Column(name = "identifier")
     private String identifier;
     
+	/**
+	 * The content checksum for uniqueness verification.
+	 */
     @Column(nullable = false)
 	private String checksum;
 	
-    
+    /**
+     * Constructs an empty OAI bitstream ID.
+     */
     public OAIBitstreamId() {
     }
  
+    /**
+     * Constructs an OAI bitstream ID with the specified network, identifier, and checksum.
+     * 
+     * @param network the network this bitstream belongs to
+     * @param identifier the record identifier
+     * @param checksum the content checksum for uniqueness
+     */
     public OAIBitstreamId(Network network, String identifier, String checksum) {
        this.identifier = identifier;
        this.network = network;

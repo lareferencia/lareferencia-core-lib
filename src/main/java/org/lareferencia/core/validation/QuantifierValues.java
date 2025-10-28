@@ -20,7 +20,33 @@
 
 package org.lareferencia.core.validation;
 
+/**
+ * Enumeration defining quantifier constraints for validation rules.
+ * Specifies how many occurrences of a field are required or allowed during validation.
+ */
 public enum QuantifierValues {
-
-	ZERO_ONLY, ONE_ONLY, ZERO_OR_MORE, ONE_OR_MORE, ALL
+	/**
+	 * Field must have exactly zero occurrences (must be absent).
+	 */
+	ZERO_ONLY,
+	
+	/**
+	 * Field must have exactly one occurrence.
+	 */
+	ONE_ONLY,
+	
+	/**
+	 * Field can have zero or more occurrences (optional, repeatable).
+	 */
+	ZERO_OR_MORE,
+	
+	/**
+	 * Field must have one or more occurrences (required, repeatable).
+	 */
+	ONE_OR_MORE,
+	
+	/**
+	 * Applies to all occurrences regardless of count.
+	 */
+	ALL
 }

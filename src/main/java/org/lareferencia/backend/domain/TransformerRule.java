@@ -33,31 +33,55 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * NationalNetwork Entity
+ * JPA entity representing a single transformation rule within a {@link Transformer}.
+ * <p>
+ * Each TransformerRule defines a specific metadata transformation operation.
+ * Rules are executed in a defined sequence based on the runorder field, allowing
+ * complex multi-step transformations to be orchestrated.
+ * </p>
+ * <p>
+ * The transformation logic is stored as a JSON serialization, enabling flexible
+ * rule definitions that can be deserialized into specific transformation
+ * implementations at runtime.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see Transformer
  */
 @Entity
 @Getter
 @Setter
 public class TransformerRule  {
 	
+	/** Unique identifier for the transformer rule. */
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	protected Long id = null;
 
+	/** Name of the transformation rule. */
 	@Column(nullable = false)
 	private String name;
 
+	/** Description of the transformation rule's purpose and behavior. */
 	@Column(nullable = true)
 	private String description;
 	
+	/** Execution order of this rule within the transformer (lower values execute first). */
 	@Column(nullable = false)
 	private Integer runorder;
 
+	/** JSON serialization of the transformation rule configuration. */
 	@Setter
 	@Getter
 	@JdbcTypeCode(SqlTypes.LONGVARCHAR)
 	private String jsonserialization;
 
+	/**
+	 * Constructs a new transformer rule with default values.
+	 */
+	public TransformerRule() {
+		// Default constructor for JPA
+	}
 
 	@Override
 	public String toString() {

@@ -42,20 +42,37 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
+ * Service that manages the creation and serialization of validators and transformers.
+ * <p>
+ * This service acts as a bridge between the domain model (persistent entities) and
+ * the runtime validation/transformation objects. It uses {@link RuleSerializer} to
+ * convert between JSON representations and executable rule instances.
+ * <p>
+ * Key responsibilities include:
+ * </p>
+ * <ul>
+ *   <li>Creating {@link IValidator} instances from {@link Validator} models</li>
+ *   <li>Creating {@link ITransformer} instances from {@link Transformer} models</li>
+ *   <li>Persisting runtime validators back to domain models</li>
+ *   <li>Managing rule ordering and execution sequence</li>
+ * </ul>
  * 
- * ValidatorManager toma como parámetro objetos del modelo, validator y
- * tranformer y usando RuleSerializer devuelve objetos validatores y
- * transformadores para se usandos en los procesos de validación y
- * transformación del worker
- * 
- * @author lmatas
- * 
+ * @author LA Referencia Team
+ * @see Validator
+ * @see Transformer
+ * @see RuleSerializer
  */
 @Component
 public class ValidationService {
 	
 	private static Logger logger = LogManager.getLogger(ValidationService.class);
 
+	/**
+	 * Constructs a new validation service.
+	 */
+	public ValidationService() {
+		// Default constructor for Spring
+	}
 
 	@Autowired
 	private RuleSerializer serializer;
@@ -69,10 +86,15 @@ public class ValidationService {
 	
 
 	/**
-	 * Crea un validador a partir de un validador modelo
+	 * Creates a runtime validator instance from a domain validator model.
+	 * <p>
+	 * Deserializes all validation rules from their JSON representations and
+	 * configures them with properties from the model (mandatory, quantifier).
+	 * </p>
 	 * 
-	 * @param vmodel
-	 * @return
+	 * @param vmodel the validator domain model containing rule definitions
+	 * @return a configured IValidator instance ready for use
+	 * @throws ValidationException if any rule cannot be deserialized or configured
 	 */
 	public IValidator createValidatorFromModel(Validator vmodel) throws ValidationException {
 		
@@ -107,11 +129,17 @@ public class ValidationService {
 	}
 
 	/**
-	 * Crea un transformador a partir de un modelo de transformador
+	 * Creates a runtime transformer instance from a domain transformer model.
+	 * <p>
+	 * Deserializes all transformation rules from their JSON representations
+	 * and ensures they are executed in the correct order based on the runorder field.
+	 * Rules are sorted before being added to the transformer to guarantee proper
+	 * execution sequence.
+	 * </p>
 	 * 
-	 * @param tmodel el modelo del transformador
-	 * @return una instancia de ITransformer
-	 * @throws ValidationException si ocurre un error al crear el transformador
+	 * @param tmodel the transformer domain model containing rule definitions
+	 * @return a configured ITransformer instance with ordered rules
+	 * @throws ValidationException if any rule cannot be deserialized or configured
 	 */
 	public ITransformer createTransformerFromModel(Transformer tmodel) throws ValidationException {
 
@@ -145,12 +173,17 @@ public class ValidationService {
 	}
 
 	/**
-	 * Crea un model de validador para persistir a partir de un objeto validador
+	 * Creates a persistent validator model from a runtime validator instance.
+	 * <p>
+	 * Serializes all validation rules to JSON format and creates a domain model
+	 * suitable for database persistence. This allows saving runtime-configured
+	 * validators for later reuse.
+	 * </p>
 	 * 
-	 * @param validator
-	 * @param name
-	 * @param description
-	 * @return
+	 * @param validator the runtime validator instance to persist
+	 * @param name the name for the validator model
+	 * @param description the description for the validator model
+	 * @return a Validator domain model ready for persistence
 	 */
 	public Validator createModelFromValidator(IValidator validator, String name, String description) {
 

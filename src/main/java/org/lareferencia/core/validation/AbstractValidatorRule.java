@@ -27,20 +27,48 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Abstract base class for validation rules.
+ * <p>
+ * Provides common functionality for all metadata validation rules including
+ * rule identification, mandatory/optional status, and field quantifier constraints.
+ * </p>
+ * <p>
+ * Validation rules are serialized to/from JSON for storage and configuration,
+ * using Jackson's type information to preserve the concrete rule class.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see IValidatorRule
+ */
 @Getter
 @Setter
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
 public abstract class AbstractValidatorRule implements IValidatorRule {
 
+	/**
+	 * The unique identifier of this rule in the database.
+	 */
 	@JsonIgnore
 	protected Long ruleId;
 
+	/**
+	 * Indicates whether this validation rule is mandatory.
+	 * Mandatory rules cause record rejection if validation fails.
+	 */
 	@JsonIgnore
 	protected Boolean mandatory;
 
+	/**
+	 * The quantifier defining how many field occurrences are required.
+	 * For example, ONE_OR_MORE, ZERO_OR_MORE, EXACTLY_ONE.
+	 */
 	@JsonIgnore
 	protected QuantifierValues quantifier;
 
+	/**
+	 * Default constructor initializing rule as non-mandatory with ONE_OR_MORE quantifier.
+	 */
 	public AbstractValidatorRule() {
 		this.mandatory = false;
 		this.quantifier = QuantifierValues.ONE_OR_MORE;

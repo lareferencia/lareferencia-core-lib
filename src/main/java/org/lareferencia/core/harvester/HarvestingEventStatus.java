@@ -20,8 +20,26 @@
 
 package org.lareferencia.core.harvester;
 
+/**
+ * Status codes for harvesting events.
+ * 
+ * @author LA Referencia Team
+ */
 public enum HarvestingEventStatus {
 
-	OK, ERROR_RETRY, ERROR_FATAL, STOP_SIGNAL_RECEIVED, NO_MATCHING_QUERY
+	/** Harvesting completed successfully. */
+	OK, 
+	
+	/** Error occurred, retry is possible. */
+	ERROR_RETRY, 
+	
+	/** Fatal error, no retry possible. */
+	ERROR_FATAL, 
+	
+	/** Stop signal received from user. */
+	STOP_SIGNAL_RECEIVED, 
+	
+	/** No records matching the query. */
+	NO_MATCHING_QUERY
 
 }

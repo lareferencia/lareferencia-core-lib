@@ -22,24 +22,95 @@ package org.lareferencia.core.worker;
 
 import java.util.concurrent.ScheduledFuture;
 
-
+/**
+ * Base interface for all worker types.
+ * <p>
+ * Workers are background tasks that process data in the harvesting and
+ * validation pipeline. They can be scheduled and stopped as needed.
+ * </p>
+ * 
+ * @param <C> the running context type
+ * @author LA Referencia Team
+ */
 public interface IWorker<C extends IRunningContext> extends Runnable {
 
+	/**
+	 * Executes the worker's main processing logic.
+	 */
 	public void run();
+	
+	/**
+	 * Stops the worker execution.
+	 */
 	public void stop();
 	
+	/**
+	 * Gets the scheduled future for this worker.
+	 * 
+	 * @return the scheduled future
+	 */
 	public ScheduledFuture<?> getScheduledFuture();
+	
+	/**
+	 * Sets the scheduled future for this worker.
+	 * 
+	 * @param scheduledFuture the scheduled future to set
+	 */
 	public void setScheduledFuture(ScheduledFuture<?> scheduledFuture);
 
+	/**
+	 * Sets the name of this worker.
+	 * 
+	 * @param name the worker name
+	 */
 	public void setName(String name);
+	
+	/**
+	 * Gets the name of this worker.
+	 * 
+	 * @return the worker name
+	 */
 	public String getName();
 	
+	/**
+	 * Sets the running context for this worker.
+	 * 
+	 * @param context the running context
+	 */
 	public void setRunningContext(C context);
+	
+	/**
+	 * Gets the running context for this worker.
+	 * 
+	 * @return the running context
+	 */
 	public C getRunningContext();
 	
+	/**
+	 * Gets the serial lane identifier for this worker.
+	 * 
+	 * @return the serial lane ID
+	 */
 	public Long getSerialLaneId();
+	
+	/**
+	 * Sets the serial lane identifier for this worker.
+	 * 
+	 * @param id the serial lane ID
+	 */
 	public void setSerialLaneId(Long id);
 	
+	/**
+	 * Checks if this worker operates in incremental mode.
+	 * 
+	 * @return true if incremental, false otherwise
+	 */
 	public boolean isIncremental();
+	
+	/**
+	 * Sets the incremental mode for this worker.
+	 * 
+	 * @param incremental true to enable incremental mode
+	 */
 	void setIncremental(boolean incremental);
 }

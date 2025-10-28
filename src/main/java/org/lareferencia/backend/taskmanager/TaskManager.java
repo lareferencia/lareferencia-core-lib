@@ -43,6 +43,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
+/**
+ * Manages task scheduling, queueing, and execution for workers in the system.
+ * Provides JMX monitoring capabilities and enforces concurrency limits.
+ */
 @ManagedResource(objectName = "backend:name=taskManager", description = "TaskManager LRHarvester")
 public class TaskManager {
 	
@@ -112,6 +116,9 @@ public class TaskManager {
 
 	//private int currentRunningWorkers = 0;
 
+	/**
+	 * Constructs a new TaskManager and initializes all internal queues and maps.
+	 */
 	public TaskManager() {
 		//scheduledTasks = new ConcurrentLinkedQueue<ScheduledTaskLauncher>();
 		scheduledTasks = new QueueMap<ScheduledTaskLauncher, String>();
@@ -126,6 +133,12 @@ public class TaskManager {
 	 * Proyectores de información para JMX 
 	 */
 
+	/**
+	 * Gets the list of running tasks for a specific running context.
+	 * 
+	 * @param runningContextID the identifier of the running context
+	 * @return list of running task descriptions
+	 */
 	@ManagedAttribute
 	public List<String> getRunningTasksByRunningContextID(String runningContextID) {
 
@@ -139,6 +152,12 @@ public class TaskManager {
 		return result;
 	}
 	
+	/**
+	 * Gets the list of queued tasks waiting to be executed for a specific running context.
+	 * 
+	 * @param runningContextID the identifier of the running context
+	 * @return list of queued task descriptions
+	 */
 	@ManagedAttribute
 	public List<String> getQueuedTasksByRunningContextID(String runningContextID) {
 
@@ -152,6 +171,12 @@ public class TaskManager {
 		return result;
 	}
 	
+	/**
+	 * Gets the list of scheduled tasks with their delay information for a specific running context.
+	 * 
+	 * @param runningContextID the identifier of the running context
+	 * @return list of scheduled task descriptions with delay times
+	 */
 	@ManagedAttribute
 	public List<String> getScheduledTasksByRunningContextID(String runningContextID) {
 
@@ -177,12 +202,24 @@ public class TaskManager {
 		return result;
 	}
 
+	/**
+	 * Gets the count of active tasks for a specific running context.
+	 * 
+	 * @param runningContextID the identifier of the running context
+	 * @return the number of active tasks
+	 */
 	@ManagedAttribute
 	public Integer getActiveTaskCountByRunningContextID(String runningContextID) {
 		return runningWorkers.getQueue(runningContextID).size();
 	}
 
 	
+	/**
+	 * Kills all running tasks for a specific running context.
+	 * 
+	 * @param runningContextID the identifier of the running context
+	 * @return true if any task was killed, false otherwise
+	 */
 	public synchronized boolean killAllTaskByRunningContextID(String runningContextID) {
 		
 		boolean wasKilled = false;
@@ -197,15 +234,31 @@ public class TaskManager {
 		return wasKilled;
 	}
 	
+	/**
+	 * Checks if the maximum number of concurrent running workers has been reached.
+	 * 
+	 * @return true if at maximum capacity, false otherwise
+	 */
 	public synchronized boolean isMaxConcurrentRunningWorkersReached() {
 		return runningWorkers.totalSize() >= maxConcurrentWorkers;
 	}
 
+	/**
+	 * Checks if the maximum number of queued workers has been reached.
+	 * 
+	 * @return true if queue is at maximum capacity, false otherwise
+	 */
 	public synchronized boolean isMaxQueudedWorkersReached() {
 		return queuedWorkers.totalSize() >= maxQueuedWorkers;
 	}
 
 
+	/**
+	 * Checks if there is already a task processing for the specified running context.
+	 * 
+	 * @param runningContextID the identifier of the running context
+	 * @return true if a task is already processing, false otherwise
+	 */
 	public synchronized boolean isAlreadyProcesingNetwork(String runningContextID) {
 		boolean alreadyProcesingThisNetwork = false; 
 		for (IWorker<?> wkr : runningWorkers.getQueue(runningContextID)) {	
@@ -217,6 +270,12 @@ public class TaskManager {
 	}
 
 	
+	/**
+	 * Launches a worker task if resource limits and serialization constraints allow.
+	 * Enqueues the worker if it cannot be launched immediately.
+	 * 
+	 * @param worker the worker to launch
+	 */
 	public synchronized void launchWorker(IWorker<?> worker) {
 		
 		
@@ -314,11 +373,22 @@ public class TaskManager {
 		
 	}
 	
+	/**
+	 * Clears all queued workers for a specific running context.
+	 * 
+	 * @param runningContextID the identifier of the running context
+	 */
 	public synchronized void clearQueueByRunningContextID(String runningContextID) {
 		queuedWorkers.clearQueue(runningContextID);
 	}
 	
 	
+	/**
+	 * Schedules a worker to run according to a cron expression.
+	 * 
+	 * @param worker the worker to schedule
+	 * @param cronExpression the cron expression defining the schedule
+	 */
 	public synchronized void scheduleWorker(IWorker<?> worker, String cronExpression) {
 		
 		try {
@@ -329,6 +399,11 @@ public class TaskManager {
 		}
 	}
 	
+	/**
+	 * Clears all scheduled tasks for a specific running context.
+	 * 
+	 * @param runningContextID the identifier of the running context
+	 */
 	public synchronized void clearScheduleByRunningContextID(String runningContextID) {
 		for (ScheduledTaskLauncher tl: scheduledTasks.getQueue(runningContextID)) {
 			logger.debug( "Removing Schedule:" + tl.getWorker().toString() );

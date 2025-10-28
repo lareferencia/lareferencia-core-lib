@@ -56,6 +56,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Worker that indexes harvested records into Solr.
+ * <p>
+ * Transforms and indexes validated records with optional deletion support.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningContext> {
 
 	@Autowired
@@ -117,12 +125,20 @@ public class IndexerWorker extends BaseBatchWorker<OAIRecord, NetworkRunningCont
 
 	NumberFormat percentajeFormat = NumberFormat.getPercentInstance();
 
+	/**
+	 * Creates an indexer worker with the specified Solr URL.
+	 * 
+	 * @param solrURL the Solr server URL
+	 */
 	public IndexerWorker(String solrURL) {
 		super();
 
 		this.solrClient = new HttpSolrClient.Builder(solrURL).build();
 	}
 
+	/**
+	 * Initializes the indexer before processing starts.
+	 */
 	@Override
 	public void preRun() {
 

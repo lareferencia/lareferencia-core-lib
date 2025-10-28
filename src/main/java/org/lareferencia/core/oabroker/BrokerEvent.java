@@ -39,7 +39,13 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
+ * Entity representing a broker event for metadata change notifications.
+ * <p>
+ * Events are associated with network records and organized by topics.
+ * Used to track changes and notify subscribers of metadata updates.
+ * </p>
  * 
+ * @author LA Referencia Team
  */
 @Data
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
@@ -50,29 +56,50 @@ import lombok.Setter;
 @jakarta.persistence.Entity
 public class BrokerEvent  {
 
+	/** Database identifier for the broker event entity. */
 	@EqualsAndHashCode.Include
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	@JsonIgnore
 	protected Long id;
 
+	/**
+	 * Unique identifier for the event.
+	 */
 	@Column(nullable = false)
 	private String identifier;
 	
+	/**
+	 * Message content or payload for this broker event.
+	 */
 	@JdbcTypeCode(SqlTypes.LONGVARCHAR)
 	private String message;
 	
+	/**
+	 * The topic or category for this broker event.
+	 */
 	private String topic;
 	
 //	@ManyToOne(fetch = FetchType.LAZY)
 //	@JoinColumn(name = "network_id")
 //	private Network network;
 //	
+	/**
+	 * The network ID this event belongs to (read-only).
+	 */
 	@Setter(AccessLevel.NONE)
 	@JsonIgnore
 	@Column(name = "network_id"/*, insertable = false, updatable = false*/)
 	private Long networkId;
 
+	/**
+	 * Creates a broker event with the specified properties.
+	 * 
+	 * @param identifier the record identifier associated with this event
+	 * @param message the event message content
+	 * @param topic the event topic/category
+	 * @param network_id the network ID this event belongs to
+	 */
 	public BrokerEvent(String identifier, String message, String topic, Long network_id) {
 		super();
 		this.identifier = identifier;

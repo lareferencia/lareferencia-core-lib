@@ -39,6 +39,26 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+/**
+ * Transformation rule that translates field content values based on a mapping table.
+ * <p>
+ * This rule reads values from a test field and writes translated values to a target field
+ * (which can be the same field). It uses a configurable translation map that can support
+ * case-sensitive or case-insensitive matching, and can handle prefix-based translations.
+ * <p>
+ * Common use cases include:
+ * </p>
+ * <ul>
+ *   <li>Vocabulary normalization (e.g., mapping variant subject terms to standard ones)</li>
+ *   <li>Language code translation</li>
+ *   <li>Resource type standardization</li>
+ *   <li>License URI normalization</li>
+ * </ul>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ * @see Translation
+ */
 public class FieldContentTranslateRule extends AbstractTransformerRule {
 
 	private static Logger logger = LogManager.getLogger(FieldContentTranslateRule.class);
@@ -68,10 +88,18 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 	
 	Set<String> existingValues = new HashSet<String>();	
 
+	/**
+	 * Creates a new field content translation rule.
+	 */
 	public FieldContentTranslateRule() {
 		this.translationMap = new TreeMap<String, String>(CaseInsensitiveComparator.INSTANCE);
 	}
 
+	/**
+	 * Sets the translation array and populates the translation map.
+	 * 
+	 * @param list the list of translations
+	 */
 	public void setTranslationArray(List<Translation> list) {
 		this.translationArray = list;
 
@@ -82,6 +110,11 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 		logger.debug(list);
 	}
 
+	/**
+	 * Sets the translation map from a file.
+	 * 
+	 * @param filename the path to the translation file
+	 */
 	public void setTranslationMapFileName(String filename) {
 
 		try {
@@ -116,7 +149,13 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 
 	}
 	
-
+	/**
+	 * Transforms the record by translating field values according to the translation map.
+	 * 
+	 * @param record the OAI record to transform
+	 * @param metadata the metadata to transform
+	 * @return true if any value was transformed, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 
@@ -180,11 +219,19 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 		return wasTransformed;
 	}
 
+	/**
+	 * Sets the translation map for field value translations.
+	 * 
+	 * @param translationMap the map of source to target values
+	 */
 	public void setTranslationMap(Map<String, String> translationMap) {
 		this.translationMap = new TreeMap<String, String>(CaseInsensitiveComparator.INSTANCE);
 		this.translationMap.putAll(translationMap);
 	}
 
+	/**
+	 * Case-insensitive string comparator for translation keys.
+	 */
 	static class CaseInsensitiveComparator implements Comparator<String> {
 		public static final CaseInsensitiveComparator INSTANCE = new CaseInsensitiveComparator();
 

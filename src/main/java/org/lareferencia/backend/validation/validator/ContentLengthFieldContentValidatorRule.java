@@ -27,6 +27,17 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Validator rule that checks field content length.
+ * <p>
+ * Validates that field values are within specified minimum and maximum
+ * length constraints. Useful for ensuring data quality and preventing
+ * excessively long or empty values.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractValidatorFieldContentRule
+ */
 @Getter
 @Setter
 public class ContentLengthFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
@@ -39,6 +50,9 @@ public class ContentLengthFieldContentValidatorRule extends AbstractValidatorFie
 	@JsonProperty("maxLength")
 	private Integer maxLength = Integer.MAX_VALUE;
 
+	/**
+	 * Creates a new content length validator with default length constraints.
+	 */
 	public ContentLengthFieldContentValidatorRule() {
 	}
 

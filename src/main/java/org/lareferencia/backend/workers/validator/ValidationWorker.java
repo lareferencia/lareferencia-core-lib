@@ -48,6 +48,34 @@ import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 
+/**
+ * Worker that performs validation and transformation of harvested OAI records.
+ * <p>
+ * This worker processes batches of {@link OAIRecord} instances from a network snapshot,
+ * applying validation rules and metadata transformations. It supports both full and
+ * incremental validation modes.
+ * <p>
+ * The worker performs the following operations:
+ * </p>
+ * <ul>
+ *   <li>Validates metadata records against configured validation rules</li>
+ *   <li>Applies primary and secondary transformations to valid records</li>
+ *   <li>Tracks validation statistics and observations</li>
+ *   <li>Updates record status based on validation results</li>
+ *   <li>Stores processed metadata in the metadata store</li>
+ * </ul>
+ * <p>
+ * In incremental mode, only new (UNTESTED) records are processed. In full mode,
+ * all non-deleted records are revalidated, allowing rule changes to be applied
+ * retroactively.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see OAIRecord
+ * @see IValidator
+ * @see ITransformer
+ * @see ValidationService
+ */
 public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningContext> {
 	
 	private static Logger logger = LogManager.getLogger(ValidationWorker.class);
@@ -86,7 +114,9 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	private ValidatorResult reusableValidationResult;
 	private Boolean wasTransformed;
 	
-	
+	/**
+	 * Constructs a new validation worker.
+	 */
 	public ValidationWorker()  {
 		super();
 		

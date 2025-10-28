@@ -82,6 +82,12 @@ public class ValidationStatParquetRepository {
 
     private static final Logger logger = LogManager.getLogger(ValidationStatParquetRepository.class);
 
+    /**
+     * Constructs a new ValidationStatParquetRepository instance.
+     */
+    public ValidationStatParquetRepository() {
+    }
+
     @Value("${validation.stats.parquet.path:/tmp/validation-stats-parquet}")
     private String parquetBasePath;
     
@@ -149,6 +155,12 @@ public class ValidationStatParquetRepository {
     private final Map<String, Long> countCacheTimestamp = new ConcurrentHashMap<>();
     private final long COUNT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos de TTL
     
+    /**
+     * Initializes the repository after dependency injection, setting up Hadoop configuration,
+     * creating the base directory structure, and initializing the Avro schema.
+     *
+     * @throws IOException if an I/O error occurs during initialization
+     */
     @PostConstruct
     public void init() throws IOException {
         logger.info("Initializing ValidationStatParquetRepository with {} records per file", recordsPerFile);
@@ -813,6 +825,10 @@ public class ValidationStatParquetRepository {
      * - findWithFilterAndPagination() for filtered access
      * - countBySnapshotId() for just counting records
      * - getAggregatedStats() for statistics without loading records
+     * 
+     * @param snapshotId the snapshot ID to find observations for
+     * @return list of all validation observations for the snapshot
+     * @throws IOException if reading from Parquet files fails
      */
     public List<ValidationStatObservationParquet> findBySnapshotId(Long snapshotId) throws IOException {
         logger.warn("MEMORY WARNING: findBySnapshotId loads ALL records into memory - consider using pagination for large datasets");
@@ -858,11 +874,13 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * STREAMING ALTERNATIVE: Procesa todos los registros de un snapshot con un callback
-     * Evita cargar millones de registros en memoria de una vez
-     * @param snapshotId ID del snapshot
-     * @param processor Función que procesa cada registro individualmente
-     * @return Número total de registros procesados
+     * STREAMING ALTERNATIVE: Processes all records of a snapshot with a callback.
+     * Avoids loading millions of records into memory at once.
+     * 
+     * @param snapshotId the snapshot ID to process
+     * @param processor function that processes each record individually
+     * @return total number of records processed
+     * @throws IOException if reading from Parquet files fails
      */
     public long processAllRecords(Long snapshotId, java.util.function.Consumer<ValidationStatObservationParquet> processor) throws IOException {
         logger.debug("STREAMING PROCESSOR: Processing all records for snapshot {} with callback", snapshotId);
@@ -908,8 +926,14 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * STREAMING: Implementa paginación eficiente sin cargar datos en memoria
-     * Utiliza el método de streaming ya implementado para evitar memory overflow
+     * STREAMING: Implements efficient pagination without loading data into memory.
+     * Uses the existing streaming method to avoid memory overflow.
+     * 
+     * @param snapshotId the snapshot ID to paginate
+     * @param page the page number (0-based)
+     * @param size the page size
+     * @return list of observations for the specified page
+     * @throws IOException if reading from Parquet files fails
      */
     public List<ValidationStatObservationParquet> findBySnapshotIdWithPagination(Long snapshotId, int page, int size) throws IOException {
         // Use the existing streaming pagination method with no filters
@@ -918,8 +942,12 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * STREAMING: Cuenta observaciones por snapshot ID sin cargar datos en memoria
-     * Utiliza el método de streaming ya implementado para evitar memory overflow
+     * STREAMING: Counts observations by snapshot ID without loading data into memory.
+     * Uses the existing streaming count method to avoid memory overflow.
+     * 
+     * @param snapshotId the snapshot ID to count observations for
+     * @return the total number of observations for the snapshot
+     * @throws IOException if reading from Parquet files fails
      */
     public long countBySnapshotId(Long snapshotId) throws IOException {
         // Use the existing streaming count method with no filters
@@ -928,8 +956,11 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * MULTI-FILE: Saves all observations using the new multi-file architecture with intelligent buffering
-     * This method delegates to saveAllImmediate() which uses the modern multi-file approach
+     * MULTI-FILE: Saves all observations using the new multi-file architecture with intelligent buffering.
+     * This method delegates to saveAllImmediate() which uses the modern multi-file approach.
+     * 
+     * @param observations list of observations to save
+     * @throws IOException if writing to Parquet files fails
      */
     public void saveAll(List<ValidationStatObservationParquet> observations) throws IOException {
         // Delegate to the multi-file implementation
@@ -941,8 +972,11 @@ public class ValidationStatParquetRepository {
 
 
     /**
-     * NEW: Deletes all observations for a snapshot (removes entire snapshot directory)
-     * This works with the new multi-file architecture
+     * Deletes all observations for a snapshot by removing the entire snapshot directory.
+     * This works with the new multi-file architecture.
+     *
+     * @param snapshotId the ID of the snapshot to delete
+     * @throws IOException if an I/O error occurs during directory deletion
      */
     public void deleteBySnapshotId(Long snapshotId) throws IOException {
         logger.info("CLEANUP: Deleting all data for snapshot {}", snapshotId);
@@ -1002,8 +1036,12 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * STREAMING: Elimina observación específica por ID usando arquitectura multi-archivo
-     * Procesa archivo por archivo sin cargar todos los datos en memoria
+     * Deletes a specific observation by ID using the multi-file architecture.
+     * Processes file by file without loading all data into memory.
+     *
+     * @param id the ID of the observation to delete
+     * @param snapshotId the ID of the snapshot containing the observation
+     * @throws IOException if an I/O error occurs during file operations
      */
     public void deleteById(String id, Long snapshotId) throws IOException {
         String snapshotDir = getSnapshotDirectoryPath(snapshotId);
@@ -1155,8 +1193,12 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * STREAMING: Copia datos de un snapshot a otro usando la arquitectura multi-archivo
-     * Procesa archivo por archivo sin cargar todos los datos en memoria
+     * Copies data from one snapshot to another using the multi-file architecture.
+     * Processes file by file without loading all data into memory.
+     *
+     * @param originalSnapshotId the ID of the source snapshot
+     * @param newSnapshotId the ID of the destination snapshot
+     * @throws IOException if an I/O error occurs during file operations
      */
     public void copySnapshotData(Long originalSnapshotId, Long newSnapshotId) throws IOException {
         String originalSnapshotDir = getSnapshotDirectoryPath(originalSnapshotId);
@@ -1275,8 +1317,12 @@ public class ValidationStatParquetRepository {
 
 
     /**
-     * Obtiene estadísticas agregadas por snapshot ID (VERSIÓN OPTIMIZADA MULTI-ARCHIVO)
-     * Utiliza el query engine para evitar cargar todos los registros en memoria
+     * Obtains aggregated statistics by snapshot ID using the optimized multi-file version.
+     * Uses the query engine to avoid loading all records into memory.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @return a map containing aggregated statistics (totalCount, validCount, transformedCount, rule counts)
+     * @throws IOException if an I/O error occurs during file operations
      */
     public Map<String, Object> getAggregatedStats(Long snapshotId) throws IOException {
         String snapshotDir = getSnapshotDirectoryPath(snapshotId);
@@ -1364,10 +1410,12 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Obtiene estadísticas agregadas con filtros específicos (OPTIMIZADO CON PREDICATE PUSHDOWN)
-     * @param snapshotId ID del snapshot
-     * @param filter Filtros a aplicar (isValid, isTransformed, ruleIds, etc.)
-     * @return Estadísticas agregadas filtradas
+     * Obtains aggregated statistics with specific filters optimized using predicate pushdown.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param filter the filters to apply (isValid, isTransformed, ruleIds, etc.)
+     * @return filtered aggregated statistics map
+     * @throws IOException if an I/O error occurs during file operations
      */
     public Map<String, Object> getAggregatedStatsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
         String snapshotDir = getSnapshotDirectoryPath(snapshotId);
@@ -1469,10 +1517,12 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * OPTIMIZED: Cuenta registros con cache inteligente para evitar recálculos frecuentes
-     * @param snapshotId ID del snapshot
-     * @param filter Filtros a aplicar
-     * @return Número de registros que cumplen los criterios
+     * Counts records with intelligent caching to avoid frequent recalculations.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param filter the filters to apply
+     * @return the number of records matching the criteria
+     * @throws IOException if an I/O error occurs during file operations
      */
     public long countRecordsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
         String cacheKey = getCountCacheKey(snapshotId, filter);
@@ -1504,10 +1554,12 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * FORCE: Cuenta registros sin usar cache (para casos específicos)
-     * @param snapshotId ID del snapshot
-     * @param filter Filtros a aplicar
-     * @return Número de registros que cumplen los criterios
+     * Counts records without using cache for specific cases where fresh data is required.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param filter the filters to apply
+     * @return the number of records matching the criteria
+     * @throws IOException if an I/O error occurs during file operations
      */
     public long countRecordsWithFilterNoCache(Long snapshotId, AggregationFilter filter) throws IOException {
         logger.debug("PREDICATE COUNT FORCE: Bypassing cache, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
@@ -1516,7 +1568,9 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * CACHE MANAGEMENT: Limpia cache de conteo para un snapshot específico
+     * Clears the count cache for a specific snapshot.
+     *
+     * @param snapshotId the ID of the snapshot
      */
     public void clearCountCache(Long snapshotId) {
         invalidateCountCache(snapshotId);
@@ -1524,9 +1578,11 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * CACHE MANAGEMENT: Limpia todo el cache de conteo
+     * Clears all count cache entries.
+     *
+     * @throws IOException if an I/O error occurs during cache operations
      */
-    public void clearAllCountCache() {
+    public void clearAllCountCache() throws IOException {
         countCache.clear();
         countCacheTimestamp.clear();
         logger.info("CACHE: Manually cleared all count cache");
@@ -1579,12 +1635,14 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Búsqueda paginada con filtros (OPTIMIZADA CON PREDICATE PUSHDOWN)
-     * @param snapshotId ID del snapshot
-     * @param filter Filtros a aplicar
-     * @param page Número de página (base 0)
-     * @param size Tamaño de página
-     * @return Lista de observaciones que cumplen los criterios
+     * Performs paginated search with filters optimized using predicate pushdown.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param filter the filters to apply
+     * @param page the page number (zero-based)
+     * @param size the page size
+     * @return a list of observations matching the criteria
+     * @throws IOException if an I/O error occurs during file operations
      */
     public List<ValidationStatObservationParquet> findWithFilterAndPagination(Long snapshotId, 
                                                                               AggregationFilter filter, 
@@ -1677,18 +1735,31 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Obtiene conteos de ocurrencias de reglas por snapshot y rule ID
-     * El parámetro 'valid' indica si buscar en validOccurrencesByRuleID (true) o invalidOccurrencesByRuleID (false)
-     * Procesa archivo por archivo acumulando resultados
+     * Obtains rule occurrence counts by snapshot and rule ID.
+     * The 'valid' parameter indicates whether to search in validOccurrencesByRuleID (true) or invalidOccurrencesByRuleID (false).
+     * Processes file by file accumulating results.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param ruleId the ID of the rule
+     * @param valid true for valid occurrences, false for invalid occurrences
+     * @return a map of occurrence counts by field
+     * @throws IOException if an I/O error occurs during file operations
      */
     public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, String ruleId, boolean valid) throws IOException {
         return getRuleOccurrenceCounts(snapshotId, ruleId, valid, new HashMap<>());
     }
     
     /**
-     * Obtiene conteos de ocurrencias de reglas por snapshot y rule ID con filtros adicionales
-     * El parámetro 'valid' indica si buscar en validOccurrencesByRuleID (true) o invalidOccurrencesByRuleID (false)
-     * Los filtros permiten contar solo ocurrencias en registros que cumplen criterios específicos
+     * Obtains rule occurrence counts by snapshot and rule ID with additional filters.
+     * The 'valid' parameter indicates whether to search in validOccurrencesByRuleID (true) or invalidOccurrencesByRuleID (false).
+     * Filters allow counting only occurrences in records that meet specific criteria.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param ruleId the ID of the rule
+     * @param valid true for valid occurrences, false for invalid occurrences
+     * @param filters additional filters to apply when counting occurrences
+     * @return a map of occurrence counts by field
+     * @throws IOException if an I/O error occurs during file operations
      */
     public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, String ruleId, boolean valid, Map<String, Object> filters) throws IOException {
         String snapshotDir = getSnapshotDirectoryPath(snapshotId);
@@ -1854,22 +1925,21 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Obtiene la ruta del archivo Parquet para un snapshot
+     * Obtains the file path for a snapshot's Parquet file.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @return the absolute path to the snapshot's Parquet file
      */
     public String getSnapshotFilePath(Long snapshotId) {
         return parquetBasePath + "/snapshot_" + snapshotId + ".parquet";
     }
     
     /**
-     * BUFFERED: Multi-file streaming with intelligent buffering
-     * Accumulates records until reaching recordsPerFile limit (e.g., 10000)
-     * Only writes when buffer is full or explicitly flushed
-     * 
-     * CORRECTED BEHAVIOR:
-     * - 1000 records arrive → stored in buffer
-     * - 1000 more arrive → buffer has 2000, still waiting
-     * - ... continues until buffer reaches 10000
-     * - At 10000 → writes one file and clears buffer
+     * Saves observations immediately with intelligent buffering.
+     * Accumulates records until reaching recordsPerFile limit and only writes when buffer is full or explicitly flushed.
+     *
+     * @param observations the list of observations to save
+     * @throws IOException if an I/O error occurs during file operations
      */
     public void saveAllImmediate(List<ValidationStatObservationParquet> observations) throws IOException {
         if (observations == null || observations.isEmpty()) {
@@ -2027,7 +2097,10 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * FORCE FLUSH: Write any remaining buffered records (useful for shutdown or testing)
+     * Forces the flushing of all buffered records to disk.
+     * Useful for shutdown or testing scenarios.
+     *
+     * @throws IOException if an I/O error occurs during flush operations
      */
     public synchronized void flushAllBuffers() throws IOException {
         logger.debug("BUFFER: Force flushing all snapshot buffers");
@@ -2047,8 +2120,11 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * PUBLIC API: Manually clean a snapshot directory (useful for starting new validation)
-     * This will remove all existing data files and reset counters for the specified snapshot
+     * Manually cleans a snapshot directory, useful for starting new validation.
+     * Removes all existing data files and resets counters for the specified snapshot.
+     *
+     * @param snapshotId the ID of the snapshot to clean
+     * @throws IOException if an I/O error occurs during cleanup operations
      */
     public synchronized void cleanSnapshot(Long snapshotId) throws IOException {
         logger.info("MANUAL CLEANUP: Cleaning snapshot {} by user request", snapshotId);
@@ -2482,7 +2558,9 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * Obtener estadísticas de cache
+     * Obtains cache statistics including size and keys.
+     *
+     * @return a map containing cache statistics
      */
     public Map<String, Object> getCacheStats() {
         Map<String, Object> stats = new HashMap<>();
@@ -2502,7 +2580,11 @@ public class ValidationStatParquetRepository {
     // ==================== MEMORY CACHE API METHODS ====================
     
     /**
-     * ULTRA-FAST: Get aggregated stats from memory cache (millisecond response)
+     * Gets aggregated statistics from memory cache with millisecond response time.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @return a map containing precomputed aggregated statistics
+     * @throws IOException if an I/O error occurs or cache is unavailable
      */
     public Map<String, Object> getAggregatedStatsFromCache(Long snapshotId) throws IOException {
         if (!memoryCacheEnabled) {
@@ -2521,7 +2603,12 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * ULTRA-FAST: Get aggregated stats with filter from memory cache
+     * Gets filtered aggregated statistics from memory cache with ultra-fast processing.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param filter the filter to apply on cached records
+     * @return a map containing filtered aggregated statistics
+     * @throws IOException if an I/O error occurs or cache is unavailable
      */
     public Map<String, Object> getAggregatedStatsWithFilterFromCache(Long snapshotId, AggregationFilter filter) throws IOException {
         if (!memoryCacheEnabled) {
@@ -2550,7 +2637,12 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * ULTRA-FAST: Count records with filter from memory cache
+     * Counts records with filter from memory cache with ultra-fast processing.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param filter the filter to apply on cached records
+     * @return the number of records matching the filter criteria
+     * @throws IOException if an I/O error occurs or cache is unavailable
      */
     public long countRecordsWithFilterFromCache(Long snapshotId, AggregationFilter filter) throws IOException {
         if (!memoryCacheEnabled) {
@@ -2576,7 +2668,14 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * ULTRA-FAST: Find records with filter and pagination from memory cache
+     * Finds records with filter and pagination from memory cache with ultra-fast processing.
+     *
+     * @param snapshotId the ID of the snapshot
+     * @param filter the filter to apply on cached records
+     * @param page the page number (zero-based)
+     * @param size the page size
+     * @return a list of paginated observations matching the filter criteria
+     * @throws IOException if an I/O error occurs or cache is unavailable
      */
     public List<ValidationStatObservationParquet> findWithFilterAndPaginationFromCache(Long snapshotId, 
                                                                                        AggregationFilter filter, 
@@ -2647,7 +2746,9 @@ public class ValidationStatParquetRepository {
     // ==================== CACHE MANAGEMENT API ====================
     
     /**
-     * CACHE INFO: Get cache statistics and status
+     * Gets cache statistics and status information.
+     *
+     * @return a map containing cache statistics including enabled status, cached snapshots, hit ratios, and snapshot details
      */
     public Map<String, Object> getMemoryCacheInfo() {
         Map<String, Object> info = new HashMap<>();
@@ -2681,7 +2782,10 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * CACHE CONTROL: Manually warm up cache for a snapshot
+     * Manually warms up the cache for a specific snapshot by preloading its data into memory.
+     *
+     * @param snapshotId the ID of the snapshot to warm up
+     * @throws IOException if an I/O error occurs during cache loading
      */
     public void warmUpCache(Long snapshotId) throws IOException {
         if (!memoryCacheEnabled) {
@@ -2700,7 +2804,9 @@ public class ValidationStatParquetRepository {
     }
     
     /**
-     * CACHE CONTROL: Clear specific snapshot from cache
+     * Clears a specific snapshot from the memory cache, freeing its allocated memory.
+     *
+     * @param snapshotId the ID of the snapshot to evict from cache
      */
     public void evictFromCache(Long snapshotId) {
         SnapshotCache evicted = snapshotMemoryCache.remove(snapshotId);
@@ -2734,44 +2840,176 @@ public class ValidationStatParquetRepository {
     // (Moved from ValidationStatParquetQueryEngine for consolidated architecture)
     
     /**
-     * Clase para filtros de agregación
+     * Filter class for aggregation operations on validation statistics.
+     * Provides criteria for filtering records based on validation status, transformation status, 
+     * OAI identifiers, and rule IDs.
      */
     public static class AggregationFilter {
+        /**
+         * Filter for validation status (true=valid, false=invalid, null=all).
+         */
         private Boolean isValid;
+        
+        /**
+         * Filter for transformation status (true=transformed, false=not transformed, null=all).
+         */
         private Boolean isTransformed;
+        
+        /**
+         * Filter for specific record OAI identifier.
+         */
         private String recordOAIId;
+        
+        /**
+         * Filter for specific rule IDs.
+         */
         private List<String> ruleIds;
+        
+        /**
+         * Filter for specific snapshot ID.
+         */
         private Long snapshotId;
+        
+        /**
+         * Filter for records with specific valid rule.
+         */
         private String validRulesFilter;
+        
+        /**
+         * Filter for records with specific invalid rule.
+         */
         private String invalidRulesFilter;
 
-        // Getters y setters
+        /**
+         * Constructs a new AggregationFilter with default values.
+         */
+        public AggregationFilter() {
+        }
+
+        /**
+         * Gets the validation status filter.
+         *
+         * @return true for valid records, false for invalid, null for all
+         */
         public Boolean getIsValid() { return isValid; }
+        
+        /**
+         * Sets the validation status filter.
+         *
+         * @param isValid true for valid records, false for invalid, null for all
+         */
         public void setIsValid(Boolean isValid) { this.isValid = isValid; }
 
+        /**
+         * Gets the transformation status filter.
+         *
+         * @return true for transformed records, false for not transformed, null for all
+         */
         public Boolean getIsTransformed() { return isTransformed; }
+        
+        /**
+         * Sets the transformation status filter.
+         *
+         * @param isTransformed true for transformed records, false for not transformed, null for all
+         */
         public void setIsTransformed(Boolean isTransformed) { this.isTransformed = isTransformed; }
 
+        /**
+         * Gets the record OAI identifier filter.
+         *
+         * @return the OAI identifier to filter by
+         */
         public String getRecordOAIId() { return recordOAIId; }
+        
+        /**
+         * Sets the record OAI identifier filter.
+         *
+         * @param recordOAIId the OAI identifier to filter by
+         */
         public void setRecordOAIId(String recordOAIId) { this.recordOAIId = recordOAIId; }
 
+        /**
+         * Gets the list of rule IDs to filter by.
+         *
+         * @return the list of rule IDs
+         */
         public List<String> getRuleIds() { return ruleIds; }
+        
+        /**
+         * Sets the list of rule IDs to filter by.
+         *
+         * @param ruleIds the list of rule IDs
+         */
         public void setRuleIds(List<String> ruleIds) { this.ruleIds = ruleIds; }
 
+        /**
+         * Gets the snapshot ID filter.
+         *
+         * @return the snapshot ID to filter by
+         */
         public Long getSnapshotId() { return snapshotId; }
+        
+        /**
+         * Sets the snapshot ID filter.
+         *
+         * @param snapshotId the snapshot ID to filter by
+         */
         public void setSnapshotId(Long snapshotId) { this.snapshotId = snapshotId; }
 
+        /**
+         * Gets the valid rules filter.
+         *
+         * @return the valid rule ID to filter by
+         */
         public String getValidRulesFilter() { return validRulesFilter; }
+        
+        /**
+         * Sets the valid rules filter.
+         *
+         * @param validRulesFilter the valid rule ID to filter by
+         */
         public void setValidRulesFilter(String validRulesFilter) { this.validRulesFilter = validRulesFilter; }
 
+        /**
+         * Gets the invalid rules filter.
+         *
+         * @return the invalid rule ID to filter by
+         */
         public String getInvalidRulesFilter() { return invalidRulesFilter; }
+        
+        /**
+         * Sets the invalid rules filter.
+         *
+         * @param invalidRulesFilter the invalid rule ID to filter by
+         */
         public void setInvalidRulesFilter(String invalidRulesFilter) { this.invalidRulesFilter = invalidRulesFilter; }
 
-        // Métodos adicionales para compatibilidad
+        /**
+         * Gets the minimum snapshot ID (compatibility alias for snapshotId).
+         *
+         * @return the snapshot ID
+         */
         public Long getMinSnapshotId() { return snapshotId; }
+        
+        /**
+         * Sets the minimum snapshot ID (compatibility alias for snapshotId).
+         *
+         * @param minSnapshotId the snapshot ID
+         */
         public void setMinSnapshotId(Long minSnapshotId) { this.snapshotId = minSnapshotId; }
 
+        /**
+         * Gets the maximum snapshot ID (compatibility alias for snapshotId).
+         *
+         * @return the snapshot ID
+         */
         public Long getMaxSnapshotId() { return snapshotId; }
+        
+        /**
+         * Sets the maximum snapshot ID (compatibility alias for snapshotId).
+         *
+         * @param maxSnapshotId the snapshot ID
+         */
         public void setMaxSnapshotId(Long maxSnapshotId) { this.snapshotId = maxSnapshotId; }
 
         @Override
@@ -2781,41 +3019,149 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * Clase para resultados de agregación
+     * Result class for aggregation operations containing counts and statistics.
      */
     public static class AggregationResult {
+        /**
+         * Total count of records.
+         */
         private long totalCount = 0;
+        
+        /**
+         * Count of valid records.
+         */
         private long validCount = 0;
+        
+        /**
+         * Constructs a new AggregationResult with default zero values.
+         */
+        public AggregationResult() {
+        }
+        
+        /**
+         * Count of invalid records.
+         */
         private long invalidCount = 0;
+        
+        /**
+         * Count of transformed records.
+         */
         private long transformedCount = 0;
+        
+        /**
+         * Map of valid rule IDs to their occurrence counts.
+         */
         private Map<String, Long> validRuleCounts = new HashMap<>();
+        
+        /**
+         * Map of invalid rule IDs to their occurrence counts.
+         */
         private Map<String, Long> invalidRuleCounts = new HashMap<>();
 
-        // Getters y setters
+        /**
+         * Gets the total count of records.
+         *
+         * @return the total record count
+         */
         public long getTotalCount() { return totalCount; }
+        
+        /**
+         * Sets the total count of records.
+         *
+         * @param totalCount the total record count
+         */
         public void setTotalCount(long totalCount) { this.totalCount = totalCount; }
 
+        /**
+         * Gets the count of valid records.
+         *
+         * @return the valid record count
+         */
         public long getValidCount() { return validCount; }
+        
+        /**
+         * Sets the count of valid records.
+         *
+         * @param validCount the valid record count
+         */
         public void setValidCount(long validCount) { this.validCount = validCount; }
+        
+        /**
+         * Increments the valid record count by one.
+         */
         public void incrementValidCount() { this.validCount++; }
 
+        /**
+         * Gets the count of invalid records.
+         *
+         * @return the invalid record count
+         */
         public long getInvalidCount() { return invalidCount; }
+        
+        /**
+         * Sets the count of invalid records.
+         *
+         * @param invalidCount the invalid record count
+         */
         public void setInvalidCount(long invalidCount) { this.invalidCount = invalidCount; }
+        
+        /**
+         * Increments the invalid record count by one.
+         */
         public void incrementInvalidCount() { this.invalidCount++; }
 
+        /**
+         * Gets the count of transformed records.
+         *
+         * @return the transformed record count
+         */
         public long getTransformedCount() { return transformedCount; }
+        
+        /**
+         * Sets the count of transformed records.
+         *
+         * @param transformedCount the transformed record count
+         */
         public void setTransformedCount(long transformedCount) { this.transformedCount = transformedCount; }
+        
+        /**
+         * Increments the transformed record count by one.
+         */
         public void incrementTransformedCount() { this.transformedCount++; }
 
+        /**
+         * Increments the total record count by one.
+         */
         public void incrementTotalCount() { this.totalCount++; }
 
+        /**
+         * Gets the map of valid rule occurrence counts.
+         *
+         * @return the map of valid rule IDs to their counts
+         */
         public Map<String, Long> getValidRuleCounts() { return validRuleCounts; }
+        
+        /**
+         * Gets the map of invalid rule occurrence counts.
+         *
+         * @return the map of invalid rule IDs to their counts
+         */
         public Map<String, Long> getInvalidRuleCounts() { return invalidRuleCounts; }
 
+        /**
+         * Adds an occurrence of a valid rule, incrementing its count.
+         *
+         * @param rule the rule ID to increment
+         */
         public void addValidRuleCount(String rule) {
             validRuleCounts.merge(rule, 1L, Long::sum);
         }
 
+        /**
+         * Adds an occurrence of an invalid rule, incrementing its count.
+         *
+         * @param rule the rule ID to increment
+         */
         public void addInvalidRuleCount(String rule) {
             invalidRuleCounts.merge(rule, 1L, Long::sum);
         }

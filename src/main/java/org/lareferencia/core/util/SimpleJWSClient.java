@@ -32,14 +32,30 @@ import javax.net.ssl.HttpsURLConnection;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
+/**
+ * Simple client for making HTTP/HTTPS GET requests and parsing JSON responses.
+ * Provides basic functionality for retrieving JSON data from web services
+ * without requiring complex HTTP client libraries.
+ */
 public class SimpleJWSClient {
 	
-	
+	/**
+	 * Constructs a new SimpleJWSClient instance.
+	 */
     public SimpleJWSClient() {
 		super();
 	}
 
-
+	/**
+	 * Performs an HTTP GET request to the specified URL and parses the response as JSON.
+	 * Automatically handles both HTTP and HTTPS connections.
+	 *
+	 * @param urlString the URL to send the GET request to
+	 * @return the parsed JSON object from the response
+	 * @throws IOException if an I/O error occurs during the request
+	 * @throws ParseException if the response cannot be parsed as valid JSON
+	 * @throws RuntimeException if the HTTP response code is not 200
+	 */
 	public Object get(String urlString) throws IOException, ParseException {
 		
 		URL url = new URL(urlString);	

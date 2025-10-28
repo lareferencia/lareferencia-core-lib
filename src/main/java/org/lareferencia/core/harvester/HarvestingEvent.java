@@ -29,15 +29,33 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
+/**
+ * Represents a harvesting event with records and status information.
+ * <p>
+ * Contains harvested records, deleted identifiers, and event metadata.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 @Getter
 @Setter
 @ToString
 public class HarvestingEvent {
 
 	
-	
+	/**
+	 * List of harvested records in this event.
+	 */
 	private List<OAIRecordMetadata> records;
+	
+	/**
+	 * List of identifiers for deleted records.
+	 */
 	private List<String> deletedRecordsIdentifiers;
+	
+	/**
+	 * List of identifiers for missing records.
+	 */
 	private List<String> missingRecordsIdentifiers;
 	
 	private String message;
@@ -47,6 +65,9 @@ public class HarvestingEvent {
 	private String metadataPrefix;
 	private boolean recordMissing = false;
 	
+	/**
+	 * Creates a new harvesting event with empty record lists.
+	 */
 	public HarvestingEvent() {
 		this.records = new ArrayList<OAIRecordMetadata>(100);
 		this.deletedRecordsIdentifiers = new ArrayList<String>();
@@ -54,7 +75,9 @@ public class HarvestingEvent {
 	}
 	
 
-	
+	/**
+	 * Clears all event data for reuse.
+	 */
 	public void reset() {
 		
 		this.records.clear();

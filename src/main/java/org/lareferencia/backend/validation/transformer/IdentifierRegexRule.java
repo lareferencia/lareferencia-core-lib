@@ -31,8 +31,19 @@ import org.w3c.dom.Node;
 import java.util.HashSet;
 import java.util.Set;
 
+/**
+ * Transformation rule that applies regex replacement to record identifiers.
+ * <p>
+ * Uses regex patterns to modify OAI record identifiers.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class IdentifierRegexRule extends AbstractTransformerRule {
 
+	/**
+	 * Regex pattern for searching in identifiers.
+	 */
 	@Getter
 	String regexSearch;
 
@@ -41,11 +52,19 @@ public class IdentifierRegexRule extends AbstractTransformerRule {
 	String regexReplace;
 
 
+	/**
+	 * Creates a new identifier regex rule.
+	 */
 	public IdentifierRegexRule() {
 		
 		
 	}
 	
+	/**
+	 * Sets the regex search pattern.
+	 * 
+	 * @param regexPattern the regex pattern to search for
+	 */
 	public void setRegexSearch(String regexPattern) {
 		this.regexSearch = regexPattern;
 		//regexPredicate = Pattern.compile(regexPattern).asPredicate();
@@ -56,6 +75,13 @@ public class IdentifierRegexRule extends AbstractTransformerRule {
 	String occr = null;
 	String replace = null;
 
+	/**
+	 * Transforms the record identifier using regex replacement.
+	 * 
+	 * @param record the OAI record to transform
+	 * @param metadata the metadata (not used in this rule)
+	 * @return true always, as transformation is always applied
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 

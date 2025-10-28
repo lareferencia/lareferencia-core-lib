@@ -28,6 +28,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.*;
 import java.util.List;
 
+/**
+ * Validator for large controlled value lists, supporting CSV-based value storage.
+ */
 @JsonIgnoreProperties({ "controlledValues" })
 public class LargeControlledValueFieldContentValidatorRule extends ControlledValueFieldContentValidatorRule {
 	
@@ -37,9 +40,24 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 	private static final int MAX_PRINTED_LINES = 25;
 	private static final String CSV_SEPARATOR = ";";
 
+	/**
+	 * Constructs a new large controlled value validator.
+	 */
+	public LargeControlledValueFieldContentValidatorRule() {
+		super();
+	}
+
+	/**
+	 * CSV string containing controlled values separated by semicolons.
+	 */
 	@JsonProperty("controlledValuesCSV")
 	private String controlledValuesCSV;
 
+	/**
+	 * Gets the controlled values as a CSV string.
+	 *
+	 * @return CSV string of controlled values
+	 */
 	public String getControlledValuesCSV() {
 		if (controlledValuesCSV == null)
 			return getCSVStringFromControlledValues(this.controlledValues);
@@ -47,11 +65,21 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 			return controlledValuesCSV;
 	}
 
+	/**
+	 * Sets the controlled values from a CSV string.
+	 *
+	 * @param controlledValuesCSV CSV string containing controlled values
+	 */
 	public void setControlledValuesCSV(String controlledValuesCSV) {
 		this.controlledValuesCSV = controlledValuesCSV;
 		this.setControlledValuesFromCsvString(controlledValuesCSV);
 	}
 
+	/**
+	 * Parses and sets controlled values from a CSV-formatted string.
+	 *
+	 * @param csvString CSV string with values separated by semicolons
+	 */
 	public void setControlledValuesFromCsvString(String csvString) {
 
 		logger.debug("\n\nCargando validador: valores controlados desde cadenaCSV");
@@ -71,6 +99,12 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 		logger.debug("\nFin Carga validador: valores controlados desde cadenaCSV");
 	}
 
+	/**
+	 * Converts a list of controlled values to a CSV string.
+	 *
+	 * @param controlledList list of controlled values
+	 * @return CSV string representation
+	 */
 	private String getCSVStringFromControlledValues(List<String> controlledList) {
 		// TODO: Cambiar por un String Buffer para mejorar performance
 		String result = "";
@@ -85,6 +119,15 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 		return result;
 	}
 
+	/**
+	 * Loads controlled values from a file.
+	 * <p>
+	 * Reads values line by line from the specified file in UTF-8 encoding.
+	 * Logs the loading process and prints the first MAX_PRINTED_LINES values.
+	 * </p>
+	 *
+	 * @param filename path to the file containing controlled values
+	 */
 	public void setControlledValuesFileName(String filename) {
 
 		try {

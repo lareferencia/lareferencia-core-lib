@@ -20,6 +20,17 @@
 
 package org.lareferencia.core.metadata;
 
+/**
+ * Enumeration of possible validation statuses for OAI records.
+ * Tracks whether a record has been validated and the validation result.
+ */
 public enum RecordStatus {
-	INVALID, VALID, UNTESTED, DELETED
+	/** Record failed validation */
+	INVALID, 
+	/** Record passed validation */
+	VALID, 
+	/** Record has not been validated yet */
+	UNTESTED, 
+	/** Record has been marked for deletion */
+	DELETED
 }

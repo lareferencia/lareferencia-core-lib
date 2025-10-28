@@ -22,10 +22,21 @@
 package org.lareferencia.core.util.date;
 
 /**
- * Date validation
- * @author pgraca
- *
+ * Interface for date string validation.
+ * <p>
+ * Defines a contract for validators that check if a string
+ * represents a valid date in a specific format.
+ * </p>
+ * 
+ * @author LA Referencia Team
  */
 public interface IDateValidator {
+	
+	/**
+	 * Validates if a string represents a valid date.
+	 * 
+	 * @param dateStr the date string to validate
+	 * @return true if the string is a valid date, false otherwise
+	 */
     boolean isValid(String dateStr);
 }

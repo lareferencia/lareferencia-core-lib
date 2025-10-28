@@ -36,6 +36,14 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Evaluator for field expressions with logical operators.
+ * <p>
+ * Supports AND, OR, NOT operators and pattern matching on metadata fields.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class FieldExpressionEvaluator extends AbstractEvaluator<Boolean> {
 	
 	private static Logger logger = LogManager.getLogger(FieldExpressionEvaluator.class);
@@ -48,7 +56,14 @@ public class FieldExpressionEvaluator extends AbstractEvaluator<Boolean> {
 	/** The logical OR operator. */
 	public final static Operator OR = new Operator("OR", 2, Operator.Associativity.LEFT, 1);
 
+	/**
+	 * Pattern for matching field expressions with operators.
+	 */
 	public final static Pattern PATTERN = Pattern.compile("(.+)(==|=%)'(.*)'");
+	
+	/**
+	 * Pattern for tokenizing expressions into components.
+	 */
 	public final static Pattern TOKENIZER_PATTERN = Pattern.compile("\\(|\\)|[^\\s']+?(==|=%)'[^']*'|[^\\s']+");
 
 	private static final Parameters PARAMETERS;
@@ -64,13 +79,24 @@ public class FieldExpressionEvaluator extends AbstractEvaluator<Boolean> {
 		PARAMETERS.addExpressionBracket(BracketPair.PARENTHESES);
 	}
 
+	/**
+	 * Quantifier for field matching.
+	 */
 	private QuantifierValues quantifier;
 
+	/**
+	 * Creates an expression evaluator with the specified quantifier.
+	 * 
+	 * @param quantifier the quantifier for field matching
+	 */
 	public FieldExpressionEvaluator(QuantifierValues quantifier) {
 		super(PARAMETERS);
 		this.quantifier = quantifier;
 	}
 
+	/**
+	 * List of validation results from the evaluation.
+	 */
 	@Getter
 	List<ContentValidatorResult> evaluationResults;
 

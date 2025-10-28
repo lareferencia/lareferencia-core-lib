@@ -21,8 +21,19 @@
 
 package org.lareferencia.core.util.hashing;
 
+/**
+ * Interface for calculating hash values from strings.
+ * 
+ * @author LA Referencia Team
+ */
 public interface IHashingHelper {
 
+	/**
+	 * Calculates a hash value for the given metadata string.
+	 * 
+	 * @param metadata the metadata string to hash
+	 * @return the calculated hash string
+	 */
 	String calculateHash(String metadata);
 
 }

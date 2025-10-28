@@ -24,6 +24,17 @@ import org.lareferencia.backend.domain.Transformer;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 
+/**
+ * JPA Repository for {@link Transformer} entity.
+ * <p>
+ * Provides CRUD operations for managing transformer configurations.
+ * Transformers define the transformation rules applied to metadata records
+ * during the validation and enrichment process.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see Transformer
+ */
 @RepositoryRestResource(path = "transformer", collectionResourceRel = "transformer")
 public interface TransformerRepository extends JpaRepository<Transformer, Long> {
 

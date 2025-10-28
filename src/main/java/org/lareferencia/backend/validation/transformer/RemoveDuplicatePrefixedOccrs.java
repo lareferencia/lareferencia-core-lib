@@ -29,20 +29,42 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.RepositoryNameHelper;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 
+/**
+ * Transformer rule that removes duplicate occurrences with a specific prefix from a metadata field.
+ * Useful for cleaning repository names and other prefixed values that may appear multiple times.
+ */
 public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 
+	/**
+	 * Name of the metadata field to remove duplicate prefixed values from.
+	 * Defaults to "dc.source.none".
+	 */
 	@Getter
 	@Setter
 	private String fieldName = "dc.source.none" ;
 
+	/**
+	 * The prefix used to identify values to deduplicate.
+	 * Defaults to "instname:".
+	 */
 	@Getter
 	@Setter
 	private String prefix = "instname:";
 	
-	
+	/**
+	 * Constructs a new RemoveDuplicatePrefixedOccrs instance with default field and prefix.
+	 */
 	public RemoveDuplicatePrefixedOccrs() {
 	}
 
+	/**
+	 * Transforms the record by removing duplicate occurrences of prefixed values
+	 * from the specified field using RepositoryNameHelper.
+	 *
+	 * @param record the OAI record being processed
+	 * @param metadata the record's metadata containing the field to deduplicate
+	 * @return true if any duplicates were removed, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 		return RepositoryNameHelper.removeDuplicates(metadata, fieldName, prefix);

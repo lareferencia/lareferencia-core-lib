@@ -24,17 +24,44 @@ package org.lareferencia.core.metadata;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Represents a metadata element definition with name, type, and XPath expression.
+ * Used to define metadata schema structure for OAI records.
+ */
 @Getter
 @Setter
 public class OAIMetadataElement {
 	
+	/**
+	 * Constructs a new OAI metadata element with default values.
+	 */
+	public OAIMetadataElement() {
+	}
+	
+	/**
+	 * The name of this metadata element.
+	 */
 	String name;
+	
+	/**
+	 * The type of this metadata element (field or element).
+	 */
 	Type type;
+	
+	/**
+	 * The XPath expression to locate this element in the metadata document.
+	 */
 	String xpath;
 	
 	
+	/**
+	 * Enumeration of possible metadata element types.
+	 */
 	public enum Type {
-		element, field
+		/** A field element containing text content */
+		element, 
+		/** A field element with specific data */
+		field
 	}
 
 }

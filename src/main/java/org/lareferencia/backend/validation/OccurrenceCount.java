@@ -30,12 +30,25 @@ import lombok.Setter;
 @Getter
 @Setter
 public class OccurrenceCount {
+	/**
+	 * Constructs an OccurrenceCount with the specified value and count.
+	 *
+	 * @param value the field value being counted
+	 * @param count the number of occurrences
+	 */
     public OccurrenceCount(String value, int count) {
         super();
         this.value = value;
         this.count = count;
     }
 
+	/**
+	 * The field value being counted.
+	 */
     String value;
+    
+	/**
+	 * The number of occurrences of this value.
+	 */
     Integer count;
 }

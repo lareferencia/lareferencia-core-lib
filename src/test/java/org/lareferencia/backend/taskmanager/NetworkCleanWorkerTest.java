@@ -1,0 +1,146 @@
+/*
+ *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
+ *
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU Affero General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU Affero General Public License for more details.
+ *
+ *   You should have received a copy of the GNU Affero General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *   This file is part of LA Referencia software platform LRHarvester v4.x
+ *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
+ */
+
+package org.lareferencia.backend.taskmanager;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.lareferencia.core.worker.NetworkRunningContext;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@DisplayName("NetworkCleanWorker Tests")
+class NetworkCleanWorkerTest {
+
+    private NetworkCleanWorker worker;
+
+    @BeforeEach
+    void setUp() {
+        worker = new NetworkCleanWorker();
+    }
+
+    @Test
+    @DisplayName("Should create NetworkCleanWorker instance")
+    void testConstructor() {
+        assertNotNull(worker);
+        assertEquals("NetworkCleanWorker", worker.getName());
+    }
+
+    @Test
+    @DisplayName("Should initialize with deleteEntireNetwork as false")
+    void testDefaultDeleteEntireNetwork() {
+        assertFalse(worker.isDeleteEntireNetwork());
+    }
+
+    @Test
+    @DisplayName("Should set and get deleteEntireNetwork")
+    void testSetAndGetDeleteEntireNetwork() {
+        worker.setDeleteEntireNetwork(true);
+        assertTrue(worker.isDeleteEntireNetwork());
+        
+        worker.setDeleteEntireNetwork(false);
+        assertFalse(worker.isDeleteEntireNetwork());
+    }
+
+    @Test
+    @DisplayName("Should return 'Cleaner' toString when not deleting entire network")
+    void testToStringCleaner() {
+        worker.setDeleteEntireNetwork(false);
+        assertEquals("Cleaner", worker.toString());
+    }
+
+    @Test
+    @DisplayName("Should return 'Delete' toString when deleting entire network")
+    void testToStringDelete() {
+        worker.setDeleteEntireNetwork(true);
+        assertEquals("Delete", worker.toString());
+    }
+
+    @Test
+    @DisplayName("Should extend BaseWorker")
+    void testInheritance() {
+        assertTrue(worker instanceof org.lareferencia.core.worker.BaseWorker);
+    }
+
+    @Test
+    @DisplayName("Should set running context")
+    void testSetRunningContext() {
+        NetworkRunningContext context = createMockContext();
+        worker.setRunningContext(context);
+        assertEquals(context, worker.getRunningContext());
+    }
+
+    @Test
+    @DisplayName("Should set incremental mode")
+    void testIncrementalMode() {
+        assertFalse(worker.isIncremental());
+        
+        worker.setIncremental(true);
+        assertTrue(worker.isIncremental());
+    }
+
+    @Test
+    @DisplayName("Should set serial lane ID")
+    void testSerialLaneId() {
+        worker.setSerialLaneId(42L);
+        assertEquals(42L, worker.getSerialLaneId());
+    }
+
+    @Test
+    @DisplayName("Should set custom name")
+    void testSetCustomName() {
+        worker.setName("CustomCleaner");
+        assertEquals("CustomCleaner", worker.getName());
+    }
+
+    @Test
+    @DisplayName("Should handle null context")
+    void testNullContext() {
+        worker.setRunningContext(null);
+        assertNull(worker.getRunningContext());
+    }
+
+    @Test
+    @DisplayName("Should configure for partial clean")
+    void testPartialClean() {
+        worker.setDeleteEntireNetwork(false);
+        
+        assertFalse(worker.isDeleteEntireNetwork());
+        assertEquals("Cleaner", worker.toString());
+    }
+
+    @Test
+    @DisplayName("Should configure for full deletion")
+    void testFullDeletion() {
+        worker.setDeleteEntireNetwork(true);
+        
+        assertTrue(worker.isDeleteEntireNetwork());
+        assertEquals("Delete", worker.toString());
+    }
+
+    // Helper method
+    private NetworkRunningContext createMockContext() {
+        org.lareferencia.backend.domain.Network network = new org.lareferencia.backend.domain.Network();
+        network.setAcronym("TEST");
+        network.setName("Test Network");
+        return new NetworkRunningContext(network);
+    }
+}

@@ -38,31 +38,65 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * NationalNetwork Entity
+ * JPA entity representing a single validation rule within a {@link Validator}.
+ * <p>
+ * Each ValidatorRule defines a specific validation check that can be applied to
+ * metadata records. Rules can be mandatory or optional and specify quantifier
+ * constraints (e.g., ONE_OR_MORE, ZERO_OR_MORE) for field occurrences.
+ * </p>
+ * <p>
+ * The rule logic is stored as a JSON serialization, allowing for flexible and
+ * extensible rule definitions that can be deserialized into specific rule
+ * implementations at runtime.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see Validator
+ * @see QuantifierValues
  */
 @Entity
 @Getter
 @Setter
 public class ValidatorRule {
 	
+	/** Unique identifier for the validator rule. */
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	protected Long id = null;
 
+	/**
+	 * Constructs a new ValidatorRule instance.
+	 */
+	public ValidatorRule() {
+	}
+
+	/**
+	 * The name of the validator rule.
+	 */
 	@Column(nullable = false)
 	private String name;
 
+	/**
+	 * Optional description of the validator rule.
+	 */
 	@Column(nullable = true)
 	private String description;
 
+	/**
+	 * Whether this validation rule is mandatory.
+	 */
 	@Column(nullable = false)
 	protected Boolean mandatory = false;
 
+	/**
+	 * The quantifier specifying how many occurrences are expected.
+	 */
 	@Column(nullable = false)
 	protected QuantifierValues quantifier = QuantifierValues.ONE_OR_MORE;
 
-	@Setter
-	@Getter
+	/**
+	 * JSON serialization of the validator rule configuration.
+	 */
 	@JdbcTypeCode(SqlTypes.LONGVARCHAR)
 	private String jsonserialization;
 

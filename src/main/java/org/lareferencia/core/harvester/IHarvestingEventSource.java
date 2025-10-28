@@ -20,8 +20,30 @@
 
 package org.lareferencia.core.harvester;
 
+/**
+ * Interface for sources that generate harvesting events.
+ * <p>
+ * Implements the observer pattern for harvesting operations,
+ * allowing listeners to be notified of harvesting progress and status.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see IHarvestingEventListener
+ * @see HarvestingEvent
+ */
 public interface IHarvestingEventSource {
+	
+	/**
+	 * Registers a listener to receive harvesting events.
+	 * 
+	 * @param listener the listener to add
+	 */
 	public void addEventListener(IHarvestingEventListener listener);
 
+	/**
+	 * Removes a previously registered listener.
+	 * 
+	 * @param listener the listener to remove
+	 */
 	public void removeEventListener(IHarvestingEventListener listener);
 }

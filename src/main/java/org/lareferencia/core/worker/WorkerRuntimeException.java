@@ -21,11 +21,20 @@
 
 package org.lareferencia.core.worker;
 
+/**
+ * Exception thrown when a worker encounters a runtime error during execution.
+ * Extends Exception to indicate recoverable worker failures that should be handled
+ * by the worker management system.
+ */
 public class WorkerRuntimeException extends Exception {
 
+	/**
+	 * Constructs a new WorkerRuntimeException with the specified detail message.
+	 *
+	 * @param msg the detail message explaining the error
+	 */
 	public WorkerRuntimeException(String msg) {
 		super(msg);
-		// TODO Auto-generated constructor stub
 	}
 	
 	

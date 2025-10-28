@@ -26,15 +26,28 @@ import lombok.Getter;
 import lombok.Setter;
 
 
+/**
+ * Represents metadata information for a bitstream (file) associated with an OAI record.
+ * Contains file properties like name, type, URL, format, and checksum.
+ */
 @Setter
 public class OAIMetadataBitstream {
 
+	/**
+	 * Constructs a new OAI metadata bitstream with default values.
+	 */
 	public OAIMetadataBitstream() {
 	}
 	
+	/**
+	 * The sequence ID of this bitstream within the record.
+	 */
 	@Getter
 	Integer sid;
 	
+	/**
+	 * The type of bitstream (e.g., "ORIGINAL", "TEXT").
+	 */
 	@Getter
 	String type;
 	
@@ -56,17 +69,15 @@ public class OAIMetadataBitstream {
 	
 	@Override
 	public String toString() {
-		return "OAIMetadataBundle [name=" + name + ", typet=" + type + ", url=" + url + "]";
+		return "OAIMetadataBundle [name=" + name + ", type=" + type + ", url=" + url + "]";
 	}
 
-
-
+	/**
+	 * Gets the MD5 checksum of the bitstream file.
+	 * 
+	 * @return the file checksum
+	 */
 	public String getChecksum() {
-		
-		if ( checksum == null || checksum.equals("") ) {
-			
-		}
-		
 		return checksum;
 	}
        

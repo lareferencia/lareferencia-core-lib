@@ -34,15 +34,32 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.UnknownHostException;
 
+/**
+ * Validation rule that checks if URLs in a metadata field exist and are accessible.
+ * Performs HTTP HEAD requests to verify URL availability, following redirects automatically.
+ */
 @Getter
 @Setter
 public class URLExistFieldValidatorRule extends AbstractValidatorFieldContentRule {
 	
 	private static Logger logger = LogManager.getLogger(URLExistFieldValidatorRule.class);
 	
+	/**
+	 * Constructs a new URLExistFieldValidatorRule instance.
+	 */
 	public URLExistFieldValidatorRule() {
 	}
 	
+	/**
+	 * Checks if the specified URL exists and returns HTTP 200 OK status.
+	 * Automatically follows HTTP redirects (301, 302, 303) to verify final destination.
+	 *
+	 * @param url the URL to check for existence
+	 * @return true if the URL exists and is accessible (HTTP 200), false otherwise
+	 * @throws MalformedURLException if the URL format is invalid
+	 * @throws UnknownHostException if the host cannot be resolved
+	 * @throws IOException if an I/O error occurs during connection
+	 */
 	private boolean exists(String url) throws MalformedURLException, UnknownHostException, IOException  {
 	
 		HttpsURLConnection.setFollowRedirects(true);

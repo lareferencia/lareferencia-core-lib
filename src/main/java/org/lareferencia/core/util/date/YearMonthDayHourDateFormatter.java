@@ -25,13 +25,27 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /**
- * DateTimeFormatter for date with format yyyy-MM-dd
+ * Date formatter supporting multiple year-month-day-hour patterns with optional milliseconds.
+ * Handles timestamps in various formats including ISO-style and custom formats.
  *
  * @author pgraca
- *
  */
 public class YearMonthDayHourDateFormatter implements IDateTimeFormatter {
 
+	/**
+	 * Constructs a new year-month-day-hour date formatter.
+	 */
+	public YearMonthDayHourDateFormatter() {
+		// Default constructor
+	}
+
+	/**
+	 * Returns a DateTimeFormatter configured to parse multiple year-month-day-hour patterns.
+	 * Supports formats: yyyy-MM-dd HH:mm:ss.SSSSSS, yyyy/MM/dd HH:mm:ss.SSSSSS,
+	 * yyyy-MM-dd HH:mm:ss[.SSS], ddMMMyyyy:HH:mm:ss.SSS[ Z].
+	 *
+	 * @return the configured DateTimeFormatter
+	 */
     @Override
     public DateTimeFormatter getFormatter() {
         return DateTimeFormatter.ofPattern(

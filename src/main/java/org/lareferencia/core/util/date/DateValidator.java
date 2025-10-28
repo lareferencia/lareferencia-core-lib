@@ -24,9 +24,24 @@ package org.lareferencia.core.util.date;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 
+/**
+ * Validator for date strings using a specific formatter.
+ * <p>
+ * Checks if a date string can be parsed using the configured
+ * DateTimeFormatter pattern.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see IDateValidator
+ */
 public class DateValidator implements IDateValidator {
     private DateTimeFormatter dateFormatter;
 
+    /**
+     * Creates a date validator with the specified formatter.
+     * 
+     * @param dateFormatter the formatter to use for validation
+     */
     public DateValidator(DateTimeFormatter dateFormatter) {
         this.dateFormatter = dateFormatter;
     }

@@ -51,17 +51,42 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     @JsonIgnore
     private transient List<String> invalidRulesIDList;
     
-    // Métodos de compatibilidad para mantener la interfaz original de Parquet
+    /**
+     * Gets the snapshot ID using legacy method name for compatibility.
+     * 
+     * @return the snapshot ID
+     */
     public Long getSnapshotID() {
         return getSnapshotId();
     }
     
+    /**
+     * Sets the snapshot ID using legacy method name for compatibility.
+     * 
+     * @param snapshotID the snapshot ID to set
+     */
     public void setSnapshotID(Long snapshotID) {
         setSnapshotId(snapshotID);
     }
     
     /**
-     * Constructor a partir de los mapas y listas originales
+     * Constructs a validation observation from original maps and lists.
+     * 
+     * @param id unique identifier
+     * @param identifier OAI record identifier
+     * @param snapshotId snapshot ID
+     * @param origin origin URL
+     * @param setSpec OAI set specification
+     * @param metadataPrefix metadata format prefix
+     * @param networkAcronym network acronym
+     * @param repositoryName repository name
+     * @param institutionName institution name
+     * @param isValid whether record is valid
+     * @param isTransformed whether record was transformed
+     * @param validOccurrencesByRuleID map of valid occurrences by rule ID
+     * @param invalidOccurrencesByRuleID map of invalid occurrences by rule ID
+     * @param validRulesIDList list of valid rule IDs
+     * @param invalidRulesIDList list of invalid rule IDs
      */
     public ValidationStatObservationParquet(String id, String identifier, Long snapshotId, String origin,
                                           String setSpec, String metadataPrefix, String networkAcronym,
@@ -89,7 +114,9 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     }
     
     /**
-     * Obtiene el mapa de ocurrencias válidas deserializando del JSON
+     * Gets the map of valid occurrences by deserializing from JSON.
+     * 
+     * @return map of valid occurrences by rule ID
      */
     public Map<String, List<String>> getValidOccurrencesByRuleID() {
         if (validOccurrencesByRuleID == null && getValidOccurrencesByRuleIDJson() != null) {
@@ -99,7 +126,9 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     }
     
     /**
-     * Obtiene el mapa de ocurrencias inválidas deserializando del JSON
+     * Gets the map of invalid occurrences by deserializing from JSON.
+     * 
+     * @return map of invalid occurrences by rule ID
      */
     public Map<String, List<String>> getInvalidOccurrencesByRuleID() {
         if (invalidOccurrencesByRuleID == null && getInvalidOccurrencesByRuleIDJson() != null) {
@@ -109,7 +138,9 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     }
     
     /**
-     * Obtiene la lista de reglas válidas deserializando del string
+     * Gets the list of valid rule IDs by deserializing from the string.
+     * 
+     * @return list of valid rule IDs
      */
     @JsonIgnore
     public List<String> getValidRulesIDList() {
@@ -120,7 +151,9 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     }
     
     /**
-     * Obtiene la lista de reglas inválidas deserializando del string
+     * Gets the list of invalid rule IDs by deserializing from the string.
+     * 
+     * @return list of invalid rule IDs
      */
     @JsonIgnore
     public List<String> getInvalidRulesIDList() {
@@ -131,7 +164,9 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     }
 
     /**
-     * Método para JSON - retorna la lista de reglas válidas directamente como array
+     * Returns the list of valid rule IDs directly as an array for JSON serialization.
+     * 
+     * @return list of valid rule IDs
      */
     @JsonProperty("validRulesID")
     public List<String> getValidRulesIDForJson() {
@@ -139,7 +174,9 @@ public class ValidationStatObservationParquet extends ValidationStatObservation 
     }
 
     /**
-     * Método para JSON - retorna la lista de reglas inválidas directamente como array
+     * Returns the list of invalid rule IDs directly as an array for JSON serialization.
+     * 
+     * @return list of invalid rule IDs
      */
     @JsonProperty("invalidRulesID")
     public List<String> getInvalidRulesIDForJson() {

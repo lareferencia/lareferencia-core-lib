@@ -26,14 +26,28 @@ import java.util.List;
 
 import org.w3c.dom.Document;
 
+/**
+ * Service for managing and executing metadata format transformations.
+ */
 public class MDFormatTransformerService {
 
+	/**
+	 * Map of transformers organized by source and target metadata formats.
+	 */
 	HashMap<String, HashMap<String, IMDFormatTransformer>> trfMap; 
 
+	/**
+	 * Constructs a new metadata format transformer service.
+	 */
 	public MDFormatTransformerService() {	
 		trfMap = new HashMap<String, HashMap<String, IMDFormatTransformer>>();		
 	}
 
+	/**
+	 * Sets the list of available transformers.
+	 *
+	 * @param transformers list of metadata format transformers
+	 */
 	public void setTransformers(List<IMDFormatTransformer> transformers) {
 
 		// builds a multidimensional map with [sourceMDF][targetMDF] as keys
@@ -47,19 +61,50 @@ public class MDFormatTransformerService {
 		}
 	}
 
+	/**
+	 * Gets the list of available source metadata formats.
+	 *
+	 * @return list of source format names
+	 */
 	public List<String> getSourceMetadataFormats() {
 		return new ArrayList<String>( trfMap.keySet() );
 	}
 
 
+	/**
+	 * Transforms a metadata document from one format to another.
+	 * 
+	 * @param srcMDFormat the source metadata format identifier
+	 * @param tgtMDFormat the target metadata format identifier
+	 * @param source the source document to transform
+	 * @return the transformed document in the target format
+	 * @throws MDFormatTranformationException if the transformation fails or no transformer is found
+	 */
 	public Document transform(String srcMDFormat, String tgtMDFormat, Document source) throws MDFormatTranformationException {
 		return this.getMDTransformer(srcMDFormat, tgtMDFormat).transform(source) ;
 	}
 
+	/**
+	 * Transforms a metadata document from one format to another and returns the result as a string.
+	 * 
+	 * @param srcMDFormat the source metadata format identifier
+	 * @param tgtMDFormat the target metadata format identifier
+	 * @param source the source document to transform
+	 * @return the transformed metadata as an XML string
+	 * @throws MDFormatTranformationException if the transformation fails or no transformer is found
+	 */
 	public String   transformToString(String srcMDFormat, String tgtMDFormat, Document source) throws MDFormatTranformationException {
 		return this.getMDTransformer(srcMDFormat, tgtMDFormat).transformToString(source);
 	}
 
+	/**
+	 * Retrieves the metadata format transformer for the specified source and target formats.
+	 * 
+	 * @param srcMDFormat the source metadata format identifier
+	 * @param tgtMDFormat the target metadata format identifier
+	 * @return the transformer capable of converting from source to target format
+	 * @throws MDFormatTranformationException if no transformer exists for the format pair
+	 */
 	public IMDFormatTransformer getMDTransformer(String srcMDFormat, String tgtMDFormat) throws MDFormatTranformationException {
 		try {
 

@@ -45,7 +45,23 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
+ * JPA entity representing an OAI-PMH record harvested from a network repository.
+ * <p>
+ * This class models individual metadata records obtained through OAI-PMH harvesting.
+ * Each record belongs to a specific {@link NetworkSnapshot} and maintains information
+ * about its processing status, metadata content hashes, and timestamps.
+ * </p>
+ * <p>
+ * Records undergo validation and transformation processing, with their status
+ * tracked through the {@link RecordStatus} field. The entity stores hash values
+ * of both original and published metadata to detect changes and avoid redundant
+ * reprocessing.
+ * </p>
  * 
+ * @author LA Referencia Team
+ * @see NetworkSnapshot
+ * @see RecordStatus
+ * @see OAIMetadata
  */
 @Getter
 @Entity
@@ -99,12 +115,20 @@ public class OAIRecord  {
 	@Column(name = "snapshot_id", insertable = false, updatable = false)
 	private Long snapshotId;
 
+	/**
+	 * Default constructor initializing the record with UNTESTED status.
+	 */
 	public OAIRecord() {
 		super();
 		this.status = RecordStatus.UNTESTED;
 		this.datestamp = LocalDateTime.now();
 	}
 
+	/**
+	 * Constructor that associates the record with a specific snapshot.
+	 * 
+	 * @param snapshot the network snapshot this record belongs to
+	 */
 	public OAIRecord(NetworkSnapshot snapshot) {
 		super();
 		this.snapshot = snapshot;

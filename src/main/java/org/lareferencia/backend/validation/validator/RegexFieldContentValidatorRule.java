@@ -30,22 +30,54 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
+/**
+ * Validator rule that validates field content against a regular expression pattern.
+ * Checks if the content matches the specified regex pattern.
+ */
 @ToString(exclude = { "pattern" })
 public class RegexFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
 	private static final int MAX_EXPECTED_LENGTH = 100;
 
+	/**
+	 * Constructs a new regex field content validator rule.
+	 */
+	public RegexFieldContentValidatorRule() {
+		super();
+	}
+
+	/**
+	 * The regular expression string used for validation.
+	 */
 	@Getter
 	@JsonProperty("regexString")
 	private String regexString;
 
+	/**
+	 * The compiled regex pattern for efficient matching.
+	 */
 	private Pattern pattern;
 
+	/**
+	 * Sets the regular expression string and compiles it into a pattern.
+	 * 
+	 * @param reString the regex string to use for validation
+	 */
 	public void setRegexString(String reString) {
 		this.regexString = reString;
 		this.pattern = Pattern.compile(reString);
 	}
 
+	/**
+	 * Validates the content against the configured regular expression pattern.
+	 * <p>
+	 * Returns a result indicating whether the content matches the pattern.
+	 * Null content is treated as invalid. Long content is truncated for display.
+	 * </p>
+	 * 
+	 * @param content the content string to validate
+	 * @return the validation result with match status
+	 */
 	@Override
 	public ContentValidatorResult validate(String content) {
 

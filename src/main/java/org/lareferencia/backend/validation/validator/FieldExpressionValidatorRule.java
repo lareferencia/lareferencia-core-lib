@@ -51,14 +51,23 @@ public class FieldExpressionValidatorRule extends AbstractValidatorRule {
 	@JsonProperty("expression")
 	private String expression;
 
+	/**
+	 * Evaluator for processing field expressions.
+	 */
 	FieldExpressionEvaluator evaluator;
 
+	/**
+	 * Creates a new field expression validator rule.
+	 */
 	public FieldExpressionValidatorRule() {
 		evaluator = new FieldExpressionEvaluator(this.quantifier);
 	}
 
 	/**
+	 * Validates the metadata against the configured expression.
 	 * 
+	 * @param metadata the metadata to validate
+	 * @return the validation result
 	 */
 	public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
 

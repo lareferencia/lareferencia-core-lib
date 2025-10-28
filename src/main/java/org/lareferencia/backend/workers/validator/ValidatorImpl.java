@@ -35,6 +35,11 @@ import org.lareferencia.core.validation.ValidatorRuleResult;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Default implementation of the IValidator interface for metadata validation.
+ * Applies a list of validation rules to metadata and aggregates results,
+ * determining overall validity based on mandatory rule outcomes.
+ */
 @Getter
 @Setter
 public class ValidatorImpl implements IValidator {
@@ -43,11 +48,23 @@ public class ValidatorImpl implements IValidator {
 
 	List<IValidatorRule> rules;
 
+	/**
+	 * Constructs a new ValidatorImpl with an empty list of validation rules.
+	 */
 	public ValidatorImpl() {
 		super();
 		rules = new ArrayList<IValidatorRule>();
 	}
 
+	/**
+	 * Validates metadata against all configured rules and populates the result.
+	 * Record is considered valid if all mandatory rules pass; optional rules don't affect overall validity.
+	 *
+	 * @param metadata the metadata to validate
+	 * @param reusableResult the result object to populate (will be reset before use)
+	 * @return the validation result with individual rule outcomes and overall validity
+	 * @throws ValidationException if an error occurs during rule execution
+	 */
 	public ValidatorResult validate(OAIRecordMetadata metadata, ValidatorResult reusableResult) throws ValidationException {
 		
 		// clean result

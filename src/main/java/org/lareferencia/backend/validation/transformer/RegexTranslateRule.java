@@ -36,34 +36,61 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
 
+/**
+ * Transformer rule that translates field content using regular expression search and replace.
+ * Can copy translated content to a target field and optionally remove matching occurrences from the source.
+ */
 public class RegexTranslateRule extends AbstractTransformerRule {
 
+	/**
+	 * The name of the source field to read content from.
+	 */
 	@Setter
 	@Getter
 	String sourceFieldName;
 
+	/**
+	 * The name of the target field to write translated content to.
+	 */
 	@Setter
 	@Getter
 	String targetFieldName;
 	
+	/**
+	 * The regular expression pattern to search for in the field content.
+	 */
 	@Getter
 	String regexSearch;
 
+	/**
+	 * The replacement string to use when the regex pattern matches.
+	 */
 	@Setter
 	@Getter
 	String regexReplace;
 	
+	/**
+	 * Flag indicating whether to remove occurrences that match the regex pattern.
+	 */
 	@Setter
 	@Getter
 	Boolean removeMatchingOccurrences = false;
 	
 	//private Predicate<String> regexPredicate;
 
+	/**
+	 * Constructs a new regex translate rule with default settings.
+	 */
 	public RegexTranslateRule() {
 		
 		
 	}
 	
+	/**
+	 * Sets the regular expression search pattern.
+	 * 
+	 * @param regexPattern the regex pattern to search for
+	 */
 	public void setRegexSearch(String regexPattern) {
 		this.regexSearch = regexPattern;
 		//regexPredicate = Pattern.compile(regexPattern).asPredicate();

@@ -23,13 +23,27 @@ package org.lareferencia.backend.taskmanager;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Represents a configuration property for a network action.
+ * Each property has a name and a description to configure action behavior.
+ */
 @Getter
 @Setter
 public class NetworkProperty {
 
+	/**
+	 * Constructs a new network property with default values.
+	 */
 	public NetworkProperty() {
 	}
 	
+	/**
+	 * The name of this property.
+	 */
 	String name = "DUMMY";
+	
+	/**
+	 * A human-readable description of this property.
+	 */
 	String description = "DUMMY";
 }

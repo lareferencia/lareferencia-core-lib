@@ -25,10 +25,25 @@ import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
-
+/**
+ * Configuration for the broker subsystem.
+ * <p>
+ * Enables JPA entity scanning and repository support for broker events
+ * used to track and manage metadata changes and notifications.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 @EntityScan( basePackages= { "org.lareferencia.core.oabroker" } )
 @EnableJpaRepositories( basePackages={ "org.lareferencia.core.oabroker" } )
 @Configuration
 public class BrokerConfiguration {
+
+	/**
+	 * Private constructor to prevent instantiation of configuration class.
+	 */
+	private BrokerConfiguration() {
+		throw new UnsupportedOperationException("Configuration class");
+	}
 
 }

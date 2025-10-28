@@ -49,6 +49,11 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
+/**
+ * OAI-PMH harvester implementation using the OCLC Harvester2 library.
+ * Harvests metadata records from OAI-PMH repositories with support for resumption tokens,
+ * automatic retry on failures, metadata format transformation, and event notification.
+ */
 @Component
 @Scope(value = "prototype")
 public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements IHarvester {
@@ -98,12 +103,28 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 	// private static TransformerFactory xformFactory =
 	// TransformerFactory.newInstance();
 
+	/**
+	 * Constructs a new OCLCBasedHarvesterImpl instance and initializes harvesting state.
+	 */
 	public OCLCBasedHarvesterImpl() {
 		super();
 		logger.debug("Creando Harvester: " + this.toString());
 		reset();
 	}
 
+	/**
+	 * Harvests OAI-PMH records from the specified repository using the OCLC Harvester2 library.
+	 * Supports resumption tokens for large result sets and automatic retry on failures.
+	 *
+	 * @param originURL the base URL of the OAI-PMH repository
+	 * @param set the OAI set to harvest (optional, can be empty)
+	 * @param metadataPrefix the metadata format prefix to request (e.g., "oai_dc")
+	 * @param metadataStoreSchema the internal metadata storage schema
+	 * @param from the harvest start date in ISO format (optional)
+	 * @param until the harvest end date in ISO format (optional)
+	 * @param resumptionToken the resumption token for continuing previous harvest (optional)
+	 * @param maxRetries maximum number of retry attempts on failure
+	 */
 	public void harvest(String originURL, String set, String metadataPrefix, String metadataStoreSchema, String from, String until, String resumptionToken, int maxRetries) {
 		
 

@@ -35,6 +35,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/**
+ * Handles serialization and deserialization of validation and transformation rules to/from JSON.
+ * Uses Jackson ObjectMapper for JSON processing.
+ */
 @Component
 public class RuleSerializer {
 
@@ -47,6 +51,9 @@ public class RuleSerializer {
 	// JsonObject Mapper
 	private ObjectMapper mapper;
 
+	/**
+	 * Constructs a new RuleSerializer and initializes the JSON mapper.
+	 */
 	public RuleSerializer() {
 //		validatorPrototypes = new ArrayList<IValidatorRule>();
 //		transformerPrototypes = new ArrayList<ITransformerRule>();
@@ -101,6 +108,12 @@ public class RuleSerializer {
 //		updateObjectMapper();
 //	}
 
+	/**
+	 * Serializes a transformer rule to a JSON string.
+	 * 
+	 * @param rule the transformer rule to serialize
+	 * @return the JSON string representation of the rule, or null if serialization fails
+	 */
 	public String serializeTransformerToJsonString(ITransformerRule rule) {
 
 		try {
@@ -112,6 +125,12 @@ public class RuleSerializer {
 		return null;
 	}
 
+	/**
+	 * Serializes a validator rule to a JSON string.
+	 * 
+	 * @param rule the validator rule to serialize
+	 * @return the JSON string representation of the rule, or null if serialization fails
+	 */
 	public String serializeValidatorToJsonString(IValidatorRule rule) {
 
 		try {
@@ -123,6 +142,12 @@ public class RuleSerializer {
 		return null;
 	}
 
+	/**
+	 * Deserializes a validator rule from a JSON string.
+	 * 
+	 * @param jsonString the JSON string to deserialize
+	 * @return the deserialized validator rule, or null if deserialization fails
+	 */
 	public IValidatorRule deserializeValidatorFromJsonString(String jsonString) {
 
 		try {
@@ -146,6 +171,12 @@ public class RuleSerializer {
 		return null;
 	}
 
+	/**
+	 * Deserializes a transformer rule from a JSON string.
+	 * 
+	 * @param jsonString the JSON string to deserialize
+	 * @return the deserialized transformer rule, or null if deserialization fails
+	 */
 	public ITransformerRule deserializeTransformerFromJsonString(String jsonString) {
 
 		try {

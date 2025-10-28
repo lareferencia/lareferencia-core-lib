@@ -48,7 +48,22 @@ import lombok.Setter;
 import lombok.ToString;
 
 /**
- * NationalNetwork Entity
+ * JPA entity representing a national or institutional network in the LA Referencia platform.
+ * <p>
+ * This class models a network that participates in the LA Referencia federation.
+ * Each network represents an institution or national repository network that harvests
+ * and shares scholarly content. The entity manages network configuration, validation rules,
+ * transformation rules, and harvesting snapshots.
+ * </p>
+ * <p>
+ * Networks are configured with OAI-PMH settings, validation and transformation pipelines,
+ * and can be scheduled for periodic harvesting operations.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see NetworkSnapshot
+ * @see Validator
+ * @see Transformer
  */
 @Entity
 @Getter
@@ -56,13 +71,29 @@ import lombok.ToString;
 public class Network {
 	
 	
+	/**
+	 * Unique identifier for the network entity.
+	 */
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	protected Long id = null;
 	
+	/**
+	 * Constructs a new network instance.
+	 */
+	public Network() {
+		// Default constructor
+	}
+	
+	/**
+	 * Indicates whether the network is published and visible.
+	 */
 	@Setter
 	private Boolean published;
 		
+	/**
+	 * Unique acronym identifier for the network.
+	 */
 	@Setter
 	@Column(nullable = false, length = 20, unique = true)
 	private String acronym;
@@ -136,14 +167,16 @@ public class Network {
 	private Transformer secondaryTransformer;
 
 
-	/***
-	 * Método de ayuda para lectura de propiedade booleanas si la propiedad
-	 * existe devuelve su valor o false en otro caso
+	/**
+	 * Helper method to read boolean properties from the network configuration.
+	 * <p>
+	 * Returns the value of the specified property if it exists in the properties map,
+	 * or false if the property doesn't exist or the properties map is null.
+	 * </p>
 	 * 
-	 * @param propertyName
-	 *            nombre de la propiedad
-	 * @return
-	 ***/
+	 * @param propertyName the name of the property to retrieve
+	 * @return the boolean value of the property, or false if not found
+	 */
 	@Transient
 	public Boolean getBooleanPropertyValue(String propertyName) {
 

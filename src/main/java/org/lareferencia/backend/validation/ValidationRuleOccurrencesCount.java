@@ -32,6 +32,21 @@ import lombok.Setter;
 @Getter
 @Setter
 public class ValidationRuleOccurrencesCount {
+	
+	/**
+	 * Constructs a new validation rule occurrences count container.
+	 */
+	public ValidationRuleOccurrencesCount() {
+		// Default constructor
+	}
+	
+	/**
+	 * List of occurrence counts for field values that failed this validation rule.
+	 */
     List<OccurrenceCount> invalidRuleOccrs;
+    
+	/**
+	 * List of occurrence counts for field values that passed this validation rule.
+	 */
     List<OccurrenceCount> validRuleOccrs;
 }

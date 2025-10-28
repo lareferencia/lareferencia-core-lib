@@ -38,16 +38,34 @@ import org.w3c.dom.Node;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/**
+ * Transformer rule that removes empty or whitespace-only occurrences from a metadata field.
+ * Cleans up fields by eliminating nodes that contain only whitespace or are empty.
+ */
 public class RemoveEmptyOccrsRule extends AbstractTransformerRule {
 	
+	/**
+	 * Name of the metadata field to remove empty occurrences from.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
 	String fieldName;
 	
+	/**
+	 * Constructs a new RemoveEmptyOccrsRule instance.
+	 */
 	public RemoveEmptyOccrsRule() {
 	}
 
+	/**
+	 * Transforms the record by removing all empty or whitespace-only occurrences
+	 * from the specified field.
+	 *
+	 * @param record the OAI record being processed
+	 * @param metadata the record's metadata containing the field to clean
+	 * @return true if any empty occurrences were removed, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 

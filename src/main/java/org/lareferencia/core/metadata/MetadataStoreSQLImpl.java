@@ -28,8 +28,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * SQL-based implementation of the metadata store interface.
+ */
 public class MetadataStoreSQLImpl implements IMetadataStore {
 	
+	/**
+	 * Constructs a new SQL-based metadata store.
+	 */
+	public MetadataStoreSQLImpl() {
+		// Default constructor
+	}
+
 	@Autowired
 	OAIMetadataRepository mdRepository;
 	

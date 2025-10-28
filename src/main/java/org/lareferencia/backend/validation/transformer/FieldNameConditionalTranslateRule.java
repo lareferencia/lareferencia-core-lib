@@ -29,10 +29,21 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
 
+/**
+ * Transformation rule that conditionally translates field names based on XPath expressions.
+ * <p>
+ * Renames fields matching the source XPath to the target field name.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
 
 	static int MAX_NODE_COUNT = 100;
 	
+	/**
+	 * Target field name for the renamed fields.
+	 */
 	@Setter
 	@Getter
 	String targetFieldName;
@@ -40,11 +51,30 @@ public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
     @Getter
     String sourceXPathExpression;
 
+	/**
+	 * Constructs a new field name conditional translate rule.
+	 */
+	public FieldNameConditionalTranslateRule() {
+		super();
+	}
+
+    /**
+     * Sets the XPath expression for identifying source fields.
+     * 
+     * @param regexPattern the XPath expression pattern
+     */
     public void setSourceXPathExpression(String regexPattern) {
         this.sourceXPathExpression = regexPattern;
         //regexPredicate = Pattern.compile(regexPattern).asPredicate();
     }
 
+	/**
+	 * Transforms the record by renaming fields that match the source XPath.
+	 * 
+	 * @param record the OAI record to transform
+	 * @param metadata the metadata to transform
+	 * @return true if any field name was translated, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 

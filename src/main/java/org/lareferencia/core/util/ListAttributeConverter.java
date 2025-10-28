@@ -30,6 +30,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * JPA attribute converter for storing List of Strings as JSON in database.
+ */
 public class ListAttributeConverter implements AttributeConverter< List<String>, String > {
 
     private static Logger logger = LogManager.getLogger(ListAttributeConverter.class);
@@ -37,6 +40,13 @@ public class ListAttributeConverter implements AttributeConverter< List<String>,
  
     static ObjectMapper objectMapper = new ObjectMapper();
     
+	/**
+	 * Constructs a new list attribute converter.
+	 */
+	public ListAttributeConverter() {
+		// Default constructor
+	}
+
     @Override
     public String convertToDatabaseColumn(List<String> data) {
  

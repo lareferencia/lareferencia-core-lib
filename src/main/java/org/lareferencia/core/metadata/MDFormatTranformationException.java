@@ -20,6 +20,9 @@
 
 package org.lareferencia.core.metadata;
 
+/**
+ * Exception thrown when metadata format transformation fails.
+ */
 public class MDFormatTranformationException extends Exception {
 
 	/**
@@ -27,25 +30,52 @@ public class MDFormatTranformationException extends Exception {
 	 */
 	private static final long serialVersionUID = -973095805486227712L;
 
+	/**
+	 * Constructs a new exception with no message.
+	 */
 	public MDFormatTranformationException() {
 		// TODO Auto-generated constructor stub
 	}
 
+	/**
+	 * Constructs a new exception with the specified detail message.
+	 *
+	 * @param message the detail message
+	 */
 	public MDFormatTranformationException(String message) {
 		super(message);
 		// TODO Auto-generated constructor stub
 	}
 
+	/**
+	 * Constructs a new exception with the specified cause.
+	 *
+	 * @param cause the cause of the exception
+	 */
 	public MDFormatTranformationException(Throwable cause) {
 		super(cause);
 		// TODO Auto-generated constructor stub
 	}
 
+	/**
+	 * Constructs a new exception with the specified detail message and cause.
+	 *
+	 * @param message the detail message
+	 * @param cause the cause of the exception
+	 */
 	public MDFormatTranformationException(String message, Throwable cause) {
 		super(message, cause);
 		// TODO Auto-generated constructor stub
 	}
 
+	/**
+	 * Constructs a new exception with the specified parameters for suppression and writable stack trace.
+	 *
+	 * @param message the detail message
+	 * @param cause the cause of the exception
+	 * @param enableSuppression whether suppression is enabled
+	 * @param writableStackTrace whether the stack trace is writable
+	 */
 	public MDFormatTranformationException(String message, Throwable cause, boolean enableSuppression, boolean writableStackTrace) {
 		super(message, cause, enableSuppression, writableStackTrace);
 		// TODO Auto-generated constructor stub

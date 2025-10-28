@@ -24,11 +24,38 @@ import java.util.List;
 
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 
+/**
+ * Interface for metadata validators.
+ * <p>
+ * Validators apply a list of validation rules to metadata records
+ * and aggregate the results.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public interface IValidator {
 
+	/**
+	 * Validates the metadata using configured rules.
+	 * 
+	 * @param metadata the metadata to validate
+	 * @param result the result object to populate
+	 * @return the validation result
+	 * @throws ValidationException if validation fails
+	 */
 	public ValidatorResult validate(OAIRecordMetadata metadata, ValidatorResult result) throws ValidationException;
 
+	/**
+	 * Gets the list of validation rules.
+	 * 
+	 * @return the list of rules
+	 */
 	public List<IValidatorRule> getRules();
 
+	/**
+	 * Sets the list of validation rules.
+	 * 
+	 * @param rules the list of rules to apply
+	 */
 	public void setRules(List<IValidatorRule> rules);
 }

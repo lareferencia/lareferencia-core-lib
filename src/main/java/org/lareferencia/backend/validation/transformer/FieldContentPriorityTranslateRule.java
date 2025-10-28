@@ -37,6 +37,16 @@ import org.w3c.dom.Node;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Transformation rule that translates field values based on priority-ordered translations.
+ * <p>
+ * Matches field values against a prioritized list of translations and replaces
+ * them with corresponding target values. Supports prefix matching and occurrence replacement.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ */
 public class FieldContentPriorityTranslateRule extends AbstractTransformerRule {
 	
 	
@@ -65,10 +75,17 @@ public class FieldContentPriorityTranslateRule extends AbstractTransformerRule {
 	@Getter
 	Boolean replaceAllMatchingOccurrences = true;
 	
-
+	/**
+	 * Creates a new priority translation rule.
+	 */
 	public FieldContentPriorityTranslateRule() {
 	}
 
+	/**
+	 * Sets the translation array with priority order.
+	 * 
+	 * @param list the list of translations
+	 */
 	public void setTranslationArray(List<Translation> list) {
 		this.translationArray = list;
 		logger.debug(list);

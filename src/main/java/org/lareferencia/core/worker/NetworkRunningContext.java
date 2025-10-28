@@ -26,18 +26,39 @@ import org.lareferencia.backend.domain.Network;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Running context for network-based worker operations.
+ * Provides context information including the network being processed.
+ */
 public class NetworkRunningContext implements IRunningContext {
 	
+	/**
+	 * Prefix used for constructing network context IDs.
+	 */
 	static final String ID_PREFIX = "NETWORK::";
 	
+	/**
+	 * Builds a unique context ID for the given network.
+	 * 
+	 * @param network the network to build an ID for
+	 * @return the context ID in format "NETWORK::{networkId}"
+	 */
 	public static String buildID(Network network) {
 		return ID_PREFIX + network.getId();
 	}
 	
+	/**
+	 * The network being processed in this context.
+	 */
 	@Getter
 	@Setter
 	Network network;
 
+	/**
+	 * Constructs a new network running context for the specified network.
+	 * 
+	 * @param network the network to associate with this context
+	 */
 	public NetworkRunningContext(Network network) {
 		super();
 		this.network = network;

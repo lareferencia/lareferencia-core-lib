@@ -35,6 +35,19 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import java.util.List;
 
+/**
+ * Base implementation for batch workers that process items in pages.
+ * <p>
+ * Provides transaction management, pagination support, and progress tracking
+ * for workers that iterate through large datasets.
+ * </p>
+ * 
+ * @param <I> the type of items being processed
+ * @param <C> the running context type
+ * @author LA Referencia Team
+ * @see IBatchWorker
+ * @see BaseWorker
+ */
 public abstract class BaseBatchWorker<I,C extends IRunningContext> extends BaseWorker<C> implements IBatchWorker<I,C> {
 	
 	private static Logger logger = LogManager.getLogger(BaseBatchWorker.class);
@@ -49,21 +62,38 @@ public abstract class BaseBatchWorker<I,C extends IRunningContext> extends BaseW
 	@Setter
 	private int pageSize = DEFAULT_PAGE_SIZE;	
 
+	/**
+	 * Paginator for iterating through items in pages.
+	 */
 	@Setter
 	protected IPaginator<I> paginator;
 	
+	/**
+	 * Total number of pages to process.
+	 */
 	@Getter
 	private int totalPages = 1;
 	
+	/**
+	 * Current page number being processed.
+	 */
 	@Getter
 	private int actualPage = 0;	
 	
 	private boolean wasStopped = false;
 	
+	/**
+	 * Creates a batch worker with the specified context.
+	 * 
+	 * @param context the running context
+	 */
 	public BaseBatchWorker(C context) {
 		super(context);
 	}
 	
+	/**
+	 * Creates a batch worker with no initial context.
+	 */
 	public BaseBatchWorker() {
 		super();
 	}
@@ -142,8 +172,15 @@ public abstract class BaseBatchWorker<I,C extends IRunningContext> extends BaseW
 		}
 		logger.info("WORKER: "+ getName() +" :: END processing " + runningContext.toString());
 	}
-		
+	
+	/**
+	 * Cleanup actions after all batch processing completes.
+	 */
 	protected abstract void postRun();
+	
+	/**
+	 * Initialization actions before batch processing starts.
+	 */
 	protected abstract void preRun();
 
 	@Override

@@ -20,22 +20,46 @@
 
 package org.lareferencia.backend.workers.downloader;
 
+/**
+ * Exception thrown when errors occur during bitstream download operations.
+ * 
+ * @author LA Referencia Team
+ */
 public class DowloaderException extends Exception {
 
 	private static final long serialVersionUID = -5913401095836497654L;
 
+	/**
+	 * Creates a new downloader exception.
+	 */
 	public DowloaderException() {
 		super();
 	}
 
+	/**
+	 * Creates a new downloader exception with a message.
+	 * 
+	 * @param message the error message
+	 */
 	public DowloaderException(String message) {
 		super(message);
 	}
 
+	/**
+	 * Creates a new downloader exception with a message and cause.
+	 * 
+	 * @param message the error message
+	 * @param cause the underlying cause
+	 */
 	public DowloaderException(String message, Throwable cause) {
 		super(message, cause);
 	}
 
+	/**
+	 * Creates a new downloader exception with a cause.
+	 * 
+	 * @param cause the underlying cause
+	 */
 	public DowloaderException(Throwable cause) {
 		super(cause);
 	}

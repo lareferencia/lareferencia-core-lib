@@ -33,6 +33,26 @@ import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.lareferencia.core.validation.ValidationException;
 import org.apache.commons.beanutils.BeanUtils;
 
+/**
+ * Transformation rule that adds provenance metadata to records.
+ * <p>
+ * This rule enriches metadata records with information about their source repository
+ * and institution. It extracts data from the {@link Network} configuration and adds
+ * standardized provenance fields to the metadata.
+ * <p>
+ * Added fields include:
+ * </p>
+ * <ul>
+ *   <li>Repository type, URL, and base OAI-PMH URL</li>
+ *   <li>Institution type and URL</li>
+ *   <li>Responsible party information</li>
+ *   <li>Additional network attributes</li>
+ * </ul>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ * @see Network
+ */
 public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 
 	@Getter
@@ -119,10 +139,19 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 	@Setter
 	private static String oaiIdentifierField = "others:identifier";
 
+	/**
+	 * Creates a new provenance metadata rule.
+	 */
 	public AddProvenanceMetadataRule() {
 	}
 	
-	
+	/**
+	 * Retrieves a field value from the attributes map.
+	 * 
+	 * @param attributes the attribute map
+	 * @param fieldName the field name to retrieve
+	 * @return the field value as string, or null if not found
+	 */
 	private String getField(Map<String, Object> attributes, String fieldName) {
 		
 		if ( attributes.containsKey(fieldName) && attributes.get(fieldName) != null )

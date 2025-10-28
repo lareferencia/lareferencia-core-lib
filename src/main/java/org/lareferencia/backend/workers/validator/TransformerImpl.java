@@ -36,6 +36,11 @@ import org.springframework.stereotype.Component;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Default implementation of the ITransformer interface for metadata transformation.
+ * Applies a sequence of transformation rules to record metadata, tracking whether
+ * any transformations occurred and updating the datestamp accordingly.
+ */
 @Component
 public class TransformerImpl implements ITransformer {
 	
@@ -46,11 +51,23 @@ public class TransformerImpl implements ITransformer {
 	@Setter
 	List<ITransformerRule> rules;
 
+	/**
+	 * Constructs a new TransformerImpl with an empty list of transformation rules.
+	 */
 	public TransformerImpl() {
 		super();
 		rules = new ArrayList<ITransformerRule>();
 	}
 
+	/**
+	 * Transforms record metadata by applying all configured transformation rules in sequence.
+	 * If any transformation occurs, updates the metadata datestamp to the current time.
+	 *
+	 * @param record the OAI record being transformed
+	 * @param metadata the record's metadata to transform
+	 * @return true if any transformation rule modified the metadata, false otherwise
+	 * @throws ValidationException if an error occurs during rule execution
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
 

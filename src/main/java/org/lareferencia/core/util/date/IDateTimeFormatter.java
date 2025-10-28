@@ -24,12 +24,19 @@ package org.lareferencia.core.util.date;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Datetime formatter check application-context.xml file to configure which
- * formatters you want to use, also you can consider a custom one
+ * Interface for providing date-time formatters.
+ * <p>
+ * Configure available formatters in application-context.xml,
+ * or implement custom formatters as needed.
+ * </p>
  * 
- * @author pgraca
- *
+ * @author LA Referencia Team
  */
 public interface IDateTimeFormatter {
+    /**
+     * Gets the date-time formatter instance.
+     * 
+     * @return the DateTimeFormatter
+     */
     public DateTimeFormatter getFormatter();
 }

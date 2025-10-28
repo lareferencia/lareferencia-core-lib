@@ -24,6 +24,10 @@ import org.lareferencia.backend.domain.TransformerRule;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 
+/**
+ * JPA repository for managing {@link TransformerRule} entities.
+ * Provides standard CRUD operations for transformation rules.
+ */
 @RepositoryRestResource(path = "transformerRule", collectionResourceRel = "transformerRule")
 public interface TransformerRuleRepository extends JpaRepository<TransformerRule, Long> {
 

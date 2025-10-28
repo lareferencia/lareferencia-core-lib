@@ -39,35 +39,60 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * NationalNetwork Entity
+ * JPA entity representing a transformation configuration for metadata records.
+ * <p>
+ * A Transformer contains a collection of {@link TransformerRule} instances that define
+ * metadata transformation operations. Transformers are associated with {@link Network}
+ * entities and can be used as primary or secondary transformers in the processing pipeline.
+ * </p>
+ * <p>
+ * Transformation rules modify, enrich, or restructure metadata to conform to target
+ * schemas, add provenance information, or perform data quality improvements. Rules are
+ * applied in a defined sequence based on their order.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see TransformerRule
+ * @see Network
  */
 @Entity
 @Getter
 @Setter
 public class Transformer  {
 	
+	/** Unique identifier for the transformer. */
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	protected Long id = null;
 
+	/** Name of the transformer. */
 	@Column(nullable = false)
 	private String name;
 
+	/** Description of the transformer's purpose and functionality. */
 	@Column(nullable = true)
 	private String description;
 
+	/** Ordered list of transformation rules to apply. */
 	@OneToMany(cascade = CascadeType.ALL)
 	@JoinColumn(name = "transformer_id")
 	@LazyCollection(LazyCollectionOption.FALSE)
 	private List<TransformerRule> rules = new ArrayList<TransformerRule>();
 
+	/**
+	 * Constructs a new Transformer with an empty rules list.
+	 */
 	public Transformer() {
 		super();
 		rules = new ArrayList<TransformerRule>();
 	}
 
 	/**
-	 * Reset all ids
+	 * Resets the ID of this transformer and all associated rules.
+	 * <p>
+	 * Useful when creating a copy or clone of a transformer configuration
+	 * to ensure new database entries are created.
+	 * </p>
 	 */
 	public void resetId() {
 		this.id = null;

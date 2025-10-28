@@ -25,9 +25,19 @@ import org.springframework.util.DigestUtils;
 
 import lombok.NoArgsConstructor;
 
+/**
+ * MD5-based implementation of the hashing helper interface.
+ * Provides MD5 hash calculation for metadata strings using Spring's DigestUtils.
+ */
 @NoArgsConstructor
 public class MD5Hashing implements IHashingHelper {
 
+	/**
+	 * Calculates an MD5 hash for the given metadata string.
+	 *
+	 * @param metadata the metadata string to hash
+	 * @return the MD5 hash as an uppercase hexadecimal string
+	 */
 	@Override
 	public String calculateHash(String metadata) {
 		return DigestUtils.md5DigestAsHex(metadata.getBytes()).toUpperCase();

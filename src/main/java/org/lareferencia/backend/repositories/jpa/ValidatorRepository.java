@@ -24,6 +24,16 @@ import org.lareferencia.backend.domain.Validator;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 
+/**
+ * JPA Repository for {@link Validator} entity.
+ * <p>
+ * Provides CRUD operations for managing validator configurations.
+ * Validators define the validation rules applied to harvested metadata records.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see Validator
+ */
 @RepositoryRestResource(path = "validator", collectionResourceRel = "validator")
 public interface ValidatorRepository extends JpaRepository<Validator, Long> {
 

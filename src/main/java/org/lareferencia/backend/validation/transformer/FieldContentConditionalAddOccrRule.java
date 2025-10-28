@@ -38,33 +38,53 @@ import org.w3c.dom.Node;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/**
+ * Transformation rule that conditionally adds field occurrences based on an expression.
+ * <p>
+ * Evaluates a conditional expression against metadata and adds a field value if true.
+ * Can optionally remove duplicated occurrences after adding.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ */
 public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule {
 
+	/** Expression evaluator for conditional logic. */
 	FieldExpressionEvaluator evaluator;
 	
+	/** Name of the field to which the value will be added. */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
 	String fieldName;
 	
+	/** Value to be added to the field when condition is met. */
 	@Setter
 	@Getter
 	@JsonProperty("valueToAdd")
 	String valueToAdd;
 	
+	/** Conditional expression to evaluate for adding the field occurrence. */
 	@Setter
 	@Getter
 	@JsonProperty("conditionalExpression")
 	private String conditionalExpression;
 	
+	/** Default quantifier for expression evaluation. */
 	@JsonIgnore
 	protected QuantifierValues quantifier = QuantifierValues.ONE_OR_MORE;
 
-
+	/**
+	 * Creates a new conditional add rule.
+	 */
 	public FieldContentConditionalAddOccrRule() {
 		evaluator = new FieldExpressionEvaluator(this.quantifier);
 	}
 
+	/**
+	 * Flag to remove duplicate occurrences after adding.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("removeDuplicatedOccurrences")
@@ -72,6 +92,17 @@ public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule 
 
 
 
+	/**
+	 * Transforms a record by conditionally adding a field occurrence.
+	 * <p>
+	 * Evaluates the conditional expression and adds the specified value if true.
+	 * Optionally removes duplicate occurrences after adding.
+	 * </p>
+	 * 
+	 * @param record the OAI record to transform
+	 * @param metadata the record metadata to modify
+	 * @return true if the field was added, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 

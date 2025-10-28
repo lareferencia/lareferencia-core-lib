@@ -43,7 +43,14 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.text.NumberFormat;
 
-
+/**
+ * Worker that processes full-text bitstreams for harvested records.
+ * <p>
+ * Handles downloading and indexing of full-text content.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class FulltextWorker extends BaseBatchWorker<OAIBitstream, NetworkRunningContext>  {
 	
 	
@@ -62,11 +69,17 @@ public class FulltextWorker extends BaseBatchWorker<OAIBitstream, NetworkRunning
 	private OAIBitstreamRepository bitstreamRepository;
 
 
+	/**
+	 * Creates a new full-text worker.
+	 */
 	public FulltextWorker() {
 		super();
 	
 	}
 
+	/**
+	 * Initializes the worker before processing starts.
+	 */
 	@Override
 	public void preRun() {
 		

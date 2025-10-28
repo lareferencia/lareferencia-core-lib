@@ -35,19 +35,55 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Transformation rule that removes duplicate field occurrences.
+ * <p>
+ * This rule identifies and removes duplicate values within a specified field,
+ * keeping only the first occurrence of each unique value. This is useful for
+ * cleaning up metadata that may have accidentally duplicated values.
+ * </p>
+ * <p>
+ * The comparison is case-sensitive and based on exact string matching of the
+ * field content.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractTransformerRule
+ */
 public class RemoveDuplicateOccrsRule extends AbstractTransformerRule {
 	
+	/**
+	 * Name of the metadata field from which to remove duplicate occurrences.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
 	String fieldName;
 	
+	/**
+	 * Constructs a new RemoveDuplicateOccrsRule instance.
+	 */
 	public RemoveDuplicateOccrsRule() {
 	}
 	
+	/**
+	 * Internal set for tracking unique field values during transformation.
+	 */
 	Set<String> occrSet  = new HashSet<String>();
+	
+	/**
+	 * Internal list for collecting duplicate nodes to be removed.
+	 */
 	List<Node> removeList = new ArrayList<Node>();
 
+	/**
+	 * Transforms the record by removing duplicate occurrences from the specified field.
+	 * Keeps only the first occurrence of each unique value.
+	 *
+	 * @param record the OAI record being processed
+	 * @param metadata the record's metadata containing the field to deduplicate
+	 * @return true if any duplicates were removed, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 

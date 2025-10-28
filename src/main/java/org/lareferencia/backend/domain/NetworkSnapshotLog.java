@@ -48,7 +48,12 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
+ * Entity representing a log entry for network snapshot operations.
+ * <p>
+ * Tracks events and status changes during harvesting snapshot processing.
+ * </p>
  * 
+ * @author LA Referencia Team
  */
 @Entity
 @Getter
@@ -56,19 +61,31 @@ import lombok.Setter;
 @JsonIgnoreProperties({ "snapshot" })
 public class NetworkSnapshotLog { 
 	
+	/**
+	 * The unique identifier for this log entry.
+	 */
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	protected Long id = null;
 
+	/**
+	 * The snapshot this log entry belongs to.
+	 */
 	@Setter(AccessLevel.NONE)
 	@ManyToOne(fetch = FetchType.LAZY, optional = false)
 	@JoinColumn(name = "snapshot_id", insertable = false, updatable = false)
 	private NetworkSnapshot snapshot;
 	
+	/**
+	 * ID of the snapshot this log belongs to.
+	 */
 	@JsonIgnore
 	@Column(name = "snapshot_id")
 	private Long snapshotId;
 
+	/**
+	 * Log message content.
+	 */
 	@Column(nullable = false)
 	@Lob
 	@Basic(fetch = FetchType.LAZY)
@@ -76,15 +93,27 @@ public class NetworkSnapshotLog {
 	private String message;
 
 
+	/**
+	 * Timestamp when this log entry was created.
+	 */
 	@Column(nullable = false)
 	@Convert(converter = LocalDateTimeAttributeConverter.class)
 	@JsonSerialize(using = JsonDateSerializer.class)
 	private LocalDateTime timestamp;
 
+	/**
+	 * Constructs a new network snapshot log entry.
+	 */
 	public NetworkSnapshotLog() {
 		super();
 	}
 
+	/**
+	 * Constructs a new network snapshot log entry with message and snapshot ID.
+	 *
+	 * @param message the log message
+	 * @param snapshotId the ID of the snapshot this log belongs to
+	 */
 	public NetworkSnapshotLog(String message, Long snapshotId) {
 		super();
 

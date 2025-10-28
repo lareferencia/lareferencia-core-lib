@@ -21,11 +21,38 @@
 
 package org.lareferencia.core.metadata;
 
+/**
+ * Interface for metadata storage and retrieval.
+ * <p>
+ * Provides hash-based metadata storage for deduplication.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public interface IMetadataStore {
 	
+	/**
+	 * Stores metadata and returns its hash.
+	 * 
+	 * @param metadata the metadata string to store
+	 * @return the calculated hash of the metadata
+	 */
 	String storeAndReturnHash(String metadata);
+	
+	/**
+	 * Retrieves metadata by its hash.
+	 * 
+	 * @param hash the metadata hash
+	 * @return the metadata string
+	 * @throws MetadataRecordStoreException if retrieval fails
+	 */
 	String getMetadata(String hash) throws MetadataRecordStoreException;
 
+	/**
+	 * Performs cleanup and optimization on the metadata store.
+	 * 
+	 * @return true if optimization was successful
+	 */
 	Boolean cleanAndOptimizeStore();
 
 }

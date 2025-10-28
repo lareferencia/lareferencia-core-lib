@@ -73,12 +73,25 @@ public class MetadataStoreFSImpl implements IMetadataStore {
     
     private static final String FILE_EXTENSION = ".xml.gz";
 
+	/**
+	 * Constructs a new file system-based metadata store.
+	 */
+	public MetadataStoreFSImpl() {
+		// Default constructor
+	}
+
     @Value("${metadata.store.fs.basepath:/tmp/metadata-store}")
     private String basePath;
 
     @Autowired
     private IHashingHelper hashing;
 
+    /**
+     * Initializes the metadata store by creating the base directory structure.
+     * <p>
+     * Creates the base directory if it doesn't exist. Logs initialization details.
+     * </p>
+     */
     @PostConstruct
     public void init() {
         logger.info("Initializing FileSystem-based metadata store");

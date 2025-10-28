@@ -33,22 +33,38 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Transformer rule that removes field occurrences whose content matches entries in a blacklist.
+ * Used to filter out unwanted values from metadata fields.
+ */
 public class RemoveBlacklistOccrsRule extends AbstractTransformerRule {
 	
+	/**
+	 * The name of the field whose occurrences should be checked against the blacklist.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
 	String fieldName;
 
+	/**
+	 * List of blacklisted values. Field occurrences matching these values will be removed.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("blacklist")
 	protected List<String> blacklist;
 
+	/**
+	 * Constructs a new remove blacklist occurrences rule with an empty blacklist.
+	 */
 	public RemoveBlacklistOccrsRule() {
 		blacklist = new ArrayList<String>();
 	}
 	
+	/**
+	 * Internal list of nodes marked for removal during transformation.
+	 */
 	List<Node> removeList = new ArrayList<Node>();
 
 

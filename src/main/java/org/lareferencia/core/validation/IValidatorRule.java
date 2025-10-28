@@ -22,20 +22,67 @@ package org.lareferencia.core.validation;
 
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 
+/**
+ * Interface for metadata validation rules.
+ * <p>
+ * Defines the contract for rules that validate metadata records.
+ * Validation rules check metadata quality, completeness, and conformance
+ * to specific standards or requirements.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ * @see AbstractValidatorRule
+ */
 public interface IValidatorRule {
 
+	/**
+	 * Validates the given metadata record.
+	 * 
+	 * @param metadata the metadata to validate
+	 * @return the validation result containing status and details
+	 */
 	public ValidatorRuleResult validate(OAIRecordMetadata metadata);
 
+	/**
+	 * Gets the rule identifier.
+	 * 
+	 * @return the rule ID
+	 */
 	public Long getRuleId();
 
+	/**
+	 * Sets the rule identifier.
+	 * 
+	 * @param id the rule ID
+	 */
 	public void setRuleId(Long id);
 
+	/**
+	 * Checks if this rule is mandatory.
+	 * 
+	 * @return true if mandatory, false otherwise
+	 */
 	public Boolean getMandatory();
 
+	/**
+	 * Sets whether this rule is mandatory.
+	 * 
+	 * @param mandatory true to make the rule mandatory
+	 */
 	public void setMandatory(Boolean mandatory);
 
+	/**
+	 * Gets the quantifier for this rule.
+	 * 
+	 * @return the quantifier value
+	 */
 	public QuantifierValues getQuantifier();
 
+	/**
+	 * Sets the quantifier for this rule.
+	 * 
+	 * @param qv the quantifier value
+	 */
 	public void setQuantifier(QuantifierValues qv);
 
 }

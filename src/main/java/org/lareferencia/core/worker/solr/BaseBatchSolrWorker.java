@@ -32,14 +32,18 @@ import org.springframework.data.domain.Page;
 import lombok.Getter;
 import lombok.Setter;
 
-//TODO verify if this is working as excepted
 /**
- * This class can be used to process solr pagging processing
+ * Base class for batch workers that interact with Solr in pages.
+ * <p>
+ * Combines Solr interaction capabilities with batch processing,
+ * allowing pagination through large result sets from Solr.
+ * </p>
  * 
- * @author pgraca
- *
- * @param <I>
- * @param <C>
+ * @param <I> the type of items being processed
+ * @param <C> the running context type
+ * @author LA Referencia Team
+ * @see BaseSolrWorker
+ * @see IBatchWorker
  */
 public abstract class BaseBatchSolrWorker<I, C extends IRunningContext> extends BaseSolrWorker<C>
         implements IBatchWorker<I, C> {
@@ -52,36 +56,70 @@ public abstract class BaseBatchSolrWorker<I, C extends IRunningContext> extends 
     @Setter
     private int pageSize = DEFAULT_PAGE_SIZE;
 
+    /**
+     * Paginator for iterating through Solr results in pages.
+     */
     @Setter
     protected IPaginator<I> paginator;
 
+    /**
+     * Total number of pages to process.
+     */
     @Getter
     private int totalPages = 1;
 
+    /**
+     * Current page number being processed.
+     */
     @Getter
     private int actualPage = 0;
 
     private boolean wasStopped = false;
 
+    /**
+     * Processes a single item from the current page.
+     * 
+     * @param item the item to process
+     */
     @Override
     public abstract void processItem(I item);
 
+    /**
+     * Executes actions before processing each page.
+     */
     @Override
     public abstract void prePage();
 
+    /**
+     * Executes actions after processing each page.
+     */
     @Override
     public abstract void postPage();
 
+    /**
+     * Cleanup actions after all processing completes.
+     */
     @Override
     protected abstract void postRun();
 
+    /**
+     * Initialization actions before processing starts.
+     */
     @Override
     protected abstract void preRun();
 
+    /**
+     * Creates a batch Solr worker with the specified Solr URL.
+     * 
+     * @param solrURL the Solr server URL
+     */
     public BaseBatchSolrWorker(String solrURL) {
         super(solrURL);
     }
 
+    /**
+     * Executes the batch processing workflow across all pages.
+     */
     @Override
     public synchronized void run() {
         logger.info("WORKER: " + getName() + " :: START processing: " + runningContext.toString());

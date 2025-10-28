@@ -36,24 +36,50 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Transformer rule that removes duplicate occurrences of vocabulary terms in a metadata field,
+ * keeping only the first occurrence according to vocabulary priority order.
+ * Useful for normalizing controlled vocabulary fields that may contain repeated values.
+ */
 public class RemoveDuplicateVocabularyOccrsRule extends AbstractTransformerRule {
 	
+	/**
+	 * Name of the metadata field to process for duplicate vocabulary removal.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
 	String fieldName;
 
+	/**
+	 * Ordered list of vocabulary terms used for priority-based duplicate removal.
+	 */
 	@Setter
 	@Getter
 	@JsonProperty("vocabulary")
 	protected List<String> vocabulary;
 
+	/**
+	 * Constructs a new RemoveDuplicateVocabularyOccrsRule with an empty vocabulary list.
+	 */
 	public RemoveDuplicateVocabularyOccrsRule() {
 		vocabulary = new ArrayList<String>();
 	}
 	
+	/**
+	 * Internal list storing pairs of vocabulary indices and corresponding DOM nodes
+	 * for tracking duplicate occurrences during transformation.
+	 */
 	List<Pair<Integer, Node>> vocabularyOccurreces = new ArrayList< Pair<Integer,Node> >();
 
+	/**
+	 * Transforms the record by removing duplicate vocabulary occurrences from the specified field,
+	 * preserving only the first occurrence based on vocabulary order priority.
+	 *
+	 * @param record the OAI record being processed
+	 * @param metadata the record's metadata containing the field to transform
+	 * @return true if any duplicate occurrences were removed, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 		

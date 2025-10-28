@@ -35,6 +35,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Worker that cleans network snapshot data or deletes an entire network.
+ * Removes records, metadata, and associated resources based on configuration.
+ */
 public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	
 	
@@ -58,13 +62,23 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	@Autowired
 	private OAIBitstreamRepository bitstreamRepository;
 	
+	/**
+	 * Flag indicating whether to delete the entire network or just clean snapshot data.
+	 */
 	@Setter
 	@Getter
 	private boolean deleteEntireNetwork;
 	
+	/**
+	 * Repository for accessing network entities.
+	 */
 	@Autowired
 	NetworkRepository networkRepository;
 
+	/**
+	 * Constructs a new network clean worker with default settings.
+	 * By default, only cleans snapshot data without deleting the entire network.
+	 */
 	public NetworkCleanWorker() {
 		deleteEntireNetwork = false;
 	};

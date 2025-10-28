@@ -27,13 +27,20 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * Configuración para el almacenamiento de estadísticas de validación en archivos Parquet.
+ * Configuration for storing validation statistics in Parquet files.
  */
 @Configuration
 @ConfigurationProperties(prefix = "validation.parquet")
 @Getter
 @Setter
 public class ValidationParquetConfig {
+
+	/**
+	 * Constructs a new validation Parquet configuration with default values.
+	 */
+	public ValidationParquetConfig() {
+		// Default constructor for Spring configuration
+	}
 
     /**
      * Ruta base donde se almacenarán los archivos de estadísticas de validación

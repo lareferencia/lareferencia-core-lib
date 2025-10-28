@@ -41,39 +41,76 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+/**
+ * Represents OAI record metadata with DOM-based XML manipulation capabilities.
+ * Provides methods for querying, modifying, and transforming metadata fields using XPath expressions.
+ */
 public class OAIRecordMetadata {
 	
 	private static Logger logger = LogManager.getLogger(OAIRecordMetadata.class);
 	
+	/**
+	 * XPath expression representing the identity metadata (the entire document).
+	 */
 	public static String IDENTITY_METADATA_EXPRESION = ".";
 	
+	/**
+	 * The internal DOM document representation of the metadata.
+	 */
 	private Document DOMDocument;
 
+	/**
+	 * The unique identifier for this OAI record.
+	 */
 	@Getter
 	private String identifier;
 	
+	/**
+	 * The timestamp when this record was created or last modified.
+	 */
 	@Getter
 	@Setter
 	private LocalDateTime datestamp;
 
+	/**
+	 * The origin source of this metadata record.
+	 */
 	@Getter
 	@Setter
 	private String origin;
 
+	/**
+	 * The OAI set specification this record belongs to.
+	 */
 	@Getter
 	@Setter
 	private String setSpec;
 	
+	/**
+	 * The storage schema used for this metadata.
+	 */
 	@Getter
 	@Setter
 	private String storeSchema;
 
 	private static final String EMPTY_DOCUMENT = "<metadata></metadata>";
 
+	/**
+	 * Gets the DOM document representation of this metadata.
+	 * 
+	 * @return the DOM document
+	 */
 	public Document getDOMDocument() {
 		return DOMDocument;
 	}
 
+	/**
+	 * Constructs OAI record metadata from an XML string.
+	 * 
+	 * @param identifier the unique identifier for this record
+	 * @param xmlString the XML metadata content
+	 * @throws OAIRecordMetadataParseException if XML parsing fails
+	 */
 	public OAIRecordMetadata(String identifier, String xmlString) throws OAIRecordMetadataParseException {
 
 		this.identifier = identifier;
@@ -91,6 +128,12 @@ public class OAIRecordMetadata {
 		}
 	}
 
+	/**
+	 * Constructs an empty OAI record metadata with the specified identifier.
+	 * 
+	 * @param identifier the unique identifier for this record
+	 * @throws OAIRecordMetadataParseException if creating the empty document fails
+	 */
 	public OAIRecordMetadata(String identifier) throws OAIRecordMetadataParseException {
 
 		this.identifier = identifier;
@@ -108,17 +151,35 @@ public class OAIRecordMetadata {
 		}
 	}
 	
+	/**
+	 * Constructs OAI record metadata from a DOM node.
+	 * 
+	 * @param identifier the unique identifier for this record
+	 * @param node the DOM node containing the metadata
+	 */
 	public OAIRecordMetadata(String identifier, Node node) {
 		this.identifier = identifier;
 		this.DOMDocument = MedatadaDOMHelper.createDocumentFromNode(node);
 	}
 	
 	
+	/**
+	 * Constructs OAI record metadata from an existing DOM document.
+	 * 
+	 * @param identifier the unique identifier for this record
+	 * @param document the DOM document containing the metadata
+	 */
 	public OAIRecordMetadata(String identifier, Document document) {
 		this.identifier = identifier;
 		this.DOMDocument = document;
 	}
 
+	/**
+	 * Retrieves all occurrences of a field as a list of string values.
+	 * 
+	 * @param fieldName the name of the field to retrieve
+	 * @return list of field values, or empty list if none found
+	 */
 	public List<String> getFieldOcurrences(String fieldName) {
 		
 		
@@ -148,6 +209,12 @@ public class OAIRecordMetadata {
 	}
 
 	
+	/**
+	 * Replaces the content of a field occurrence with new content.
+	 * 
+	 * @param fieldName the name of the field to replace
+	 * @param content the new content for the field
+	 */
 	public void replaceFieldOcurrence(String fieldName, String content) {
 		
 		try {
@@ -171,6 +238,11 @@ public class OAIRecordMetadata {
 		}
 	}
 	
+	/**
+	 * Removes all occurrences of a field from the metadata.
+	 * 
+	 * @param fieldName the name of the field to remove
+	 */
 	public void removeFieldOcurrence(String fieldName) {
 		
 		try {
@@ -196,6 +268,11 @@ public class OAIRecordMetadata {
 		}
 	}
 	
+	/**
+	 * Removes a specific DOM node and its empty parent nodes from the metadata.
+	 * 
+	 * @param node the node to remove
+	 */
 	public void removeNode(Node node) {
 		
 		try {
@@ -211,6 +288,12 @@ public class OAIRecordMetadata {
 		}
 	}
 	
+	/**
+	 * Adds a new occurrence of a field with the specified content.
+	 * 
+	 * @param fieldName the name of the field to add
+	 * @param content the content for the new field occurrence
+	 */
 	public void addFieldOcurrence(String fieldName, String content) {
 
 		try {
@@ -303,6 +386,13 @@ public class OAIRecordMetadata {
 	}
 	
 	
+	/**
+	 * Gets the content of a field that starts with a specified prefix, removing the prefix.
+	 * 
+	 * @param fieldname the name of the field to query
+	 * @param prefix the prefix to match and remove
+	 * @return the field content with the prefix removed, or "UNKNOWN" if not found
+	 */
 	public String getFieldPrefixedContent(String fieldname, String prefix) {
 
 		String name = "UNKNOWN";
@@ -319,6 +409,12 @@ public class OAIRecordMetadata {
 	}
 
 	
+	/**
+	 * Gets a list of field nodes matching the specified XPath expression.
+	 * 
+	 * @param xpathSelector the XPath expression to evaluate
+	 * @return list of matching nodes, or empty list if none found
+	 */
     public List<Node> getFieldNodesByXPath (String xpathSelector) {
         
 
@@ -334,6 +430,12 @@ public class OAIRecordMetadata {
     }
 
 	
+	/**
+	 * Gets a list of field nodes for the specified field name.
+	 * 
+	 * @param fieldName the name of the field
+	 * @return list of text nodes for the field, or empty list if none found
+	 */
 	public List<Node> getFieldNodes(String fieldName) {
 		
 
@@ -350,6 +452,11 @@ public class OAIRecordMetadata {
 	
 
 	
+	/**
+	 * Extracts bitstream (file) metadata from this record.
+	 * 
+	 * @return list of bitstream metadata objects
+	 */
 	public List<OAIMetadataBitstream> getBitstreams() {
 		
 		List<OAIMetadataBitstream> bundles = new ArrayList<OAIMetadataBitstream>();
@@ -453,6 +560,13 @@ public class OAIRecordMetadata {
 	///////////////////////////////////////// V4 Metadata API ///////////////////////////////////////////////////////
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	
+	/**
+	 * Gets metadata occurrences for the specified field expression.
+	 * Returns this metadata object if the expression is the identity expression.
+	 * 
+	 * @param metadataExpression the field expression or identity marker
+	 * @return list of metadata objects matching the expression
+	 */
 	public List<OAIRecordMetadata> getFieldMetadataOccurrences(String metadataExpression) {
 		
 		List< OAIRecordMetadata > result = new ArrayList<OAIRecordMetadata>();
@@ -480,6 +594,12 @@ public class OAIRecordMetadata {
 		}
 	}
 	
+	/**
+	 * Gets metadata occurrences matching a raw XPath expression.
+	 * 
+	 * @param xpathExpression the XPath expression to evaluate
+	 * @return list of metadata objects for matching nodes
+	 */
 	public List<OAIRecordMetadata> getFieldMetadataOccurrencesFromXPATHExpression(String xpathExpression) {
 		
 		List< OAIRecordMetadata > result = new ArrayList<OAIRecordMetadata>();
@@ -500,6 +620,12 @@ public class OAIRecordMetadata {
 		}
 	}
 	
+	/**
+	 * Gets the value of a field as a string.
+	 * 
+	 * @param fieldName the name of the field
+	 * @return the field value, or empty string if not found
+	 */
 	public String getFieldValue(String fieldName) {
 		
 		try {
@@ -512,6 +638,12 @@ public class OAIRecordMetadata {
 	
 	}
 	
+	/**
+	 * Gets the value of a field using a raw XPath expression.
+	 * 
+	 * @param xpathExpression the XPath expression to evaluate
+	 * @return the field value, or empty string if not found
+	 */
 	public String getFieldValueFromXPATHExpression(String xpathExpression) {
 		
 		try {

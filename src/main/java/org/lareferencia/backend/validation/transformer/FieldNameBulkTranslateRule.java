@@ -33,16 +33,34 @@ import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.lareferencia.core.validation.Translation;
 import org.w3c.dom.Node;
 
+/**
+ * Transformation rule that translates multiple field names in bulk.
+ * <p>
+ * Applies a list of field name translations to the metadata.
+ * </p>
+ * 
+ * @author LA Referencia Team
+ */
 public class FieldNameBulkTranslateRule extends AbstractTransformerRule {
 
 	@Getter
 	@Setter
 	List<Translation> translationArray;
 	
+	/**
+	 * Creates a new bulk field name translation rule with an empty translation list.
+	 */
 	public FieldNameBulkTranslateRule() {
 		translationArray = new ArrayList<Translation>();
 	}
 
+	/**
+	 * Transforms the record by translating field names according to the translation array.
+	 * 
+	 * @param record the OAI record to transform
+	 * @param metadata the metadata to transform
+	 * @return true if any field name was translated, false otherwise
+	 */
 	@Override
 	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
 

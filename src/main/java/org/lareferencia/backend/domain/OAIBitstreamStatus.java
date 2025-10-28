@@ -20,4 +20,17 @@
 
 package org.lareferencia.backend.domain;
 
-public enum OAIBitstreamStatus { NEW, DOWNLOADED, INDEXED, DELETED }
+/**
+ * Enumeration of possible statuses for OAI bitstream files.
+ * Tracks the lifecycle of bitstreams from creation through download, indexing, and deletion.
+ */
+public enum OAIBitstreamStatus { 
+	/** Newly created bitstream, not yet downloaded */
+	NEW, 
+	/** Bitstream file has been downloaded */
+	DOWNLOADED, 
+	/** Bitstream has been indexed in the search engine */
+	INDEXED, 
+	/** Bitstream has been marked for deletion */
+	DELETED 
+}

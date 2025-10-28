@@ -36,23 +36,49 @@ import lombok.Getter;
 import lombok.Setter;
 
 
+/**
+ * Validator rule that conditionally checks for the existence of nodes based on an XPath expression.
+ * Validates that nodes matching the expression exist or don't exist depending on configuration.
+ */
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
 public class NodeOccursConditionalValidatorRule extends AbstractValidatorRule {
 	
 	private static Logger logger = LogManager.getLogger(NodeOccursConditionalValidatorRule.class);
 	
+	/**
+	 * Constructs a new node occurs conditional validator rule.
+	 */
+	public NodeOccursConditionalValidatorRule() {
+		super();
+	}
+	
+	/**
+	 * The XPath expression used to find nodes for validation.
+	 */
     @Getter
 	@JsonProperty("xpathExpression")
     String sourceXPathExpression;
 
 	
+	/**
+	 * Sets the XPath expression to evaluate for node existence validation.
+	 * 
+	 * @param xpathExpression the XPath expression to use
+	 */
     public void setSourceXPathExpression(String xpathExpression) {
         this.sourceXPathExpression = xpathExpression;
         //regexPredicate = Pattern.compile(regexPattern).asPredicate();
     }	
 
 	/**
-	 * Validate
+	 * Validates the metadata by checking for node occurrences matching the XPath expression.
+	 * <p>
+	 * Evaluates whether the number of matching nodes satisfies the configured quantifier
+	 * (ONE_ONLY, ONE_OR_MORE, ZERO_OR_MORE, ZERO_ONLY, or ALL).
+	 * </p>
+	 * 
+	 * @param metadata the record metadata to validate
+	 * @return the validation result with occurrence details
 	 */
 	public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
         ValidatorRuleResult result = new ValidatorRuleResult();
