@@ -26,7 +26,7 @@ import org.lareferencia.backend.domain.NetworkSnapshot;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.backend.domain.ValidatorRule;
 
-import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetRepository;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
@@ -187,7 +187,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * @param validationResult the validation result to build observation from
      * @return the validation statistics observation
      */
-    public ValidationStatObservationParquet buildObservation(OAIRecord record, ValidatorResult validationResult) {
+    public ValidationStatObservation buildObservation(OAIRecord record, ValidatorResult validationResult) {
 
         logger.debug("Building validation result record ID: {}", record.getId().toString());
 
@@ -234,7 +234,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 invalidRulesID.add(ruleID);
         }
 
-        return new ValidationStatObservationParquet(
+        return new ValidationStatObservation(
                 id, identifier, snapshotID, origin, null, metadataPrefix, networkAcronym,
                 null, null, isValid, isTransformed, validOccurrencesByRuleID,
                 invalidOccurrencesByRuleID, validRulesID, invalidRulesID
@@ -246,7 +246,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * 
      * @param validationStatsObservations the list of validation observations to register
      */
-    public void registerObservations(List<ValidationStatObservationParquet> validationStatsObservations) {
+    public void registerObservations(List<ValidationStatObservation> validationStatsObservations) {
         if (validationStatsObservations == null || validationStatsObservations.isEmpty()) {
             logger.debug("No observations to register");
             return;
@@ -425,13 +425,13 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 Map<String, Object> filters = parseFilterQueries(fq);
                 ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
                 
-                List<ValidationStatObservationParquet> pageResults = parquetRepository.findWithFilterAndPagination(
+                List<ValidationStatObservation> pageResults = parquetRepository.findWithFilterAndPagination(
                     snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
                 long totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
                 
                 return new ValidationStatsObservationsResult(pageResults, totalElements, pageable);
             } else {
-                List<ValidationStatObservationParquet> parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
+                List<ValidationStatObservation> parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
                     snapshotID, pageable.getPageNumber(), pageable.getPageSize());
                 long totalElements = parquetRepository.countBySnapshotId(snapshotID);
                 
@@ -734,32 +734,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     @Override
     public void saveValidationStatObservations(List<ValidationStatObservation> observations) throws ValidationStatisticsException {
         try {
-            List<ValidationStatObservationParquet> parquetObservations = new ArrayList<>();
-            for (ValidationStatObservation obs : observations) {
-                if (obs instanceof ValidationStatObservationParquet) {
-                    parquetObservations.add((ValidationStatObservationParquet) obs);
-                } else {
-                    // Convertir ValidationStatObservation a ValidationStatObservationParquet
-                    ValidationStatObservationParquet parquetObs = new ValidationStatObservationParquet();
-                    parquetObs.setId(obs.getId());
-                    parquetObs.setIdentifier(obs.getIdentifier());
-                    parquetObs.setSnapshotId(obs.getSnapshotId());
-                    parquetObs.setOrigin(obs.getOrigin());
-                    parquetObs.setSetSpec(obs.getSetSpec());
-                    parquetObs.setMetadataPrefix(obs.getMetadataPrefix());
-                    parquetObs.setNetworkAcronym(obs.getNetworkAcronym());
-                    parquetObs.setRepositoryName(obs.getRepositoryName());
-                    parquetObs.setInstitutionName(obs.getInstitutionName());
-                    parquetObs.setIsValid(obs.getIsValid());
-                    parquetObs.setIsTransformed(obs.getIsTransformed());
-                    parquetObs.setValidOccurrencesByRuleIDJson(obs.getValidOccurrencesByRuleIDJson());
-                    parquetObs.setInvalidOccurrencesByRuleIDJson(obs.getInvalidOccurrencesByRuleIDJson());
-                    parquetObs.setValidRulesID(obs.getValidRulesID());
-                    parquetObs.setInvalidRulesID(obs.getInvalidRulesID());
-                    parquetObservations.add(parquetObs);
-                }
-            }
-            registerObservations(parquetObservations);
+            // Ya no necesitamos conversión - todos son ValidationStatObservation
+            registerObservations(observations);
         } catch (Exception e) {
             throw new ValidationStatisticsException("Error guardando observaciones de validación", e);
         }

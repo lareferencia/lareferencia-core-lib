@@ -65,15 +65,10 @@
 		</dependency>
 
 		<!-- Parquet and Hadoop dependencies for file-based storage -->
-		<!-- Apache Parquet dependencies -->
+		<!-- Apache Parquet dependencies (native, without Avro) -->
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-hadoop</artifactId>
-			<version>1.14.3</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.parquet</groupId>
-			<artifactId>parquet-avro</artifactId>
 			<version>1.14.3</version>
 		</dependency>
 		
@@ -131,11 +126,6 @@
 					<artifactId>jline</artifactId>
 				</exclusion>
 			</exclusions>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.avro</groupId>
-			<artifactId>avro</artifactId>
-			<version>1.11.1</version>
 		</dependency>
 
 		<dependency>
@@ -241,26 +231,6 @@
 
 	<build>
 		<plugins>
-			<!-- Avro code generation plugin -->
-			<plugin>
-				<groupId>org.apache.avro</groupId>
-				<artifactId>avro-maven-plugin</artifactId>
-				<version>1.11.1</version>
-				<executions>
-					<execution>
-						<phase>generate-sources</phase>
-						<goals>
-							<goal>schema</goal>
-						</goals>
-						<configuration>
-							<sourceDirectory>${project.basedir}/src/main/resources/avro/</sourceDirectory>
-							<outputDirectory>${project.basedir}/src/main/java/</outputDirectory>
-							<stringType>String</stringType>
-						</configuration>
-					</execution>
-				</executions>
-			</plugin>
-
 			<!-- COMMENTED: Spring Boot 3.x parent POM already configures maven-source-plugin
 			     to avoid duplicate execution. If needed, uncomment and add a classifier.
 			<plugin>

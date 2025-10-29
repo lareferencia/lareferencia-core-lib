@@ -18,7 +18,7 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.backend.repositories.parquet.fact;
+package org.lareferencia.backend.repositories.parquet;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;

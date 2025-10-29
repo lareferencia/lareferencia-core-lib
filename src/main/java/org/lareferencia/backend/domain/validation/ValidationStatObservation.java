@@ -1,12 +1,16 @@
 package org.lareferencia.backend.domain.validation;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
- * Base class for validation statistics observations.
- * Can be extended by specific implementations (Parquet, Solr, etc.)
+ * Validation statistics observation class.
+ * This class represents a validation observation that can be stored in different backends
+ * (Parquet, Solr, etc.) by serializing complex structures to JSON strings.
  */
 public class ValidationStatObservation {
     
@@ -391,6 +395,190 @@ public class ValidationStatObservation {
             return List.of();
         }
         return List.of(invalidRulesID.split(","));
+    }
+    
+    // Campos transientes para caché de deserialización
+    private transient Map<String, List<String>> validOccurrencesByRuleIDCache;
+    private transient Map<String, List<String>> invalidOccurrencesByRuleIDCache;
+    
+    /**
+     * Gets the map of valid occurrences by deserializing from JSON.
+     * Results are cached for performance.
+     * 
+     * @return map of valid occurrences by rule ID
+     */
+    public Map<String, List<String>> getValidOccurrencesByRuleID() {
+        if (validOccurrencesByRuleIDCache == null && validOccurrencesByRuleIDJson != null) {
+            validOccurrencesByRuleIDCache = deserializeMapFromJson(validOccurrencesByRuleIDJson);
+        }
+        return validOccurrencesByRuleIDCache != null ? validOccurrencesByRuleIDCache : new HashMap<>();
+    }
+    
+    /**
+     * Gets the map of invalid occurrences by deserializing from JSON.
+     * Results are cached for performance.
+     * 
+     * @return map of invalid occurrences by rule ID
+     */
+    public Map<String, List<String>> getInvalidOccurrencesByRuleID() {
+        if (invalidOccurrencesByRuleIDCache == null && invalidOccurrencesByRuleIDJson != null) {
+            invalidOccurrencesByRuleIDCache = deserializeMapFromJson(invalidOccurrencesByRuleIDJson);
+        }
+        return invalidOccurrencesByRuleIDCache != null ? invalidOccurrencesByRuleIDCache : new HashMap<>();
+    }
+    
+    /**
+     * Sets the valid occurrences map and updates the JSON representation.
+     * 
+     * @param validOccurrencesByRuleID map of valid occurrences
+     */
+    public void setValidOccurrencesByRuleID(Map<String, List<String>> validOccurrencesByRuleID) {
+        this.validOccurrencesByRuleIDCache = validOccurrencesByRuleID;
+        this.validOccurrencesByRuleIDJson = serializeMapToJson(validOccurrencesByRuleID);
+    }
+    
+    /**
+     * Sets the invalid occurrences map and updates the JSON representation.
+     * 
+     * @param invalidOccurrencesByRuleID map of invalid occurrences
+     */
+    public void setInvalidOccurrencesByRuleID(Map<String, List<String>> invalidOccurrencesByRuleID) {
+        this.invalidOccurrencesByRuleIDCache = invalidOccurrencesByRuleID;
+        this.invalidOccurrencesByRuleIDJson = serializeMapToJson(invalidOccurrencesByRuleID);
+    }
+    
+    /**
+     * Alternative constructor that accepts maps directly and converts them to JSON.
+     * 
+     * @param id unique identifier
+     * @param identifier OAI record identifier
+     * @param snapshotId snapshot ID
+     * @param origin origin URL
+     * @param setSpec OAI set specification
+     * @param metadataPrefix metadata format prefix
+     * @param networkAcronym network acronym
+     * @param repositoryName repository name
+     * @param institutionName institution name
+     * @param isValid whether record is valid
+     * @param isTransformed whether record was transformed
+     * @param validOccurrencesByRuleID map of valid occurrences by rule ID
+     * @param invalidOccurrencesByRuleID map of invalid occurrences by rule ID
+     * @param validRulesIDList list of valid rule IDs
+     * @param invalidRulesIDList list of invalid rule IDs
+     */
+    public ValidationStatObservation(String id, String identifier, Long snapshotId, String origin,
+                                   String setSpec, String metadataPrefix, String networkAcronym,
+                                   String repositoryName, String institutionName, Boolean isValid,
+                                   Boolean isTransformed, Map<String, List<String>> validOccurrencesByRuleID,
+                                   Map<String, List<String>> invalidOccurrencesByRuleID,
+                                   List<String> validRulesIDList, List<String> invalidRulesIDList) {
+        
+        this.id = id;
+        this.identifier = identifier;
+        this.snapshotId = snapshotId;
+        this.validationDate = LocalDateTime.now();
+        this.origin = origin;
+        this.setSpec = setSpec;
+        this.metadataPrefix = metadataPrefix;
+        this.networkAcronym = networkAcronym;
+        this.repositoryName = repositoryName;
+        this.institutionName = institutionName;
+        this.isValid = isValid;
+        this.isTransformed = isTransformed;
+        
+        // Serializar los mapas y listas a JSON strings
+        this.validOccurrencesByRuleIDJson = serializeMapToJson(validOccurrencesByRuleID);
+        this.invalidOccurrencesByRuleIDJson = serializeMapToJson(invalidOccurrencesByRuleID);
+        this.validRulesID = validRulesIDList != null ? String.join(",", validRulesIDList) : "";
+        this.invalidRulesID = invalidRulesIDList != null ? String.join(",", invalidRulesIDList) : "";
+        
+        // Mantener referencias en caché
+        this.validOccurrencesByRuleIDCache = validOccurrencesByRuleID;
+        this.invalidOccurrencesByRuleIDCache = invalidOccurrencesByRuleID;
+    }
+    
+    /**
+     * Compatibility method for legacy code that uses getSnapshotID.
+     * 
+     * @return the snapshot ID
+     */
+    public Long getSnapshotID() {
+        return getSnapshotId();
+    }
+    
+    /**
+     * Compatibility method for legacy code that uses setSnapshotID.
+     * 
+     * @param snapshotID the snapshot ID to set
+     */
+    public void setSnapshotID(Long snapshotID) {
+        setSnapshotId(snapshotID);
+    }
+    
+    /**
+     * Gets the list of valid rule IDs as a list (alias for compatibility).
+     * 
+     * @return list of valid rule IDs
+     */
+    public List<String> getValidRulesIDList() {
+        return getValidRulesList();
+    }
+    
+    /**
+     * Gets the list of invalid rule IDs as a list (alias for compatibility).
+     * 
+     * @return list of invalid rule IDs
+     */
+    public List<String> getInvalidRulesIDList() {
+        return getInvalidRulesList();
+    }
+    
+    /**
+     * Serializes a map to JSON simple format (key:value1,value2;key2:value3,value4).
+     */
+    private String serializeMapToJson(Map<String, List<String>> map) {
+        if (map == null || map.isEmpty()) {
+            return "";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, List<String>> entry : map.entrySet()) {
+            if (sb.length() > 0) {
+                sb.append(";");
+            }
+            sb.append(entry.getKey()).append(":");
+            if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                sb.append(String.join(",", entry.getValue()));
+            }
+        }
+        return sb.toString();
+    }
+    
+    /**
+     * Deserializes a JSON string to map.
+     */
+    private Map<String, List<String>> deserializeMapFromJson(String json) {
+        Map<String, List<String>> map = new HashMap<>();
+        if (json == null || json.trim().isEmpty()) {
+            return map;
+        }
+        
+        String[] entries = json.split(";");
+        for (String entry : entries) {
+            String[] keyValue = entry.split(":", 2);
+            if (keyValue.length == 2) {
+                String key = keyValue[0];
+                String[] values = keyValue[1].split(",");
+                List<String> valueList = new ArrayList<>();
+                for (String value : values) {
+                    if (!value.trim().isEmpty()) {
+                        valueList.add(value.trim());
+                    }
+                }
+                map.put(key, valueList);
+            }
+        }
+        return map;
     }
     
     @Override

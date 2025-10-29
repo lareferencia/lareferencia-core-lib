@@ -27,9 +27,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.parquet.filter2.predicate.FilterPredicate;
 import org.lareferencia.backend.domain.parquet.FactOccurrence;
-import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
-import org.lareferencia.backend.repositories.parquet.fact.FactOccurrencesReader;
-import org.lareferencia.backend.repositories.parquet.fact.FactOccurrencesWriter;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
@@ -193,7 +191,7 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * CORE SAVE: Converts ValidationStatObservationParquet to fact rows with partitioning
+     * CORE SAVE: Converts ValidationStatObservation to fact rows with partitioning
      * 
      * PROCESS:
      * 1. Convert each observation → N fact rows (explosion)
@@ -204,7 +202,7 @@ public class ValidationStatParquetRepository {
      * @param observations source observations to explode
      * @throws IOException if write fails
      */
-    public void saveAll(List<ValidationStatObservationParquet> observations) throws IOException {
+    public void saveAll(List<ValidationStatObservation> observations) throws IOException {
         if (observations == null || observations.isEmpty()) {
             logger.debug("FACT REPO: No observations to save");
             return;
@@ -214,7 +212,7 @@ public class ValidationStatParquetRepository {
         long startTime = System.currentTimeMillis();
         
         // Convert each observation to fact rows and buffer by partition
-        for (ValidationStatObservationParquet obs : observations) {
+        for (ValidationStatObservation obs : observations) {
             explodeAndBufferObservation(obs);
         }
         
@@ -229,7 +227,7 @@ public class ValidationStatParquetRepository {
      * EXPLOSION LOGIC: Converts one observation to multiple fact rows
      * Groups rows by partition and buffers them
      */
-    private void explodeAndBufferObservation(ValidationStatObservationParquet obs) throws IOException {
+    private void explodeAndBufferObservation(ValidationStatObservation obs) throws IOException {
         // Validate required fields
         if (obs.getId() == null || obs.getSnapshotID() == null) {
             logger.warn("FACT REPO: Skipping observation with null id or snapshotID");
@@ -256,7 +254,7 @@ public class ValidationStatParquetRepository {
     /**
      * Explodes occurrences of a single rule into fact rows
      */
-    private void explodeRuleOccurrences(ValidationStatObservationParquet obs, 
+    private void explodeRuleOccurrences(ValidationStatObservation obs, 
                                        String ruleIdStr, 
                                        List<String> values, 
                                        boolean isValid,
@@ -368,10 +366,10 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * HELPER: Converts FactOccurrence back to ValidationStatObservationParquet for writer
+     * HELPER: Converts FactOccurrence back to ValidationStatObservation for writer
      * This is a temporary conversion - writer will re-explode it
      */
-    private ValidationStatObservationParquet convertToParquetObservation(FactOccurrence fact) {
+    private ValidationStatObservation convertToParquetObservation(FactOccurrence fact) {
         Map<String, List<String>> occurrences = new HashMap<>();
         occurrences.put(String.valueOf(fact.getRuleId()), 
                        fact.getValue() != null ? Arrays.asList(fact.getValue()) : new ArrayList<>());
@@ -379,7 +377,7 @@ public class ValidationStatParquetRepository {
         Map<String, List<String>> validOccurrences = fact.getIsValid() ? occurrences : null;
         Map<String, List<String>> invalidOccurrences = !fact.getIsValid() ? occurrences : null;
 
-        return new ValidationStatObservationParquet(
+        return new ValidationStatObservation(
             fact.getId(),
             fact.getIdentifier(),
             fact.getSnapshotId(),
@@ -454,6 +452,14 @@ public class ValidationStatParquetRepository {
     /**
      * AGGREGATED STATS: Computes statistics without loading full data
      * Uses predicate pushdown and row group metadata
+     * 
+     * IMPORTANTE: En fact table, cada registro genera múltiples filas (una por regla).
+     * TODOS los conteos son de REGISTROS únicos, no filas fact.
+     * - totalCount: registros únicos totales
+     * - validCount: registros únicos válidos
+     * - transformedCount: registros únicos transformados
+     * - validRuleCounts: registros únicos que tienen cada regla válida
+     * - invalidRuleCounts: registros únicos que tienen cada regla inválida
      */
     public Map<String, Object> getAggregatedStats(Long snapshotId) throws IOException {
         logger.debug("FACT REPO: Computing aggregated stats for snapshot {}", snapshotId);
@@ -465,12 +471,14 @@ public class ValidationStatParquetRepository {
             return buildEmptyStats();
         }
 
-        // Aggregation accumulators - using arrays to make them effectively final
-        final long[] totalCount = {0};
-        final long[] validCount = {0};
-        final long[] transformedCount = {0};
-        Map<String, Long> validRuleCounts = new HashMap<>();
-        Map<String, Long> invalidRuleCounts = new HashMap<>();
+        // CRITICAL: Use Sets to track UNIQUE record IDs (not fact rows)
+        Set<String> uniqueRecordIds = new HashSet<>();
+        Set<String> validRecordIds = new HashSet<>();
+        Set<String> transformedRecordIds = new HashSet<>();
+        
+        // Rule counts: Map<ruleId, Set<recordId>> - track unique records per rule
+        Map<String, Set<String>> validRuleRecordSets = new HashMap<>();
+        Map<String, Set<String>> invalidRuleRecordSets = new HashMap<>();
 
         // Process each file with aggregation-only (no object materialization)
         FilterPredicate filter = FactOccurrencesReader.snapshotIdEquals(snapshotId);
@@ -479,36 +487,47 @@ public class ValidationStatParquetRepository {
             try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
                 reader.aggregateFromGroups(group -> {
                     // Extract fields directly from Group (no object creation)
+                    String recordId = group.getString("id", 0);
                     boolean isValid = group.getBoolean("is_valid", 0);
                     boolean isTransformed = group.getBoolean("is_transformed", 0);
                     int ruleId = group.getInteger("rule_id", 0);
                     
-                    // Update counters
-                    synchronized (validRuleCounts) {
-                        totalCount[0]++;
-                        if (isValid) validCount[0]++;
-                        if (isTransformed) transformedCount[0]++;
+                    // Track UNIQUE records (not fact rows)
+                    synchronized (uniqueRecordIds) {
+                        uniqueRecordIds.add(recordId);
+                        if (isValid) validRecordIds.add(recordId);
+                        if (isTransformed) transformedRecordIds.add(recordId);
                         
+                        // Track unique RECORDS per rule (not occurrences)
                         String ruleIdStr = String.valueOf(ruleId);
                         if (isValid) {
-                            validRuleCounts.merge(ruleIdStr, 1L, Long::sum);
+                            validRuleRecordSets.computeIfAbsent(ruleIdStr, k -> new HashSet<>()).add(recordId);
                         } else {
-                            invalidRuleCounts.merge(ruleIdStr, 1L, Long::sum);
+                            invalidRuleRecordSets.computeIfAbsent(ruleIdStr, k -> new HashSet<>()).add(recordId);
                         }
                     }
                 });
             }
         }
 
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalCount", totalCount[0]);
-        stats.put("validCount", validCount[0]);
-        stats.put("transformedCount", transformedCount[0]);
-        stats.put("validRuleCounts", validRuleCounts);
-        stats.put("invalidRuleCounts", invalidRuleCounts);
+        // Convert Sets to counts
+        Map<String, Long> validRuleCounts = new HashMap<>();
+        validRuleRecordSets.forEach((ruleId, recordSet) -> 
+            validRuleCounts.put(ruleId, (long) recordSet.size()));
         
-        logger.debug("FACT REPO: Stats computed - total: {}, valid: {}, transformed: {}", 
-                   totalCount[0], validCount[0], transformedCount[0]);
+        Map<String, Long> invalidRuleCounts = new HashMap<>();
+        invalidRuleRecordSets.forEach((ruleId, recordSet) -> 
+            invalidRuleCounts.put(ruleId, (long) recordSet.size()));
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalCount", (long) uniqueRecordIds.size());           // UNIQUE records
+        stats.put("validCount", (long) validRecordIds.size());            // UNIQUE valid records
+        stats.put("transformedCount", (long) transformedRecordIds.size()); // UNIQUE transformed records
+        stats.put("validRuleCounts", validRuleCounts);                    // UNIQUE records per valid rule
+        stats.put("invalidRuleCounts", invalidRuleCounts);                // UNIQUE records per invalid rule
+        
+        logger.debug("FACT REPO: Stats computed - total records: {}, valid records: {}, transformed records: {}", 
+                   uniqueRecordIds.size(), validRecordIds.size(), transformedRecordIds.size());
         
         return stats;
     }
@@ -669,7 +688,7 @@ public class ValidationStatParquetRepository {
     /**
      * Alias de saveAll para compatibilidad
      */
-    public void saveAllImmediate(List<ValidationStatObservationParquet> observations) throws IOException {
+    public void saveAllImmediate(List<ValidationStatObservation> observations) throws IOException {
         saveAll(observations);
     }
 
@@ -752,6 +771,9 @@ public class ValidationStatParquetRepository {
 
     /**
      * Get aggregated stats with predicate
+     * 
+     * IMPORTANTE: Cuenta REGISTROS únicos, no filas fact.
+     * Todos los conteos son de registros únicos que cumplen el predicado.
      */
     private Map<String, Object> getAggregatedStatsWithPredicate(Long snapshotId, FilterPredicate filter) throws IOException {
         List<String> partitionPaths = getAllPartitionPaths(snapshotId);
@@ -761,41 +783,56 @@ public class ValidationStatParquetRepository {
             return buildEmptyStats();
         }
 
-        final long[] totalCount = {0};
-        final long[] validCount = {0};
-        final long[] transformedCount = {0};
-        Map<String, Long> validRuleCounts = new HashMap<>();
-        Map<String, Long> invalidRuleCounts = new HashMap<>();
+        // CRITICAL: Use Sets to track UNIQUE record IDs (not fact rows)
+        Set<String> uniqueRecordIds = new HashSet<>();
+        Set<String> validRecordIds = new HashSet<>();
+        Set<String> transformedRecordIds = new HashSet<>();
+        
+        // Rule counts: Map<ruleId, Set<recordId>> - track unique records per rule
+        Map<String, Set<String>> validRuleRecordSets = new HashMap<>();
+        Map<String, Set<String>> invalidRuleRecordSets = new HashMap<>();
 
         for (String filePath : parquetFiles) {
             try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
                 reader.aggregateFromGroups(group -> {
+                    String recordId = group.getString("id", 0);
                     boolean isValid = group.getBoolean("is_valid", 0);
                     boolean isTransformed = group.getBoolean("is_transformed", 0);
                     int ruleId = group.getInteger("rule_id", 0);
                     
-                    synchronized (validRuleCounts) {
-                        totalCount[0]++;
-                        if (isValid) validCount[0]++;
-                        if (isTransformed) transformedCount[0]++;
+                    // Track UNIQUE records (not fact rows)
+                    synchronized (uniqueRecordIds) {
+                        uniqueRecordIds.add(recordId);
+                        if (isValid) validRecordIds.add(recordId);
+                        if (isTransformed) transformedRecordIds.add(recordId);
                         
+                        // Track unique RECORDS per rule (not occurrences)
                         String ruleIdStr = String.valueOf(ruleId);
                         if (isValid) {
-                            validRuleCounts.merge(ruleIdStr, 1L, Long::sum);
+                            validRuleRecordSets.computeIfAbsent(ruleIdStr, k -> new HashSet<>()).add(recordId);
                         } else {
-                            invalidRuleCounts.merge(ruleIdStr, 1L, Long::sum);
+                            invalidRuleRecordSets.computeIfAbsent(ruleIdStr, k -> new HashSet<>()).add(recordId);
                         }
                     }
                 });
             }
         }
 
+        // Convert Sets to counts
+        Map<String, Long> validRuleCounts = new HashMap<>();
+        validRuleRecordSets.forEach((ruleId, recordSet) -> 
+            validRuleCounts.put(ruleId, (long) recordSet.size()));
+        
+        Map<String, Long> invalidRuleCounts = new HashMap<>();
+        invalidRuleRecordSets.forEach((ruleId, recordSet) -> 
+            invalidRuleCounts.put(ruleId, (long) recordSet.size()));
+
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalCount", totalCount[0]);
-        stats.put("validCount", validCount[0]);
-        stats.put("transformedCount", transformedCount[0]);
-        stats.put("validRuleCounts", validRuleCounts);
-        stats.put("invalidRuleCounts", invalidRuleCounts);
+        stats.put("totalCount", (long) uniqueRecordIds.size());           // UNIQUE records
+        stats.put("validCount", (long) validRecordIds.size());            // UNIQUE valid records
+        stats.put("transformedCount", (long) transformedRecordIds.size()); // UNIQUE transformed records
+        stats.put("validRuleCounts", validRuleCounts);                    // UNIQUE records per valid rule
+        stats.put("invalidRuleCounts", invalidRuleCounts);                // UNIQUE records per invalid rule
         
         return stats;
     }
@@ -803,7 +840,7 @@ public class ValidationStatParquetRepository {
     /**
      * Find with filter and pagination (returns fact occurrences, not observations)
      */
-    public List<ValidationStatObservationParquet> findWithFilterAndPagination(Long snapshotId, 
+    public List<ValidationStatObservation> findWithFilterAndPagination(Long snapshotId, 
                                                                              AggregationFilter filter,
                                                                              int page, 
                                                                              int size) throws IOException {
@@ -817,7 +854,7 @@ public class ValidationStatParquetRepository {
     /**
      * Find from cache (stub - fact table is already fast)
      */
-    public List<ValidationStatObservationParquet> findWithFilterAndPaginationFromCache(Long snapshotId,
+    public List<ValidationStatObservation> findWithFilterAndPaginationFromCache(Long snapshotId,
                                                                                       AggregationFilter filter,
                                                                                       int page,
                                                                                       int size) throws IOException {
@@ -844,7 +881,7 @@ public class ValidationStatParquetRepository {
     /**
      * Find by snapshot with pagination (simplified - returns grouped observations)
      */
-    public List<ValidationStatObservationParquet> findBySnapshotIdWithPagination(Long snapshotId, 
+    public List<ValidationStatObservation> findBySnapshotIdWithPagination(Long snapshotId, 
                                                                                  int page, 
                                                                                  int size) throws IOException {
         List<FactOccurrence> facts = findWithPagination(snapshotId, null, page, size);
@@ -912,19 +949,19 @@ public class ValidationStatParquetRepository {
     // ==================== CONVERSION HELPERS ====================
 
     /**
-     * Convert FactOccurrences to ValidationStatObservationParquet
+     * Convert FactOccurrences to ValidationStatObservation
      * Groups facts by id to reconstruct observations
      */
-    private List<ValidationStatObservationParquet> convertFactsToObservations(List<FactOccurrence> facts) {
+    private List<ValidationStatObservation> convertFactsToObservations(List<FactOccurrence> facts) {
         // Group facts by id
         Map<String, List<FactOccurrence>> factsById = facts.stream()
             .collect(Collectors.groupingBy(FactOccurrence::getId));
 
         // Convert each group to an observation
-        List<ValidationStatObservationParquet> observations = new ArrayList<>();
+        List<ValidationStatObservation> observations = new ArrayList<>();
         
         for (Map.Entry<String, List<FactOccurrence>> entry : factsById.entrySet()) {
-            ValidationStatObservationParquet obs = convertFactGroupToObservation(entry.getValue());
+            ValidationStatObservation obs = convertFactGroupToObservation(entry.getValue());
             observations.add(obs);
         }
 
@@ -934,7 +971,7 @@ public class ValidationStatParquetRepository {
     /**
      * Convert a group of facts (same id) to a single observation
      */
-    private ValidationStatObservationParquet convertFactGroupToObservation(List<FactOccurrence> facts) {
+    private ValidationStatObservation convertFactGroupToObservation(List<FactOccurrence> facts) {
         if (facts.isEmpty()) {
             return null;
         }
@@ -965,7 +1002,7 @@ public class ValidationStatParquetRepository {
             }
         }
 
-        return new ValidationStatObservationParquet(
+        return new ValidationStatObservation(
             first.getId(),
             first.getIdentifier(),
             first.getSnapshotId(),

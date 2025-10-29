@@ -18,7 +18,7 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.backend.repositories.parquet.fact;
+package org.lareferencia.backend.repositories.parquet;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -34,7 +34,7 @@ import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Types;
 import org.lareferencia.backend.domain.parquet.FactOccurrence;
-import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 
 import java.io.IOException;
 import java.util.*;
@@ -153,7 +153,7 @@ public final class FactOccurrencesWriter implements AutoCloseable {
     }
 
     /**
-     * CORE TRANSFORMATION: Convierte ValidationStatObservationParquet a filas de fact table
+     * CORE TRANSFORMATION: Convierte ValidationStatObservation a filas de fact table
      * 
      * PROCESO:
      * 1. Valida campos requeridos
@@ -165,7 +165,7 @@ public final class FactOccurrencesWriter implements AutoCloseable {
      * @param source registro fuente con mapas de ocurrencias
      * @throws IOException si falla la escritura
      */
-    public void writeRecord(ValidationStatObservationParquet source) throws IOException {
+    public void writeRecord(ValidationStatObservation source) throws IOException {
         if (source == null) {
             logger.warn("FACT WRITER: Null source record, skipping");
             return;
@@ -209,7 +209,7 @@ public final class FactOccurrencesWriter implements AutoCloseable {
      * @return número de filas emitidas
      * @throws IOException si falla la escritura
      */
-    private int emitFromMap(ValidationStatObservationParquet source, 
+    private int emitFromMap(ValidationStatObservation source, 
                            Map<String, List<String>> map, 
                            boolean isValid) throws IOException {
         if (map == null || map.isEmpty()) {
@@ -262,7 +262,7 @@ public final class FactOccurrencesWriter implements AutoCloseable {
      * @param isValid indica si es válida
      * @return Group listo para escribir
      */
-    private Group buildGroup(ValidationStatObservationParquet source, 
+    private Group buildGroup(ValidationStatObservation source, 
                             Integer ruleId, 
                             String value, 
                             boolean isValid) {
@@ -327,13 +327,13 @@ public final class FactOccurrencesWriter implements AutoCloseable {
      * @return número total de filas emitidas
      * @throws IOException si falla la escritura
      */
-    public long writeRecords(List<ValidationStatObservationParquet> sources) throws IOException {
+    public long writeRecords(List<ValidationStatObservation> sources) throws IOException {
         if (sources == null || sources.isEmpty()) {
             return 0;
         }
         
         long initialCount = recordsWritten;
-        for (ValidationStatObservationParquet source : sources) {
+        for (ValidationStatObservation source : sources) {
             writeRecord(source);
         }
         

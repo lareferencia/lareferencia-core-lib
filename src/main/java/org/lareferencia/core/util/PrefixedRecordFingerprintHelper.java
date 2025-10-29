@@ -28,7 +28,7 @@ import org.lareferencia.backend.domain.OAIRecord;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 
 /**
  * Helper for generating record fingerprints with configurable prefix and network acronym translation.
@@ -95,7 +95,7 @@ public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper
 	
 	}
 
-	public String getFingerprint(ValidationStatObservationParquet observation) {
+	public String getFingerprint(ValidationStatObservation observation) {
 
 		if (observation.getNetworkAcronym() != null) {
 
@@ -123,7 +123,7 @@ public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper
 	}
 
 	@Override
-	public String getStatsIDfromValidationStatObservation(ValidationStatObservationParquet observation) {
+	public String getStatsIDfromValidationStatObservation(ValidationStatObservation observation) {
 		return observation.getSnapshotID() + "-" + this.getFingerprint(observation);
 	}
 

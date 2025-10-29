@@ -26,7 +26,7 @@ import java.util.ArrayList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.SnapshotStatus;
-import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
@@ -104,7 +104,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	private Long snapshotId;
 	
 
-	private ArrayList<ValidationStatObservationParquet> validationStatsObservations = new ArrayList<ValidationStatObservationParquet>();
+	private ArrayList<ValidationStatObservation> validationStatsObservations = new ArrayList<ValidationStatObservation>();
 	
 	@Autowired
 	ValidationStatisticsParquetService validationStatisticsService;

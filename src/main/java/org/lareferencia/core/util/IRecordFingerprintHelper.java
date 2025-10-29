@@ -21,7 +21,7 @@
 package org.lareferencia.core.util;
 
 import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 
 /**
  * Interface for generating unique fingerprints and statistics IDs from records.
@@ -44,7 +44,7 @@ public interface IRecordFingerprintHelper {
 	 * @param observation the validation observation
 	 * @return the fingerprint string
 	 */
-	public String getFingerprint(ValidationStatObservationParquet observation);
+	public String getFingerprint(ValidationStatObservation observation);
 
 	/**
 	 * Gets the statistics ID from an OAI record.
@@ -60,7 +60,7 @@ public interface IRecordFingerprintHelper {
 	 * @param observation the validation observation
 	 * @return the stats ID string
 	 */
-	public String getStatsIDfromValidationStatObservation(ValidationStatObservationParquet observation);
+	public String getStatsIDfromValidationStatObservation(ValidationStatObservation observation);
 
 
 }

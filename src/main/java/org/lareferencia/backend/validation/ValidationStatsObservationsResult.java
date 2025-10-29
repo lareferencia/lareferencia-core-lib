@@ -1,7 +1,7 @@
 package org.lareferencia.backend.validation;
 
 import org.springframework.data.domain.Pageable;
-import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
+import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 
 import java.util.List;
 import java.util.Map;
@@ -15,7 +15,7 @@ public class ValidationStatsObservationsResult {
     /**
      * The list of validation stat observations for the current page.
      */
-    private List<ValidationStatObservationParquet> content;
+    private List<ValidationStatObservation> content;
     
     /**
      * Total number of elements across all pages.
@@ -74,7 +74,7 @@ public class ValidationStatsObservationsResult {
      * @param totalElements the total number of elements across all pages
      * @param pageable the pagination information
      */
-    public ValidationStatsObservationsResult(List<ValidationStatObservationParquet> content, 
+    public ValidationStatsObservationsResult(List<ValidationStatObservation> content, 
             long totalElements, Pageable pageable) {
         this.content = content;
         this.totalElements = totalElements;
@@ -99,7 +99,7 @@ public class ValidationStatsObservationsResult {
      * @param metadata additional query metadata
      * @param executionTimeMs query execution time in milliseconds
      */
-    public ValidationStatsObservationsResult(List<ValidationStatObservationParquet> content,
+    public ValidationStatsObservationsResult(List<ValidationStatObservation> content,
             long totalElements, int totalPages, int currentPage, int pageSize,
             boolean hasNext, boolean hasPrevious, Map<String, Object> aggregations,
             Map<String, Object> metadata, long executionTimeMs) {
@@ -120,14 +120,14 @@ public class ValidationStatsObservationsResult {
      *
      * @return the content list
      */
-    public List<ValidationStatObservationParquet> getContent() { return content; }
+    public List<ValidationStatObservation> getContent() { return content; }
     
     /**
      * Sets the list of validation stat observations for the current page.
      *
      * @param content the content list
      */
-    public void setContent(List<ValidationStatObservationParquet> content) { 
+    public void setContent(List<ValidationStatObservation> content) { 
         this.content = content; 
     }
     
