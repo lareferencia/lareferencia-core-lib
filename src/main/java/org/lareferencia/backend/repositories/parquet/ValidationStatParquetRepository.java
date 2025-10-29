@@ -89,6 +89,12 @@ public class ValidationStatParquetRepository {
     
     @Value("${parquet.validation.enable-dynamic-sizing:true}")
     private boolean enableDynamicSizing;
+    
+    @Value("${parquet.validation.enable-parallel-processing:true}")
+    private boolean enableParallelProcessing;
+    
+    @Value("${parquet.validation.parallel-threshold:5}")
+    private int parallelThreshold;  // Minimum files to enable parallel processing
 
     private Configuration hadoopConf;
 
@@ -100,6 +106,12 @@ public class ValidationStatParquetRepository {
     
     // DYNAMIC SIZING: Track total records per snapshot for optimal file sizing
     private final Map<Long, Integer> snapshotRecordCounts = new ConcurrentHashMap<>();
+    
+    // PARTITION PATH CACHE: Cache partition paths per snapshot to avoid repeated filesystem scans
+    private final Map<Long, List<String>> partitionPathsCache = new ConcurrentHashMap<>();
+    
+    // STRING POOL: Intern rule IDs to reduce memory duplication (same ID used many times)
+    private final Map<Integer, String> ruleIdStringPool = new ConcurrentHashMap<>();
 
     /**
      * Initializes Hadoop configuration and base directory structure
@@ -319,6 +331,7 @@ public class ValidationStatParquetRepository {
 
     /**
      * Flushes a specific partition buffer to disk
+     * OPTIMIZED: Batch write for better performance
      */
     private synchronized void flushPartitionBuffer(String partitionKey) throws IOException {
         List<FactOccurrence> buffer = partitionBuffers.get(partitionKey);
@@ -338,17 +351,23 @@ public class ValidationStatParquetRepository {
 
         logger.debug("FACT REPO: Flushing {} rows to {}", buffer.size(), filePath);
 
-        // Write buffered rows
+        // OPTIMIZATION: Batch write all facts at once
         try (FactOccurrencesWriter writer = FactOccurrencesWriter.newWriter(filePath, hadoopConf)) {
-            for (FactOccurrence fact : buffer) {
-                writer.writeRecord(convertToParquetObservation(fact));
-            }
+            writer.writeFactOccurrencesBatch(buffer);
         }
 
         // Clear buffer
         buffer.clear();
         
-        logger.info("FACT REPO: Wrote partition file {} with {} records", filePath, recordsPerFile);
+        // Invalidate cache for the snapshot that was just written to
+        // Extract snapshot ID from partition key (format: snapshot_id=X/network=Y/is_valid=Z)
+        String[] parts = partitionKey.split("/");
+        if (parts.length > 0 && parts[0].startsWith("snapshot_id=")) {
+            Long snapshotId = Long.parseLong(parts[0].substring("snapshot_id=".length()));
+            partitionPathsCache.remove(snapshotId);
+        }
+        
+        logger.info("FACT REPO: Wrote partition file {} with {} records", filePath, buffer.size());
     }
 
     /**
@@ -366,40 +385,18 @@ public class ValidationStatParquetRepository {
     }
 
     /**
-     * HELPER: Converts FactOccurrence back to ValidationStatObservation for writer
-     * This is a temporary conversion - writer will re-explode it
-     */
-    private ValidationStatObservation convertToParquetObservation(FactOccurrence fact) {
-        Map<String, List<String>> occurrences = new HashMap<>();
-        occurrences.put(String.valueOf(fact.getRuleId()), 
-                       fact.getValue() != null ? Arrays.asList(fact.getValue()) : new ArrayList<>());
-
-        Map<String, List<String>> validOccurrences = fact.getIsValid() ? occurrences : null;
-        Map<String, List<String>> invalidOccurrences = !fact.getIsValid() ? occurrences : null;
-
-        return new ValidationStatObservation(
-            fact.getId(),
-            fact.getIdentifier(),
-            fact.getSnapshotId(),
-            fact.getOrigin(),
-            fact.getSetSpec(),
-            fact.getMetadataPrefix(),
-            fact.getNetwork(),
-            fact.getRepository(),
-            fact.getInstitution(),
-            fact.getIsValid(),
-            fact.getIsTransformed(),
-            validOccurrences,
-            invalidOccurrences,
-            fact.getIsValid() ? Arrays.asList(String.valueOf(fact.getRuleId())) : new ArrayList<>(),
-            !fact.getIsValid() ? Arrays.asList(String.valueOf(fact.getRuleId())) : new ArrayList<>()
-        );
-    }
-
-    /**
      * Gets all partition paths for a snapshot
+     * Uses cache to avoid repeated filesystem scans
      */
     private List<String> getAllPartitionPaths(Long snapshotId) throws IOException {
+        // Check cache first
+        List<String> cachedPaths = partitionPathsCache.get(snapshotId);
+        if (cachedPaths != null) {
+            logger.debug("FACT REPO: Using cached partition paths for snapshot {} ({} paths)", snapshotId, cachedPaths.size());
+            return cachedPaths;
+        }
+        
+        // Cache miss - scan filesystem
         String snapshotPath = factBasePath + "/snapshot_id=" + snapshotId;
         File snapshotDir = new File(snapshotPath);
         
@@ -424,7 +421,11 @@ public class ValidationStatParquetRepository {
             }
         }
 
-        logger.debug("FACT REPO: Found {} partition paths for snapshot {}", paths.size(), snapshotId);
+        logger.debug("FACT REPO: Found {} partition paths for snapshot {} (cached)", paths.size(), snapshotId);
+        
+        // Store in cache
+        partitionPathsCache.put(snapshotId, paths);
+        
         return paths;
     }
 
@@ -460,6 +461,8 @@ public class ValidationStatParquetRepository {
      * - transformedCount: registros únicos transformados
      * - validRuleCounts: registros únicos que tienen cada regla válida
      * - invalidRuleCounts: registros únicos que tienen cada regla inválida
+     * 
+     * OPTIMIZACIÓN: Usa ConcurrentHashMap.newKeySet() para thread-safety sin locks.
      */
     public Map<String, Object> getAggregatedStats(Long snapshotId) throws IOException {
         logger.debug("FACT REPO: Computing aggregated stats for snapshot {}", snapshotId);
@@ -471,19 +474,33 @@ public class ValidationStatParquetRepository {
             return buildEmptyStats();
         }
 
-        // CRITICAL: Use Sets to track UNIQUE record IDs (not fact rows)
-        Set<String> uniqueRecordIds = new HashSet<>();
-        Set<String> validRecordIds = new HashSet<>();
-        Set<String> transformedRecordIds = new HashSet<>();
+        // OPTIMIZATION: Pre-size collections based on expected data volume
+        // Typical snapshot: ~300K records, ~50 rules → initial capacity improves performance
+        final int estimatedRecords = 30000;  // Conservative estimate
+        final int estimatedRules = 100;
+        
+        // OPTIMIZED: Thread-safe Sets without explicit synchronization + pre-sized
+        Set<String> uniqueRecordIds = ConcurrentHashMap.newKeySet(estimatedRecords);
+        Set<String> validRecordIds = ConcurrentHashMap.newKeySet(estimatedRecords);
+        Set<String> transformedRecordIds = ConcurrentHashMap.newKeySet(estimatedRecords);
         
         // Rule counts: Map<ruleId, Set<recordId>> - track unique records per rule
-        Map<String, Set<String>> validRuleRecordSets = new HashMap<>();
-        Map<String, Set<String>> invalidRuleRecordSets = new HashMap<>();
+        Map<String, Set<String>> validRuleRecordSets = new ConcurrentHashMap<>(estimatedRules);
+        Map<String, Set<String>> invalidRuleRecordSets = new ConcurrentHashMap<>(estimatedRules);
 
+        // OPTIMIZATION: Use parallel processing for multiple files
+        // Only parallelize if we have enough files to make it worthwhile
+        boolean useParallel = enableParallelProcessing && parquetFiles.size() >= parallelThreshold;
+        
+        if (useParallel) {
+            logger.debug("FACT REPO: Using parallel processing for {} files", parquetFiles.size());
+        }
+        
         // Process each file with aggregation-only (no object materialization)
         FilterPredicate filter = FactOccurrencesReader.snapshotIdEquals(snapshotId);
         
-        for (String filePath : parquetFiles) {
+        // Use parallel stream if enabled and worthwhile, otherwise sequential
+        (useParallel ? parquetFiles.parallelStream() : parquetFiles.stream()).forEach(filePath -> {
             try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
                 reader.aggregateFromGroups(group -> {
                     // Extract fields directly from Group (no object creation)
@@ -492,34 +509,36 @@ public class ValidationStatParquetRepository {
                     boolean isTransformed = group.getBoolean("is_transformed", 0);
                     int ruleId = group.getInteger("rule_id", 0);
                     
-                    // Track UNIQUE records (not fact rows)
-                    synchronized (uniqueRecordIds) {
-                        uniqueRecordIds.add(recordId);
-                        if (isValid) validRecordIds.add(recordId);
-                        if (isTransformed) transformedRecordIds.add(recordId);
-                        
-                        // Track unique RECORDS per rule (not occurrences)
-                        String ruleIdStr = String.valueOf(ruleId);
-                        if (isValid) {
-                            validRuleRecordSets.computeIfAbsent(ruleIdStr, k -> new HashSet<>()).add(recordId);
-                        } else {
-                            invalidRuleRecordSets.computeIfAbsent(ruleIdStr, k -> new HashSet<>()).add(recordId);
-                        }
+                    // Track UNIQUE records - lock-free with ConcurrentHashMap (thread-safe)
+                    uniqueRecordIds.add(recordId);
+                    if (isValid) validRecordIds.add(recordId);
+                    if (isTransformed) transformedRecordIds.add(recordId);
+                    
+                    // Track unique RECORDS per rule (not occurrences)
+                    // Use pooled String to reduce memory duplication
+                    String ruleIdStr = getPooledRuleIdString(ruleId);
+                    if (isValid) {
+                        validRuleRecordSets.computeIfAbsent(ruleIdStr, k -> ConcurrentHashMap.newKeySet()).add(recordId);
+                    } else {
+                        invalidRuleRecordSets.computeIfAbsent(ruleIdStr, k -> ConcurrentHashMap.newKeySet()).add(recordId);
                     }
                 });
+            } catch (IOException e) {
+                logger.error("FACT REPO: Error reading file {} during parallel aggregation: {}", filePath, e.getMessage());
+                throw new RuntimeException("Failed to read parquet file: " + filePath, e);
             }
-        }
+        });
 
-        // Convert Sets to counts
-        Map<String, Long> validRuleCounts = new HashMap<>();
+        // Convert Sets to counts with pre-sized Maps
+        Map<String, Long> validRuleCounts = new HashMap<>(validRuleRecordSets.size());
         validRuleRecordSets.forEach((ruleId, recordSet) -> 
             validRuleCounts.put(ruleId, (long) recordSet.size()));
         
-        Map<String, Long> invalidRuleCounts = new HashMap<>();
+        Map<String, Long> invalidRuleCounts = new HashMap<>(invalidRuleRecordSets.size());
         invalidRuleRecordSets.forEach((ruleId, recordSet) -> 
             invalidRuleCounts.put(ruleId, (long) recordSet.size()));
 
-        Map<String, Object> stats = new HashMap<>();
+        Map<String, Object> stats = new HashMap<>(8);  // Exactly 5 keys
         stats.put("totalCount", (long) uniqueRecordIds.size());           // UNIQUE records
         stats.put("validCount", (long) validRecordIds.size());            // UNIQUE valid records
         stats.put("transformedCount", (long) transformedRecordIds.size()); // UNIQUE transformed records
@@ -533,13 +552,24 @@ public class ValidationStatParquetRepository {
     }
 
     private Map<String, Object> buildEmptyStats() {
-        Map<String, Object> stats = new HashMap<>();
+        Map<String, Object> stats = new HashMap<>(8);  // Pre-sized for 5 keys
         stats.put("totalCount", 0L);
         stats.put("validCount", 0L);
         stats.put("transformedCount", 0L);
         stats.put("validRuleCounts", new HashMap<>());
         stats.put("invalidRuleCounts", new HashMap<>());
         return stats;
+    }
+
+    /**
+     * OPTIMIZATION: String pool for rule IDs to reduce memory duplication
+     * Rule IDs are repeated many times across records, interning saves memory
+     * 
+     * @param ruleId integer rule ID
+     * @return interned String representation
+     */
+    private String getPooledRuleIdString(int ruleId) {
+        return ruleIdStringPool.computeIfAbsent(ruleId, String::valueOf);
     }
 
     /**
@@ -653,6 +683,8 @@ public class ValidationStatParquetRepository {
         deleteBySnapshotId(snapshotId);
         // Clear snapshot size tracking for dynamic sizing
         snapshotRecordCounts.remove(snapshotId);
+        // Invalidate partition paths cache
+        partitionPathsCache.remove(snapshotId);
         logger.info("FACT REPO: Snapshot {} cleaned and ready for new data", snapshotId);
     }
 
@@ -774,6 +806,8 @@ public class ValidationStatParquetRepository {
      * 
      * IMPORTANTE: Cuenta REGISTROS únicos, no filas fact.
      * Todos los conteos son de registros únicos que cumplen el predicado.
+     * 
+     * OPTIMIZACIÓN: Usa ConcurrentHashMap.newKeySet() para thread-safety sin locks.
      */
     private Map<String, Object> getAggregatedStatsWithPredicate(Long snapshotId, FilterPredicate filter) throws IOException {
         List<String> partitionPaths = getAllPartitionPaths(snapshotId);
@@ -783,16 +817,29 @@ public class ValidationStatParquetRepository {
             return buildEmptyStats();
         }
 
-        // CRITICAL: Use Sets to track UNIQUE record IDs (not fact rows)
-        Set<String> uniqueRecordIds = new HashSet<>();
-        Set<String> validRecordIds = new HashSet<>();
-        Set<String> transformedRecordIds = new HashSet<>();
+        // OPTIMIZATION: Pre-size collections based on expected filtered data volume
+        // Filtered queries typically return 10-50% of total records
+        final int estimatedRecords = 10000;  // Conservative for filtered results
+        final int estimatedRules = 100;
+        
+        // OPTIMIZED: Thread-safe Sets without explicit synchronization + pre-sized
+        Set<String> uniqueRecordIds = ConcurrentHashMap.newKeySet(estimatedRecords);
+        Set<String> validRecordIds = ConcurrentHashMap.newKeySet(estimatedRecords);
+        Set<String> transformedRecordIds = ConcurrentHashMap.newKeySet(estimatedRecords);
         
         // Rule counts: Map<ruleId, Set<recordId>> - track unique records per rule
-        Map<String, Set<String>> validRuleRecordSets = new HashMap<>();
-        Map<String, Set<String>> invalidRuleRecordSets = new HashMap<>();
+        Map<String, Set<String>> validRuleRecordSets = new ConcurrentHashMap<>(estimatedRules);
+        Map<String, Set<String>> invalidRuleRecordSets = new ConcurrentHashMap<>(estimatedRules);
 
-        for (String filePath : parquetFiles) {
+        // OPTIMIZATION: Use parallel processing for multiple files
+        boolean useParallel = enableParallelProcessing && parquetFiles.size() >= parallelThreshold;
+        
+        if (useParallel) {
+            logger.debug("FACT REPO: Using parallel processing for {} files (filtered query)", parquetFiles.size());
+        }
+
+        // Use parallel stream if enabled and worthwhile, otherwise sequential
+        (useParallel ? parquetFiles.parallelStream() : parquetFiles.stream()).forEach(filePath -> {
             try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
                 reader.aggregateFromGroups(group -> {
                     String recordId = group.getString("id", 0);
@@ -800,34 +847,36 @@ public class ValidationStatParquetRepository {
                     boolean isTransformed = group.getBoolean("is_transformed", 0);
                     int ruleId = group.getInteger("rule_id", 0);
                     
-                    // Track UNIQUE records (not fact rows)
-                    synchronized (uniqueRecordIds) {
-                        uniqueRecordIds.add(recordId);
-                        if (isValid) validRecordIds.add(recordId);
-                        if (isTransformed) transformedRecordIds.add(recordId);
-                        
-                        // Track unique RECORDS per rule (not occurrences)
-                        String ruleIdStr = String.valueOf(ruleId);
-                        if (isValid) {
-                            validRuleRecordSets.computeIfAbsent(ruleIdStr, k -> new HashSet<>()).add(recordId);
-                        } else {
-                            invalidRuleRecordSets.computeIfAbsent(ruleIdStr, k -> new HashSet<>()).add(recordId);
-                        }
+                    // Track UNIQUE records - lock-free with ConcurrentHashMap
+                    uniqueRecordIds.add(recordId);
+                    if (isValid) validRecordIds.add(recordId);
+                    if (isTransformed) transformedRecordIds.add(recordId);
+                    
+                    // Track unique RECORDS per rule (not occurrences)
+                    // Use pooled String to reduce memory duplication
+                    String ruleIdStr = getPooledRuleIdString(ruleId);
+                    if (isValid) {
+                        validRuleRecordSets.computeIfAbsent(ruleIdStr, k -> ConcurrentHashMap.newKeySet()).add(recordId);
+                    } else {
+                        invalidRuleRecordSets.computeIfAbsent(ruleIdStr, k -> ConcurrentHashMap.newKeySet()).add(recordId);
                     }
                 });
+            } catch (IOException e) {
+                logger.error("FACT REPO: Error reading file {} during parallel aggregation: {}", filePath, e.getMessage());
+                throw new RuntimeException("Failed to read parquet file: " + filePath, e);
             }
-        }
+        });
 
-        // Convert Sets to counts
-        Map<String, Long> validRuleCounts = new HashMap<>();
+        // Convert Sets to counts with pre-sized Maps
+        Map<String, Long> validRuleCounts = new HashMap<>(validRuleRecordSets.size());
         validRuleRecordSets.forEach((ruleId, recordSet) -> 
             validRuleCounts.put(ruleId, (long) recordSet.size()));
         
-        Map<String, Long> invalidRuleCounts = new HashMap<>();
+        Map<String, Long> invalidRuleCounts = new HashMap<>(invalidRuleRecordSets.size());
         invalidRuleRecordSets.forEach((ruleId, recordSet) -> 
             invalidRuleCounts.put(ruleId, (long) recordSet.size()));
 
-        Map<String, Object> stats = new HashMap<>();
+        Map<String, Object> stats = new HashMap<>(8);  // Exactly 5 keys
         stats.put("totalCount", (long) uniqueRecordIds.size());           // UNIQUE records
         stats.put("validCount", (long) validRecordIds.size());            // UNIQUE valid records
         stats.put("transformedCount", (long) transformedRecordIds.size()); // UNIQUE transformed records
