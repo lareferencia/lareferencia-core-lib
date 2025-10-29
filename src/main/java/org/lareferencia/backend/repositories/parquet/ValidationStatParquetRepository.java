@@ -1,5 +1,5 @@
 /*
- *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
+ *   Copyright (c) 2013-2025. LA Referencia / Red CLARA and others
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU Affero General Public License as published by
@@ -20,3207 +20,968 @@
 
 package org.lareferencia.backend.repositories.parquet;
 
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.avro.AvroParquetReader;
-import org.apache.parquet.avro.AvroParquetWriter;
-import org.apache.parquet.hadoop.ParquetFileWriter;
-import org.apache.parquet.hadoop.ParquetReader;
-import org.apache.parquet.hadoop.ParquetWriter;
-import org.apache.parquet.hadoop.metadata.CompressionCodecName;
-import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericData;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.parquet.hadoop.util.HadoopInputFile;
 import org.apache.parquet.filter2.predicate.FilterPredicate;
-import org.apache.parquet.filter2.predicate.FilterApi;
-import org.apache.parquet.filter2.compat.FilterCompat;
-import org.apache.parquet.io.api.Binary;
+import org.lareferencia.backend.domain.parquet.FactOccurrence;
 import org.lareferencia.backend.domain.parquet.ValidationStatObservationParquet;
+import org.lareferencia.backend.repositories.parquet.fact.FactOccurrencesReader;
+import org.lareferencia.backend.repositories.parquet.fact.FactOccurrencesWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 /**
- * Repositorio para datos de validación en Parquet con persistencia real.
- * Utiliza Apache Parquet para almacenamiento eficiente en disco.
+ * FACT TABLE REPOSITORY: Repositorio basado en tabla de hechos para estadísticas de validación.
  * 
- * ARCHITECTURE OVERVIEW:
- * - NEW: Multiple parquet files per snapshot for optimal performance
- *   Structure: /base-path/snapshot-{id}/data-{index}.parquet
- *   Each file contains configurable number of records (default: 10000)
- *   Enables streaming processing for millions of records without memory overload
+ * ARQUITECTURA REVOLUCIONARIA:
+ * ================================
  * 
- * - LEGACY: Single file per snapshot (compatibility mode)
- *   Structure: /base-path/snapshot_{id}.parquet  
- *   Used for backward compatibility with existing data
+ * REPRESENTACIÓN 1 (FACT TABLE - ESTA IMPLEMENTACIÓN):
+ * - 1 fila por cada ocurrencia de regla
+ * - Esquema: (id, snapshot_id, rule_id, value, is_valid, ...)
+ * - Particionado por: snapshot_id / network / is_valid
+ * - Compresión ZSTD + Dictionary encoding
  * 
- * MEMORY MANAGEMENT:
- * - Intelligent buffering system accumulates records until recordsPerFile limit
- * - Automatic flush when buffer reaches capacity or validation completes
- * - Multi-file streaming with offset/limit for efficient pagination
+ * VENTAJAS:
+ * ✓ Queries ultra-rápidos con predicate pushdown
+ * ✓ Agregaciones nativas sin cargar registros
+ * ✓ Escalabilidad lineal (millones de registros)
+ * ✓ Storage eficiente (10-20x compresión típica)
+ * ✓ Compatible con herramientas analíticas (Spark, Presto, etc.)
  * 
- * PERFORMANCE FEATURES:
- * - Row group pruning for fast filtering
- * - Aggregated statistics without full record loading
- * - Memory-efficient processing of datasets with millions of records
+ * LAYOUT EN DISCO:
+ * /base-path/
+ *   snapshot_id=3577/
+ *     network=CR/
+ *       is_valid=true/
+ *         part-00000.parquet
+ *         part-00001.parquet
+ *       is_valid=false/
+ *         part-00000.parquet
+ *     network=AR/
+ *       ...
+ * 
+ * OPERACIONES PRINCIPALES:
+ * - saveAll(): Convierte observaciones → filas fact con particionamiento
+ * - getAggregatedStats(): Estadísticas sin cargar datos (predicate pushdown)
+ * - findWithFilter(): Búsqueda optimizada con filtros columnares
+ * - countRecords(): Conteo eficiente usando row group metadata
  */
 @Repository
 public class ValidationStatParquetRepository {
 
     private static final Logger logger = LogManager.getLogger(ValidationStatParquetRepository.class);
 
-    /**
-     * Constructs a new ValidationStatParquetRepository instance.
-     */
-    public ValidationStatParquetRepository() {
-    }
-
     @Value("${validation.stats.parquet.path:/tmp/validation-stats-parquet}")
-    private String parquetBasePath;
-    
-    @Value("${parquet.validation.records-per-file:10000}")
+    private String factBasePath;
+
+    @Value("${parquet.validation.records-per-file:100000}")
     private int recordsPerFile;
+    
+    @Value("${parquet.validation.enable-dynamic-sizing:true}")
+    private boolean enableDynamicSizing;
 
-    // ==================== MEMORY CACHE CONFIGURATION ====================
-    
-    @Value("${validation.stats.memory-cache.enabled:true}")
-    private boolean memoryCacheEnabled;
-    
-    @Value("${validation.stats.memory-cache.max-snapshots:10}")
-    private int maxCachedSnapshots;
-    
-    @Value("${validation.stats.memory-cache.max-records-per-snapshot:5000000}")
-    private long maxRecordsPerSnapshot;
-
-    private Schema avroSchema;
     private Configuration hadoopConf;
+
+    // PARTITION MANAGEMENT: Track files per partition
+    private final Map<String, Integer> partitionFileCounters = new ConcurrentHashMap<>();
     
-    // Counter to track next file index per snapshot
-    private final Map<Long, Integer> snapshotFileCounters = new ConcurrentHashMap<>();
+    // BUFFER SYSTEM: Accumulate facts before writing
+    private final Map<String, List<FactOccurrence>> partitionBuffers = new ConcurrentHashMap<>();
     
-    // BUFFER SYSTEM: Accumulate records until reaching recordsPerFile limit
-    private final Map<Long, List<ValidationStatObservationParquet>> snapshotBuffers = new ConcurrentHashMap<>();
-    
-    // ==================== MEMORY CACHE SYSTEM ====================
-    
+    // DYNAMIC SIZING: Track total records per snapshot for optimal file sizing
+    private final Map<Long, Integer> snapshotRecordCounts = new ConcurrentHashMap<>();
+
     /**
-     * CACHE DATA STRUCTURE: Holds all data for a snapshot in memory
-     */
-    private static class SnapshotCache {
-        private final List<ValidationStatObservationParquet> allRecords;
-        private final Map<String, Object> precomputedStats;
-        private final long loadedTimestamp;
-        private final long recordCount;
-        
-        public SnapshotCache(List<ValidationStatObservationParquet> records, Map<String, Object> stats) {
-            this.allRecords = Collections.unmodifiableList(new ArrayList<>(records));
-            this.precomputedStats = new HashMap<>(stats);
-            this.loadedTimestamp = System.currentTimeMillis();
-            this.recordCount = records.size();
-        }
-        
-        public List<ValidationStatObservationParquet> getAllRecords() { return allRecords; }
-        public Map<String, Object> getPrecomputedStats() { return precomputedStats; }
-        public long getLoadedTimestamp() { return loadedTimestamp; }
-        public long getRecordCount() { return recordCount; }
-    }
-    
-    // MEMORY CACHE STORAGE
-    private final Map<Long, SnapshotCache> snapshotMemoryCache = new ConcurrentHashMap<>();
-    private final Map<Long, Long> cacheLoadTimestamp = new ConcurrentHashMap<>();
-    private final Map<Long, Boolean> cacheLoadingInProgress = new ConcurrentHashMap<>();
-    
-    // CACHE STATISTICS
-    private final AtomicLong cacheHits = new AtomicLong(0);
-    private final AtomicLong cacheMisses = new AtomicLong(0);
-    private final AtomicLong cacheLoads = new AtomicLong(0);
-    
-    private final Map<String, AggregationResult> queryCache = new ConcurrentHashMap<>();
-    
-    // CACHE: Para evitar recontar registros en cada paginación
-    private final Map<String, Long> countCache = new ConcurrentHashMap<>();
-    private final Map<String, Long> countCacheTimestamp = new ConcurrentHashMap<>();
-    private final long COUNT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos de TTL
-    
-    /**
-     * Initializes the repository after dependency injection, setting up Hadoop configuration,
-     * creating the base directory structure, and initializing the Avro schema.
-     *
-     * @throws IOException if an I/O error occurs during initialization
+     * Initializes Hadoop configuration and base directory structure
      */
     @PostConstruct
     public void init() throws IOException {
-        logger.info("Initializing ValidationStatParquetRepository with {} records per file", recordsPerFile);
-        
-        // Initialize Hadoop configuration
         hadoopConf = new Configuration();
-        hadoopConf.set("fs.defaultFS", "file:///");
+        hadoopConf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
+        hadoopConf.set("fs.file.impl", org.apache.hadoop.fs.LocalFileSystem.class.getName());
         
-        // Create base directory if it doesn't exist
-        Files.createDirectories(Paths.get(parquetBasePath));
+        // Create base directory
+        Files.createDirectories(Paths.get(factBasePath));
         
-        // Initialize Avro schema for validation data
-        initializeAvroSchema();
+        logger.info("========================================");
+        logger.info("FACT REPOSITORY INITIALIZED");
+        logger.info("Base path: {}", factBasePath);
+        logger.info("Records per file (base): {}", recordsPerFile);
+        logger.info("Dynamic sizing: {}", enableDynamicSizing ? "ENABLED" : "DISABLED");
+        logger.info("========================================");
+    }
+
+    /**
+     * DYNAMIC SIZING: Calcula el tamaño óptimo de archivo basado en el total de registros del snapshot
+     * 
+     * ESTRATEGIA:
+     * - Snapshots pequeños (<100K): archivos ~50K registros (~3-5 MB)
+     * - Snapshots medianos (100K-1M): archivos ~500K registros (~30-40 MB) 
+     * - Snapshots grandes (1M-10M): archivos ~1M registros (~60-80 MB)
+     * - Snapshots muy grandes (>10M): archivos ~2M registros (~120-150 MB)
+     * 
+     * BENEFICIOS:
+     * - Evita file explosion en snapshots pequeños
+     * - Optimiza row groups en snapshots grandes
+     * - Balance automático entre I/O y metadata overhead
+     * 
+     * @param snapshotId ID del snapshot
+     * @return número óptimo de registros por archivo
+     */
+    private int getOptimalRecordsPerFile(Long snapshotId) {
+        if (!enableDynamicSizing) {
+            return recordsPerFile; // Usar configuración fija si dynamic sizing está deshabilitado
+        }
         
-        // Initialize file counters for existing snapshots
-        initializeFileCounters();
+        Integer totalRecords = snapshotRecordCounts.get(snapshotId);
+        if (totalRecords == null) {
+            // Si no tenemos información, usar configuración base
+            return recordsPerFile;
+        }
         
-        logger.info("ValidationStatParquetRepository initialized - ready to use at: {}", parquetBasePath);
+        int optimal;
+        if (totalRecords < 100_000) {
+            optimal = 50_000;      // Snapshots pequeños: archivos ~3-5 MB
+        } else if (totalRecords < 1_000_000) {
+            optimal = 500_000;     // Snapshots medianos: archivos ~30-40 MB
+        } else if (totalRecords < 10_000_000) {
+            optimal = 1_000_000;   // Snapshots grandes: archivos ~60-80 MB
+        } else {
+            optimal = 2_000_000;   // Snapshots muy grandes: archivos ~120-150 MB
+        }
+        
+        logger.debug("DYNAMIC SIZING: Snapshot {} has {} total records, using {} records/file", 
+                    snapshotId, totalRecords, optimal);
+        
+        return optimal;
     }
     
     /**
-     * CLEANUP: Flush any remaining buffered data before shutdown
+     * Registra el conteo de registros para un snapshot (usado para dynamic sizing)
+     * 
+     * @param snapshotId ID del snapshot
+     * @param totalRecords total de registros en el snapshot
+     */
+    public void registerSnapshotSize(Long snapshotId, int totalRecords) {
+        snapshotRecordCounts.put(snapshotId, totalRecords);
+        logger.info("DYNAMIC SIZING: Registered snapshot {} with {} total records", snapshotId, totalRecords);
+    }
+
+    /**
+     * Cleanup: Flush remaining buffers before shutdown
      */
     @PreDestroy
     public void shutdown() {
         try {
-            logger.debug("SHUTDOWN: Flushing remaining buffers before shutdown");
+            logger.info("FACT REPO: Shutting down - flushing remaining buffers");
             flushAllBuffers();
-            
-            // Limpiar caches
-            queryCache.clear();
-            countCache.clear();
-            countCacheTimestamp.clear();
-            
-            // Limpiar memory cache
-            if (memoryCacheEnabled) {
-                clearMemoryCache();
-            }
-            
-            logger.debug("SHUTDOWN: Cleared all caches");
-            
-        } catch (IOException e) {
-            logger.error("SHUTDOWN: Error flushing buffers during shutdown", e);
-        }
-    }
-    
-    /**
-     * CACHE HELPER: Invalida cache de conteo para un snapshot específico
-     */
-    private void invalidateCountCache(Long snapshotId) {
-        // Buscar todas las claves de cache que empiecen con el snapshot ID
-        countCache.entrySet().removeIf(entry -> entry.getKey().startsWith("count_" + snapshotId + "_"));
-        countCacheTimestamp.entrySet().removeIf(entry -> entry.getKey().startsWith("count_" + snapshotId + "_"));
-        logger.debug("CACHE: Invalidated count cache for snapshot {}", snapshotId);
-    }
-    
-    /**
-     * Initialize file counters for existing snapshots to avoid file conflicts
-     */
-    private void initializeFileCounters() throws IOException {
-        File baseDir = new File(parquetBasePath);
-        if (!baseDir.exists()) {
-            return;
-        }
-        
-        File[] snapshotDirs = baseDir.listFiles(file -> file.isDirectory() && file.getName().startsWith("snapshot-"));
-        if (snapshotDirs != null) {
-            for (File snapshotDir : snapshotDirs) {
-                try {
-                    String dirName = snapshotDir.getName();
-                    Long snapshotId = Long.parseLong(dirName.substring("snapshot-".length()));
-                    
-                    // Count existing data files in this snapshot directory
-                    File[] dataFiles = snapshotDir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-                    int maxIndex = -1;
-                    if (dataFiles != null) {
-                        for (File dataFile : dataFiles) {
-                            String fileName = dataFile.getName();
-                            String indexStr = fileName.substring("data-".length(), fileName.indexOf(".parquet"));
-                            try {
-                                int index = Integer.parseInt(indexStr);
-                                maxIndex = Math.max(maxIndex, index);
-                            } catch (NumberFormatException e) {
-                                logger.warn("Invalid data file name format: {}", fileName);
-                            }
-                        }
-                    }
-                    
-                    snapshotFileCounters.put(snapshotId, maxIndex + 1);
-                    logger.debug("Initialized file counter for snapshot {}: next index = {}", snapshotId, maxIndex + 1);
-                } catch (NumberFormatException e) {
-                    logger.warn("Invalid snapshot directory name: {}", snapshotDir.getName());
-                }
-            }
-        }
-    }
-    
-    private void initializeAvroSchema() {
-        // Define Avro schema for ValidationStatObservation
-        String schemaJson = "{\n" +
-            "  \"type\": \"record\",\n" +
-            "  \"name\": \"ValidationStatObservation\",\n" +
-            "  \"namespace\": \"org.lareferencia.backend.domain.parquet\",\n" +
-            "  \"fields\": [\n" +
-            "    {\"name\": \"id\", \"type\": \"string\"},\n" +
-            "    {\"name\": \"identifier\", \"type\": \"string\"},\n" +
-            "    {\"name\": \"snapshotID\", \"type\": \"long\"},\n" +
-            "    {\"name\": \"origin\", \"type\": \"string\"},\n" +
-            "    {\"name\": \"setSpec\", \"type\": [\"null\", \"string\"], \"default\": null},\n" +
-            "    {\"name\": \"metadataPrefix\", \"type\": [\"null\", \"string\"], \"default\": null},\n" +
-            "    {\"name\": \"networkAcronym\", \"type\": [\"null\", \"string\"], \"default\": null},\n" +
-            "    {\"name\": \"repositoryName\", \"type\": [\"null\", \"string\"], \"default\": null},\n" +
-            "    {\"name\": \"institutionName\", \"type\": [\"null\", \"string\"], \"default\": null},\n" +
-            "    {\"name\": \"isValid\", \"type\": \"boolean\"},\n" +
-            "    {\"name\": \"isTransformed\", \"type\": \"boolean\"},\n" +
-            "    {\"name\": \"validOccurrencesByRuleID\", \"type\": [\"null\", {\"type\": \"map\", \"values\": {\"type\": \"array\", \"items\": \"string\"}}], \"default\": null},\n" +
-            "    {\"name\": \"invalidOccurrencesByRuleID\", \"type\": [\"null\", {\"type\": \"map\", \"values\": {\"type\": \"array\", \"items\": \"string\"}}], \"default\": null},\n" +
-            "    {\"name\": \"validRulesIDList\", \"type\": [\"null\", {\"type\": \"array\", \"items\": \"string\"}], \"default\": null},\n" +
-            "    {\"name\": \"invalidRulesIDList\", \"type\": [\"null\", {\"type\": \"array\", \"items\": \"string\"}], \"default\": null}\n" +
-            "  ]\n" +
-            "}";
-        
-        avroSchema = new Schema.Parser().parse(schemaJson);
-    }
-    
-    /**
-     * PREDICATE PUSHDOWN: Construye filtros optimizados para consultas Parquet
-     * Permite filtrar datos directamente en el nivel de columnas sin cargar registros
-     */
-    private FilterPredicate buildFilterPredicate(AggregationFilter filter) {
-        if (filter == null) {
-            return null;
-        }
-        
-        FilterPredicate predicate = null;
-        
-        try {
-            // Filtro por identifier (String)
-            if (filter.getRecordOAIId() != null && !filter.getRecordOAIId().trim().isEmpty()) {
-                FilterPredicate identifierFilter = FilterApi.eq(
-                    FilterApi.binaryColumn("identifier"), 
-                    Binary.fromString(filter.getRecordOAIId())
-                );
-                predicate = combineWithAnd(predicate, identifierFilter);
-                logger.debug("PREDICATE: Added identifier filter: {}", filter.getRecordOAIId());
-            }
-            
-            // Filtro por isValid (Boolean)
-            if (filter.getIsValid() != null) {
-                FilterPredicate validFilter = FilterApi.eq(
-                    FilterApi.booleanColumn("isValid"), 
-                    filter.getIsValid()
-                );
-                predicate = combineWithAnd(predicate, validFilter);
-                logger.debug("PREDICATE: Added isValid filter: {}", filter.getIsValid());
-            }
-            
-            // Filtro por isTransformed (Boolean)
-            if (filter.getIsTransformed() != null) {
-                FilterPredicate transformedFilter = FilterApi.eq(
-                    FilterApi.booleanColumn("isTransformed"), 
-                    filter.getIsTransformed()
-                );
-                predicate = combineWithAnd(predicate, transformedFilter);
-                logger.debug("PREDICATE: Added isTransformed filter: {}", filter.getIsTransformed());
-            }
-            
-            // NOTA: Los campos validRulesIDList e invalidRulesIDList son arrays complejos
-            // Parquet predicate pushdown no soporta directamente filtros en arrays
-            // Estos se manejarán en post-procesamiento después del pushdown básico
-            if (filter.getValidRulesFilter() != null || filter.getInvalidRulesFilter() != null) {
-                logger.debug("PREDICATE: Complex array filters (validRules/invalidRules) will be applied in post-processing");
-            }
-            
         } catch (Exception e) {
-            logger.warn("PREDICATE: Error building filter predicate, falling back to full scan: {}", e.getMessage());
-            return null;
+            logger.error("FACT REPO: Error during shutdown", e);
         }
-        
-        if (predicate != null) {
-            logger.debug("PREDICATE: Built optimized filter predicate with {} conditions", 
-                       countPredicateConditions(predicate));
-        }
-        
-        return predicate;
     }
 
     /**
-     * HELPER: Combina predicados con operador AND
-     */
-    private FilterPredicate combineWithAnd(FilterPredicate existing, FilterPredicate newPredicate) {
-        if (existing == null) {
-            return newPredicate;
-        }
-        return FilterApi.and(existing, newPredicate);
-    }
-
-    /**
-     * HELPER: Cuenta condiciones en un predicado (para logging)
-     */
-    private int countPredicateConditions(FilterPredicate predicate) {
-        // Implementación simple para contar condiciones
-        String predicateStr = predicate.toString();
-        return (int) predicateStr.chars().filter(ch -> ch == '=').count();
-    }
-
-    /**
-     * POST-PROCESSING: Aplica filtros complejos que no se pueden hacer con predicate pushdown
-     * Específicamente para arrays como validRulesIDList e invalidRulesIDList
-     */
-    private boolean matchesComplexFilters(ValidationStatObservationParquet obs, AggregationFilter filter) {
-        if (filter == null) {
-            return true;
-        }
-        
-        // Filtro de reglas válidas (array complex filter)
-        if (filter.getValidRulesFilter() != null) {
-            List<String> validRules = obs.getValidRulesIDList();
-            if (validRules == null || !validRules.contains(filter.getValidRulesFilter())) {
-                return false;
-            }
-        }
-        
-        // Filtro de reglas inválidas (array complex filter)
-        if (filter.getInvalidRulesFilter() != null) {
-            List<String> invalidRules = obs.getInvalidRulesIDList();
-            if (invalidRules == null || !invalidRules.contains(filter.getInvalidRulesFilter())) {
-                return false;
-            }
-        }
-        
-        // Otros filtros complejos se pueden agregar aquí
-        // Por ejemplo: filtros de rango en arrays, filtros de texto parcial, etc.
-        
-        return true;
-    }
-
-    /**
-     * OPTIMIZED: Stream file with predicate pushdown for maximum performance
-     * Utiliza filtros a nivel de columna para evitar lectura de registros innecesarios
-     */
-    private List<ValidationStatObservationParquet> streamFileWithPredicatePushdown(String filePath, 
-                                                                                   AggregationFilter filter, 
-                                                                                   int offset, int limit) throws IOException {
-        List<ValidationStatObservationParquet> results = new ArrayList<>();
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            logger.debug("PREDICATE STREAM: File does not exist: {}", filePath);
-            return results;
-        }
-        
-        // Construir predicado para pushdown
-        FilterPredicate predicate = buildFilterPredicate(filter);
-        
-        logger.debug("PREDICATE STREAM: Processing {} with predicate pushdown enabled, offset={}, limit={}", 
-                   file.getName(), offset, limit);
-        
-        int filteredCount = 0; // Registros que pasan el filtro completo
-        int collected = 0;     // Registros recolectados para resultado
-        int pushedDownCount = 0; // Registros que pasan el predicate pushdown
-        
-        try {
-            // Crear reader con predicate pushdown
-            ParquetReader.Builder<GenericRecord> readerBuilder = AvroParquetReader.<GenericRecord>builder(
-                HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
-                .withConf(hadoopConf);
-            
-            // Aplicar predicate pushdown si está disponible
-            if (predicate != null) {
-                readerBuilder = readerBuilder.withFilter(FilterCompat.get(predicate));
-                logger.debug("PREDICATE STREAM: Applied predicate pushdown filter to reader");
-            }
-            
-            try (ParquetReader<GenericRecord> reader = readerBuilder.build()) {
-                GenericRecord record;
-                while ((record = reader.read()) != null && collected < limit) {
-                    pushedDownCount++;
-                    
-                    // Post-procesamiento para filtros complejos (arrays) que no se pueden hacer con pushdown
-                    ValidationStatObservationParquet observation = fromGenericRecord(record);
-                    if (matchesComplexFilters(observation, filter)) {
-                        // Este registro pasa todos los filtros
-                        if (filteredCount >= offset) {
-                            // Ya saltamos suficientes registros, empezar a recolectar
-                            results.add(observation);
-                            collected++;
-                        }
-                        filteredCount++;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.error("PREDICATE STREAM: Error with predicate pushdown for file {}", file.getName(), e);
-            // Re-throw exception since we removed fallback methods
-            throw new IOException("Failed to process file with predicate pushdown: " + file.getName(), e);
-        }
-        
-        logger.debug("PREDICATE STREAM: File {} - Pushdown filtered to {} records, complex filters to {} records, returned {} results", 
-                   file.getName(), pushedDownCount, filteredCount, results.size());
-        
-        return results;
-    }
-
-    /**
-     * OPTIMIZED: Count with predicate pushdown for maximum performance
-     * Cuenta registros utilizando filtros a nivel de columna
-     */
-    private long countFileWithPredicatePushdown(String filePath, AggregationFilter filter) throws IOException {
-        File file = new File(filePath);
-        if (!file.exists()) {
-            logger.debug("PREDICATE COUNT: File does not exist: {}", filePath);
-            return 0L;
-        }
-        
-        // Construir predicado para pushdown
-        FilterPredicate predicate = buildFilterPredicate(filter);
-        
-        logger.debug("PREDICATE COUNT: Counting with predicate pushdown in {}", file.getName());
-        
-        long count = 0;
-        long pushedDownCount = 0;
-        
-        try {
-            // Crear reader con predicate pushdown
-            ParquetReader.Builder<GenericRecord> readerBuilder = AvroParquetReader.<GenericRecord>builder(
-                HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
-                .withConf(hadoopConf);
-            
-            // Aplicar predicate pushdown si está disponible
-            if (predicate != null) {
-                readerBuilder = readerBuilder.withFilter(FilterCompat.get(predicate));
-                logger.debug("PREDICATE COUNT: Applied predicate pushdown filter for counting");
-            }
-            
-            try (ParquetReader<GenericRecord> reader = readerBuilder.build()) {
-                GenericRecord record;
-                while ((record = reader.read()) != null) {
-                    pushedDownCount++;
-                    
-                    // Post-procesamiento para filtros complejos
-                    ValidationStatObservationParquet observation = fromGenericRecord(record);
-                    if (matchesComplexFilters(observation, filter)) {
-                        count++;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.error("PREDICATE COUNT: Error with predicate pushdown for file {}", file.getName(), e);
-            // Re-throw exception since we removed fallback methods
-            throw new IOException("Failed to count with predicate pushdown: " + file.getName(), e);
-        }
-        
-        logger.debug("PREDICATE COUNT: File {} - Pushdown to {} records, complex filters to {} final count", 
-                   file.getName(), pushedDownCount, count);
-        
-        return count;
-    }
-
-    /**
-     * OPTIMIZED: Aggregated stats with predicate pushdown
-     * Genera estadísticas utilizando filtros optimizados a nivel de columna
-     */
-    private AggregationResult getAggregatedStatsWithPredicatePushdown(String filePath, AggregationFilter filter) throws IOException {
-        logger.debug("PREDICATE STATS: Processing aggregated stats with pushdown for: {}", filePath);
-        
-        String cacheKey = filePath + "_predicate_" + filter.hashCode();
-        if (queryCache.containsKey(cacheKey)) {
-            logger.debug("PREDICATE STATS: Result from cache");
-            return queryCache.get(cacheKey);
-        }
-        
-        // Construir predicado para pushdown
-        FilterPredicate predicate = buildFilterPredicate(filter);
-        
-        AggregationResult result = new AggregationResult();
-        
-        try {
-            // Crear reader con predicate pushdown
-            ParquetReader.Builder<GenericRecord> readerBuilder = AvroParquetReader.<GenericRecord>builder(
-                HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
-                .withConf(hadoopConf);
-            
-            // Aplicar predicate pushdown si está disponible
-            if (predicate != null) {
-                readerBuilder = readerBuilder.withFilter(FilterCompat.get(predicate));
-                logger.debug("PREDICATE STATS: Applied predicate pushdown filter for aggregation");
-            }
-            
-            try (ParquetReader<GenericRecord> reader = readerBuilder.build()) {
-                GenericRecord record;
-                int totalRecords = 0;
-                int pushedDownRecords = 0;
-                int filteredRecords = 0;
-                
-                while ((record = reader.read()) != null) {
-                    totalRecords++;
-                    pushedDownRecords++;
-                    
-                    // Post-procesamiento para filtros complejos
-                    ValidationStatObservationParquet observation = fromGenericRecord(record);
-                    if (matchesComplexFilters(observation, filter)) {
-                        filteredRecords++;
-                        result.incrementTotalCount();
-                        
-                        // Procesar estadísticas básicas
-                        Boolean isValid = observation.getIsValid();
-                        if (isValid != null && isValid) {
-                            result.incrementValidCount();
-                        } else {
-                            result.incrementInvalidCount();
-                        }
-                        
-                        Boolean isTransformed = observation.getIsTransformed();
-                        if (isTransformed != null && isTransformed) {
-                            result.incrementTransformedCount();
-                        }
-                        
-                        // Procesar estadísticas de reglas
-                        processRuleStatisticsFromObservation(observation, result);
-                    }
-                }
-                
-                logger.debug("PREDICATE STATS: File processed - Total: {}, Pushdown: {}, Final: {}", 
-                            totalRecords, pushedDownRecords, filteredRecords);
-            }
-        } catch (Exception e) {
-            logger.error("PREDICATE STATS: Error with predicate pushdown for file {}", filePath, e);
-            // Re-throw exception since we removed fallback methods  
-            throw new IOException("Failed to get aggregated stats with predicate pushdown: " + filePath, e);
-        }
-        
-        queryCache.put(cacheKey, result);
-        logger.debug("PREDICATE STATS: Aggregation completed with pushdown optimization");
-        return result;
-    }
-
-    /**
-     * HELPER: Procesa estadísticas de reglas desde observación convertida
-     */
-    private void processRuleStatisticsFromObservation(ValidationStatObservationParquet observation, AggregationResult result) {
-        try {
-            // Procesar reglas válidas
-            List<String> validRules = observation.getValidRulesIDList();
-            if (validRules != null) {
-                for (String rule : validRules) {
-                    if (rule != null && !rule.isEmpty()) {
-                        result.addValidRuleCount(rule);
-                    }
-                }
-            }
-            
-            // Procesar reglas inválidas
-            List<String> invalidRules = observation.getInvalidRulesIDList();
-            if (invalidRules != null) {
-                for (String rule : invalidRules) {
-                    if (rule != null && !rule.isEmpty()) {
-                        result.addInvalidRuleCount(rule);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("PREDICATE STATS: Error processing rule statistics: {}", e.getMessage());
-        }
-    }
-    
-    /**
-     * NEW: Get snapshot directory path
-     */
-    private String getSnapshotDirectoryPath(Long snapshotId) {
-        return parquetBasePath + "/snapshot-" + snapshotId;
-    }
-    
-    /**
-     * NEW: Get specific data file path within snapshot directory
-     */
-    private String getDataFilePath(Long snapshotId, int fileIndex) {
-        return getSnapshotDirectoryPath(snapshotId) + "/data-" + fileIndex + ".parquet";
-    }
-    
-    /**
-     * NEW: Get all existing data file paths for a snapshot
-     */
-    private List<String> getAllDataFilePaths(Long snapshotId) throws IOException {
-        List<String> filePaths = new ArrayList<>();
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
-        
-        if (!dir.exists() || !dir.isDirectory()) {
-            logger.debug("Snapshot directory does not exist: {}", snapshotDir);
-            return filePaths;
-        }
-        
-        File[] dataFiles = dir.listFiles(file -> 
-            file.isFile() && file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        if (dataFiles != null) {
-            // Sort files by index to ensure consistent ordering
-            Arrays.sort(dataFiles, (f1, f2) -> {
-                try {
-                    String name1 = f1.getName();
-                    String name2 = f2.getName();
-                    int index1 = Integer.parseInt(name1.substring("data-".length(), name1.indexOf(".parquet")));
-                    int index2 = Integer.parseInt(name2.substring("data-".length(), name2.indexOf(".parquet")));
-                    return Integer.compare(index1, index2);
-                } catch (NumberFormatException e) {
-                    return f1.getName().compareTo(f2.getName());
-                }
-            });
-            
-            for (File file : dataFiles) {
-                filePaths.add(file.getAbsolutePath());
-            }
-        }
-        
-        logger.debug("Found {} data files for snapshot {}", filePaths.size(), snapshotId);
-        return filePaths;
-    }
-    
-
-    
-    private GenericRecord toGenericRecord(ValidationStatObservationParquet observation) {
-        GenericRecord record = new GenericData.Record(avroSchema);
-        record.put("id", observation.getId());
-        record.put("identifier", observation.getIdentifier());
-        record.put("snapshotID", observation.getSnapshotID());
-        record.put("origin", observation.getOrigin());
-        record.put("setSpec", observation.getSetSpec());
-        record.put("metadataPrefix", observation.getMetadataPrefix());
-        record.put("networkAcronym", observation.getNetworkAcronym());
-        record.put("repositoryName", observation.getRepositoryName());
-        record.put("institutionName", observation.getInstitutionName());
-        record.put("isValid", observation.getIsValid());
-        record.put("isTransformed", observation.getIsTransformed());
-        record.put("validOccurrencesByRuleID", observation.getValidOccurrencesByRuleID());
-        record.put("invalidOccurrencesByRuleID", observation.getInvalidOccurrencesByRuleID());
-        record.put("validRulesIDList", observation.getValidRulesIDList());
-        record.put("invalidRulesIDList", observation.getInvalidRulesIDList());
-        return record;
-    }
-    
-    /**
-     * Convierte un objeto Avro a String (maneja Utf8, CharSequence y String)
-     * Optimizado para manejar todos los tipos comunes en Avro/Parquet
-     */
-    private String avroToString(Object obj) {
-        if (obj == null) {
-            return null;
-        }
-        
-        // Handle Avro Utf8 objects specifically
-        if (obj instanceof org.apache.avro.util.Utf8) {
-            return obj.toString();
-        }
-        
-        // Handle CharSequence (includes String and other string-like objects)
-        if (obj instanceof CharSequence) {
-            return obj.toString();
-        }
-        
-        // Fallback for any other type
-        return obj.toString();
-    }
-    
-    /**
-     * Helper method para buscar una clave en un mapa que puede contener claves Utf8 o String
-     * Maneja las diferencias de tipos entre Java String y Avro Utf8
-     */
-    private Object findValueInAvroMap(Map<Object, Object> map, String searchKey) {
-        if (map == null || searchKey == null) {
-            return null;
-        }
-        
-        // Try direct lookup first (String key)
-        Object value = map.get(searchKey);
-        if (value != null) {
-            return value;
-        }
-        
-        // Try with Utf8 key
-        try {
-            org.apache.avro.util.Utf8 utf8Key = new org.apache.avro.util.Utf8(searchKey);
-            value = map.get(utf8Key);
-            if (value != null) {
-                return value;
-            }
-        } catch (Exception e) {
-            // Ignore errors creating Utf8 key
-        }
-        
-        // Fallback: iterate and compare string representations
-        for (Map.Entry<Object, Object> entry : map.entrySet()) {
-            if (searchKey.equals(avroToString(entry.getKey()))) {
-                return entry.getValue();
-            }
-        }
-        
-        return null;
-    }
-    
-    /**
-     * Convierte una lista de Avro (con posibles elementos Utf8) a Lista de String
-     */
-    @SuppressWarnings("unchecked")
-    private List<String> convertStringList(Object obj) {
-        if (obj == null) {
-            return null;
-        }
-        List<Object> avroList = (List<Object>) obj;
-        return avroList.stream()
-                .map(this::avroToString)
-                .collect(Collectors.toList());
-    }
-    
-    /**
-     * Convierte un Map de Avro (con keys y valores Utf8) a Map<String, List<String>>
-     */
-    @SuppressWarnings("unchecked")
-    private Map<String, List<String>> convertMapWithStringLists(Object obj) {
-        if (obj == null) {
-            return null;
-        }
-        Map<Object, Object> avroMap = (Map<Object, Object>) obj;
-        Map<String, List<String>> result = new HashMap<>();
-        
-        for (Map.Entry<Object, Object> entry : avroMap.entrySet()) {
-            String key = avroToString(entry.getKey());
-            List<String> value = convertStringList(entry.getValue());
-            result.put(key, value);
-        }
-        
-        return result;
-    }
-    
-    private ValidationStatObservationParquet fromGenericRecord(GenericRecord record) {
-        ValidationStatObservationParquet observation = new ValidationStatObservationParquet();
-        observation.setId(avroToString(record.get("id")));
-        observation.setIdentifier(avroToString(record.get("identifier")));
-        observation.setSnapshotID((Long) record.get("snapshotID"));
-        observation.setOrigin(avroToString(record.get("origin")));
-        observation.setSetSpec(avroToString(record.get("setSpec")));
-        observation.setMetadataPrefix(avroToString(record.get("metadataPrefix")));
-        observation.setNetworkAcronym(avroToString(record.get("networkAcronym")));
-        observation.setRepositoryName(avroToString(record.get("repositoryName")));
-        observation.setInstitutionName(avroToString(record.get("institutionName")));
-        observation.setIsValid((Boolean) record.get("isValid"));
-        observation.setIsTransformed((Boolean) record.get("isTransformed"));
-        observation.setValidOccurrencesByRuleID(convertMapWithStringLists(record.get("validOccurrencesByRuleID")));
-        observation.setInvalidOccurrencesByRuleID(convertMapWithStringLists(record.get("invalidOccurrencesByRuleID")));
-        observation.setValidRulesIDList(convertStringList(record.get("validRulesIDList")));
-        observation.setInvalidRulesIDList(convertStringList(record.get("invalidRulesIDList")));
-        return observation;
-    }
-
-    /**
-     * NEW: Find all observations by snapshot ID - supports multi-file architecture
-     * Reads from all data files in snapshot directory
+     * CORE SAVE: Converts ValidationStatObservationParquet to fact rows with partitioning
      * 
-     * WARNING: This method loads ALL records into memory - use with caution for large datasets!
-     * For large datasets (millions of records), prefer using:
-     * - findBySnapshotIdWithPagination() for paginated access
-     * - findWithFilterAndPagination() for filtered access
-     * - countBySnapshotId() for just counting records
-     * - getAggregatedStats() for statistics without loading records
+     * PROCESS:
+     * 1. Convert each observation → N fact rows (explosion)
+     * 2. Group rows by partition key (snapshot_id/network/is_valid)
+     * 3. Buffer rows until reaching recordsPerFile
+     * 4. Flush buffers to partitioned Parquet files
      * 
-     * @param snapshotId the snapshot ID to find observations for
-     * @return list of all validation observations for the snapshot
-     * @throws IOException if reading from Parquet files fails
-     */
-    public List<ValidationStatObservationParquet> findBySnapshotId(Long snapshotId) throws IOException {
-        logger.warn("MEMORY WARNING: findBySnapshotId loads ALL records into memory - consider using pagination for large datasets");
-        logger.debug("MULTI-FILE: Finding observations for snapshot {}", snapshotId);
-        
-        List<String> filePaths = getAllDataFilePaths(snapshotId);
-        if (filePaths.isEmpty()) {
-            logger.debug("MULTI-FILE: No data files found for snapshot {}", snapshotId);
-            return Collections.emptyList();
-        }
-        
-        List<ValidationStatObservationParquet> allResults = new ArrayList<>();
-        
-        // Read from all data files for this snapshot
-        for (String filePath : filePaths) {
-            File file = new File(filePath);
-            if (!file.exists()) {
-                logger.warn("MULTI-FILE: Data file does not exist: {}", filePath);
-                continue;
-            }
-            
-            logger.debug("MULTI-FILE: Reading from file: {}", filePath);
-            
-            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
-                    .withConf(hadoopConf)
-                    .build()) {
-                
-                GenericRecord record;
-                int fileRecordCount = 0;
-                while ((record = reader.read()) != null) {
-                    ValidationStatObservationParquet observation = fromGenericRecord(record);
-                    allResults.add(observation);
-                    fileRecordCount++;
-                }
-                
-                logger.debug("MULTI-FILE: Read {} records from file: {}", fileRecordCount, filePath);
-            }
-        }
-        
-        logger.info("MULTI-FILE: Found {} total observations for snapshot {} across {} files", 
-                   allResults.size(), snapshotId, filePaths.size());
-        return allResults;
-    }
-    
-    /**
-     * STREAMING ALTERNATIVE: Processes all records of a snapshot with a callback.
-     * Avoids loading millions of records into memory at once.
-     * 
-     * @param snapshotId the snapshot ID to process
-     * @param processor function that processes each record individually
-     * @return total number of records processed
-     * @throws IOException if reading from Parquet files fails
-     */
-    public long processAllRecords(Long snapshotId, java.util.function.Consumer<ValidationStatObservationParquet> processor) throws IOException {
-        logger.debug("STREAMING PROCESSOR: Processing all records for snapshot {} with callback", snapshotId);
-        
-        List<String> filePaths = getAllDataFilePaths(snapshotId);
-        if (filePaths.isEmpty()) {
-            logger.debug("STREAMING PROCESSOR: No data files found for snapshot {}", snapshotId);
-            return 0;
-        }
-        
-        long totalProcessed = 0;
-        
-        // Process each file with streaming
-        for (String filePath : filePaths) {
-            File file = new File(filePath);
-            if (!file.exists()) {
-                logger.warn("STREAMING PROCESSOR: Data file does not exist: {}", filePath);
-                continue;
-            }
-            
-            logger.debug("STREAMING PROCESSOR: Processing file: {}", filePath);
-            
-            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
-                    .withConf(hadoopConf)
-                    .build()) {
-                
-                GenericRecord record;
-                long fileRecordCount = 0;
-                while ((record = reader.read()) != null) {
-                    ValidationStatObservationParquet observation = fromGenericRecord(record);
-                    processor.accept(observation); // Process each record individually
-                    fileRecordCount++;
-                    totalProcessed++;
-                }
-                
-                logger.debug("STREAMING PROCESSOR: Processed {} records from file: {}", fileRecordCount, filePath);
-            }
-        }
-        
-        logger.info("STREAMING PROCESSOR: Processed {} total records for snapshot {} across {} files", 
-                   totalProcessed, snapshotId, filePaths.size());
-        return totalProcessed;
-    }
-
-    /**
-     * STREAMING: Implements efficient pagination without loading data into memory.
-     * Uses the existing streaming method to avoid memory overflow.
-     * 
-     * @param snapshotId the snapshot ID to paginate
-     * @param page the page number (0-based)
-     * @param size the page size
-     * @return list of observations for the specified page
-     * @throws IOException if reading from Parquet files fails
-     */
-    public List<ValidationStatObservationParquet> findBySnapshotIdWithPagination(Long snapshotId, int page, int size) throws IOException {
-        // Use the existing streaming pagination method with no filters
-        AggregationFilter noFilter = new AggregationFilter();
-        return findWithFilterAndPagination(snapshotId, noFilter, page, size);
-    }
-
-    /**
-     * STREAMING: Counts observations by snapshot ID without loading data into memory.
-     * Uses the existing streaming count method to avoid memory overflow.
-     * 
-     * @param snapshotId the snapshot ID to count observations for
-     * @return the total number of observations for the snapshot
-     * @throws IOException if reading from Parquet files fails
-     */
-    public long countBySnapshotId(Long snapshotId) throws IOException {
-        // Use the existing streaming count method with no filters
-        AggregationFilter noFilter = new AggregationFilter();
-        return countRecordsWithFilter(snapshotId, noFilter);
-    }
-
-    /**
-     * MULTI-FILE: Saves all observations using the new multi-file architecture with intelligent buffering.
-     * This method delegates to saveAllImmediate() which uses the modern multi-file approach.
-     * 
-     * @param observations list of observations to save
-     * @throws IOException if writing to Parquet files fails
+     * @param observations source observations to explode
+     * @throws IOException if write fails
      */
     public void saveAll(List<ValidationStatObservationParquet> observations) throws IOException {
-        // Delegate to the multi-file implementation
-        saveAllImmediate(observations);
-    }
-
-
-
-
-
-    /**
-     * Deletes all observations for a snapshot by removing the entire snapshot directory.
-     * This works with the new multi-file architecture.
-     *
-     * @param snapshotId the ID of the snapshot to delete
-     * @throws IOException if an I/O error occurs during directory deletion
-     */
-    public void deleteBySnapshotId(Long snapshotId) throws IOException {
-        logger.info("CLEANUP: Deleting all data for snapshot {}", snapshotId);
-        
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
-        
-        if (!dir.exists()) {
-            logger.info("CLEANUP: Snapshot directory does not exist: {}", snapshotDir);
+        if (observations == null || observations.isEmpty()) {
+            logger.debug("FACT REPO: No observations to save");
             return;
         }
+
+        logger.info("FACT REPO: Converting {} observations to fact table", observations.size());
+        long startTime = System.currentTimeMillis();
         
-        // Find and delete all data files
-        File[] dataFiles = dir.listFiles(file -> 
-            file.isFile() && file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        int deletedCount = 0;
-        if (dataFiles != null) {
-            for (File file : dataFiles) {
-                if (file.delete()) {
-                    deletedCount++;
-                    logger.debug("CLEANUP: Deleted data file: {}", file.getName());
-                } else {
-                    logger.warn("CLEANUP: Failed to delete data file: {}", file.getAbsolutePath());
-                }
-            }
+        // Convert each observation to fact rows and buffer by partition
+        for (ValidationStatObservationParquet obs : observations) {
+            explodeAndBufferObservation(obs);
         }
         
-        // Try to remove the directory if it's empty
-        if (dir.list() == null || dir.list().length == 0) {
-            if (dir.delete()) {
-                logger.info("CLEANUP: Deleted empty snapshot directory: {}", snapshotDir);
-            } else {
-                logger.warn("CLEANUP: Failed to delete snapshot directory: {}", snapshotDir);
-            }
-        }
+        // Flush any remaining buffered data
+        flushAllBuffers();
         
-        // Clear any buffered data and reset counters
-        List<ValidationStatObservationParquet> buffer = snapshotBuffers.get(snapshotId);
-        if (buffer != null && !buffer.isEmpty()) {
-            logger.debug("CLEANUP: Clearing {} buffered records for snapshot {}", buffer.size(), snapshotId);
-            buffer.clear();
-        }
-        snapshotBuffers.remove(snapshotId);
-        snapshotFileCounters.remove(snapshotId);
-        
-        // Invalidar cache de conteo para este snapshot
-        invalidateCountCache(snapshotId);
-        
-        // CACHE INVALIDATION: Automatically invalidate memory cache when data is deleted
-        if (memoryCacheEnabled) {
-            evictFromCache(snapshotId);
-            logger.debug("CACHE INVALIDATION: Evicted snapshot {} due to deletion", snapshotId);
-        }
-        
-        logger.info("CLEANUP: Successfully deleted {} data files for snapshot {}", deletedCount, snapshotId);
+        long elapsed = System.currentTimeMillis() - startTime;
+        logger.info("FACT REPO: Conversion completed in {}ms", elapsed);
     }
 
     /**
-     * Deletes a specific observation by ID using the multi-file architecture.
-     * Processes file by file without loading all data into memory.
-     *
-     * @param id the ID of the observation to delete
-     * @param snapshotId the ID of the snapshot containing the observation
-     * @throws IOException if an I/O error occurs during file operations
+     * EXPLOSION LOGIC: Converts one observation to multiple fact rows
+     * Groups rows by partition and buffers them
      */
-    public void deleteById(String id, Long snapshotId) throws IOException {
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
-        
-        if (!dir.exists()) {
-            logger.debug("DELETE BY ID: Snapshot directory does not exist: {}", snapshotId);
+    private void explodeAndBufferObservation(ValidationStatObservationParquet obs) throws IOException {
+        // Validate required fields
+        if (obs.getId() == null || obs.getSnapshotID() == null) {
+            logger.warn("FACT REPO: Skipping observation with null id or snapshotID");
             return;
         }
+
+        String network = obs.getNetworkAcronym() != null ? obs.getNetworkAcronym() : "UNKNOWN";
         
-        // Get all data files in the snapshot directory
-        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("DELETE BY ID: No data files found for snapshot: {}", snapshotId);
-            return;
-        }
-        
-        boolean recordFound = false;
-        List<String> tempFilePaths = new ArrayList<>();
-        
-        logger.info("DELETE BY ID: Searching and filtering record {} in {} files for snapshot {}", 
-                   id, dataFiles.length, snapshotId);
-        
-        // First pass: Create filtered temporary files
-        for (File dataFile : dataFiles) {
-            try {
-                String tempFilePath = dataFile.getAbsolutePath() + ".tmp";
-                tempFilePaths.add(tempFilePath);
-                
-                boolean foundInThisFile = filterRecordFromFile(dataFile.getAbsolutePath(), tempFilePath, id);
-                if (foundInThisFile) {
-                    recordFound = true;
-                    logger.debug("DELETE BY ID: Found and filtered record {} from file {}", id, dataFile.getName());
-                }
-                
-            } catch (Exception e) {
-                logger.error("DELETE BY ID: Error processing file {} for snapshot {}", 
-                           dataFile.getName(), snapshotId, e);
-                // Clean up temp files and abort
-                cleanupTempFiles(tempFilePaths);
-                throw new IOException("Failed to delete record " + id + " from snapshot " + snapshotId, e);
+        // Process valid occurrences
+        if (obs.getValidOccurrencesByRuleID() != null) {
+            for (Map.Entry<String, List<String>> entry : obs.getValidOccurrencesByRuleID().entrySet()) {
+                explodeRuleOccurrences(obs, entry.getKey(), entry.getValue(), true, network);
             }
         }
         
-        if (recordFound) {
-            // Second pass: Replace original files with filtered ones
-            for (int i = 0; i < dataFiles.length; i++) {
-                File originalFile = dataFiles[i];
-                String tempFilePath = tempFilePaths.get(i);
-                File tempFile = new File(tempFilePath);
-                
-                if (tempFile.exists()) {
-                    // Replace original with filtered version
-                    if (!originalFile.delete()) {
-                        logger.error("DELETE BY ID: Failed to delete original file: {}", originalFile.getAbsolutePath());
-                        cleanupTempFiles(tempFilePaths);
-                        throw new IOException("Failed to delete original file during record deletion");
-                    }
-                    
-                    if (!tempFile.renameTo(originalFile)) {
-                        logger.error("DELETE BY ID: Failed to rename temp file: {}", tempFilePath);
-                        throw new IOException("Failed to rename temp file during record deletion");
-                    }
-                    
-                    logger.debug("DELETE BY ID: Replaced file {} with filtered version", originalFile.getName());
-                }
+        // Process invalid occurrences
+        if (obs.getInvalidOccurrencesByRuleID() != null) {
+            for (Map.Entry<String, List<String>> entry : obs.getInvalidOccurrencesByRuleID().entrySet()) {
+                explodeRuleOccurrences(obs, entry.getKey(), entry.getValue(), false, network);
             }
+        }
+    }
+
+    /**
+     * Explodes occurrences of a single rule into fact rows
+     */
+    private void explodeRuleOccurrences(ValidationStatObservationParquet obs, 
+                                       String ruleIdStr, 
+                                       List<String> values, 
+                                       boolean isValid,
+                                       String network) throws IOException {
+        Integer ruleId = FactOccurrence.tryParseRuleId(ruleIdStr, obs.getId());
+        if (ruleId == null) {
+            return; // Skip invalid rule IDs
+        }
+
+        if (values == null || values.isEmpty()) {
+            return; // No values to emit
+        }
+
+        // Get partition key for this combination
+        String partitionKey = getPartitionKey(obs.getSnapshotID(), network, isValid);
+        List<FactOccurrence> buffer = partitionBuffers.computeIfAbsent(partitionKey, k -> new ArrayList<>());
+
+        // Create one row per unique value
+        Set<String> dedupSet = new HashSet<>();
+        for (String rawValue : values) {
+            String normalizedValue = FactOccurrence.normalize(rawValue);
+            String dedupKey = ruleId + "\u0001" + String.valueOf(normalizedValue);
             
-            logger.info("DELETE BY ID: Successfully deleted record {} from snapshot {} using streaming approach", id, snapshotId);
-        } else {
-            // Clean up temp files if record was not found
-            cleanupTempFiles(tempFilePaths);
-            logger.info("DELETE BY ID: Record {} not found in snapshot {}", id, snapshotId);
-        }
-    }
-    
-    /**
-     * STREAMING HELPER: Filtra un registro específico de un archivo sin cargar todo en memoria
-     * @param sourceFilePath Archivo fuente
-     * @param targetFilePath Archivo destino filtrado
-     * @param recordIdToDelete ID del registro a eliminar
-     * @return true si se encontró y filtró el registro
-     */
-    private boolean filterRecordFromFile(String sourceFilePath, String targetFilePath, String recordIdToDelete) throws IOException {
-        boolean recordFound = false;
-        int totalRecords = 0;
-        int writtenRecords = 0;
-        
-        File sourceFile = new File(sourceFilePath);
-        if (!sourceFile.exists()) {
-            logger.debug("FILTER RECORD: Source file does not exist: {}", sourceFilePath);
-            return false;
-        }
-        
-        logger.debug("FILTER RECORD: Filtering record {} from {} to {}", 
-                   recordIdToDelete, sourceFile.getName(), targetFilePath);
-        
-        org.apache.hadoop.fs.Path targetPath = new org.apache.hadoop.fs.Path(targetFilePath);
-        
-        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(sourceFilePath), hadoopConf))
-                .withConf(hadoopConf)
+            if (!dedupSet.add(dedupKey)) {
+                continue; // Already processed this (rule_id, value)
+            }
+
+            FactOccurrence fact = FactOccurrence.builder()
+                .id(obs.getId())
+                .identifier(obs.getIdentifier())
+                .snapshotId(obs.getSnapshotID())
+                .origin(obs.getOrigin())
+                .network(network)
+                .repository(obs.getRepositoryName())
+                .institution(obs.getInstitutionName())
+                .ruleId(ruleId)
+                .value(normalizedValue)
+                .isValid(isValid)
+                .recordIsValid(obs.getIsValid()) // Estado de validación del record completo
+                .isTransformed(obs.getIsTransformed())
+                .metadataPrefix(obs.getMetadataPrefix())
+                .setSpec(obs.getSetSpec())
                 .build();
-             ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
-                org.apache.parquet.hadoop.util.HadoopOutputFile.fromPath(targetPath, hadoopConf))
-                .withWriteMode(ParquetFileWriter.Mode.CREATE)
-                .withCompressionCodec(CompressionCodecName.SNAPPY)
-                .withConf(hadoopConf)
-                .withSchema(avroSchema)
-                .build()) {
-            
-            GenericRecord record;
-            while ((record = reader.read()) != null) {
-                totalRecords++;
-                
-                String recordId = avroToString(record.get("id"));
-                if (recordIdToDelete.equals(recordId)) {
-                    recordFound = true;
-                    logger.debug("FILTER RECORD: Found target record {} to delete", recordIdToDelete);
-                    // Skip this record (don't write it)
-                } else {
-                    // Keep this record
-                    writer.write(record);
-                    writtenRecords++;
-                }
-            }
-        }
-        
-        logger.debug("FILTER RECORD: Processed {} records, wrote {} records, found target: {}", 
-                   totalRecords, writtenRecords, recordFound);
-        
-        return recordFound;
-    }
-    
-    /**
-     * CLEANUP HELPER: Limpia archivos temporales en caso de error
-     */
-    private void cleanupTempFiles(List<String> tempFilePaths) {
-        for (String tempFilePath : tempFilePaths) {
-            File tempFile = new File(tempFilePath);
-            if (tempFile.exists()) {
-                if (tempFile.delete()) {
-                    logger.debug("CLEANUP: Deleted temp file: {}", tempFilePath);
-                } else {
-                    logger.warn("CLEANUP: Failed to delete temp file: {}", tempFilePath);
-                }
+
+            buffer.add(fact);
+
+            // Flush buffer if it reaches the dynamic limit
+            int optimalSize = getOptimalRecordsPerFile(obs.getSnapshotID());
+            if (buffer.size() >= optimalSize) {
+                flushPartitionBuffer(partitionKey);
             }
         }
     }
 
     /**
-     * Copies data from one snapshot to another using the multi-file architecture.
-     * Processes file by file without loading all data into memory.
-     *
-     * @param originalSnapshotId the ID of the source snapshot
-     * @param newSnapshotId the ID of the destination snapshot
-     * @throws IOException if an I/O error occurs during file operations
+     * Generates partition key for grouping
+     * Format: "snapshot_id={id}/network={net}/is_valid={valid}"
      */
-    public void copySnapshotData(Long originalSnapshotId, Long newSnapshotId) throws IOException {
-        String originalSnapshotDir = getSnapshotDirectoryPath(originalSnapshotId);
-        File originalDir = new File(originalSnapshotDir);
-        
-        if (!originalDir.exists()) {
-            logger.debug("COPY SNAPSHOT: Original snapshot directory does not exist: {}", originalSnapshotId);
+    private String getPartitionKey(Long snapshotId, String network, Boolean isValid) {
+        return String.format("snapshot_id=%d/network=%s/is_valid=%s", snapshotId, network, isValid);
+    }
+
+    /**
+     * Flushes a specific partition buffer to disk
+     */
+    private synchronized void flushPartitionBuffer(String partitionKey) throws IOException {
+        List<FactOccurrence> buffer = partitionBuffers.get(partitionKey);
+        if (buffer == null || buffer.isEmpty()) {
             return;
         }
+
+        // Get next file index for this partition
+        int fileIndex = partitionFileCounters.compute(partitionKey, (k, v) -> v == null ? 0 : v + 1);
         
-        // Get all data files in the original snapshot directory
-        File[] originalDataFiles = originalDir.listFiles(file -> 
-            file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
+        // Build file path
+        String filePath = factBasePath + "/" + partitionKey + "/part-" + String.format("%05d", fileIndex) + ".parquet";
         
-        if (originalDataFiles == null || originalDataFiles.length == 0) {
-            logger.debug("COPY SNAPSHOT: No data files found in original snapshot: {}", originalSnapshotId);
-            return;
-        }
-        
-        // Ensure target snapshot directory exists
-        String newSnapshotDir = getSnapshotDirectoryPath(newSnapshotId);
-        Files.createDirectories(Paths.get(newSnapshotDir));
-        
-        // Clear any existing data in target snapshot
-        cleanSnapshot(newSnapshotId);
-        
-        logger.info("COPY SNAPSHOT: Copying {} data files from snapshot {} to snapshot {} using streaming", 
-                   originalDataFiles.length, originalSnapshotId, newSnapshotId);
-        
-        int processedFiles = 0;
-        long totalCopiedRecords = 0;
-        
-        // Process each file individually with streaming
-        for (File originalFile : originalDataFiles) {
-            try {
-                long copiedRecords = copyFileWithSnapshotUpdate(
-                    originalFile.getAbsolutePath(), newSnapshotId, processedFiles);
-                
-                totalCopiedRecords += copiedRecords;
-                processedFiles++;
-                
-                logger.debug("COPY SNAPSHOT: Copied {} records from file {} ({}/{})", 
-                           copiedRecords, originalFile.getName(), processedFiles, originalDataFiles.length);
-                           
-            } catch (Exception e) {
-                logger.error("COPY SNAPSHOT: Error copying file {} from snapshot {} to {}", 
-                           originalFile.getName(), originalSnapshotId, newSnapshotId, e);
-                throw new IOException("Failed to copy snapshot data", e);
+        // Create parent directories
+        File file = new File(filePath);
+        file.getParentFile().mkdirs();
+
+        logger.debug("FACT REPO: Flushing {} rows to {}", buffer.size(), filePath);
+
+        // Write buffered rows
+        try (FactOccurrencesWriter writer = FactOccurrencesWriter.newWriter(filePath, hadoopConf)) {
+            for (FactOccurrence fact : buffer) {
+                writer.writeRecord(convertToParquetObservation(fact));
             }
         }
+
+        // Clear buffer
+        buffer.clear();
         
-        logger.info("COPY SNAPSHOT: Successfully copied {} records from snapshot {} to {} across {} files using streaming", 
-                   totalCopiedRecords, originalSnapshotId, newSnapshotId, processedFiles);
+        logger.info("FACT REPO: Wrote partition file {} with {} records", filePath, recordsPerFile);
     }
-    
+
     /**
-     * STREAMING HELPER: Copia un archivo actualizando el snapshot ID sin cargar todo en memoria
-     * @param sourceFilePath Archivo fuente
-     * @param newSnapshotId Nuevo snapshot ID
-     * @param fileIndex Índice del archivo en el nuevo snapshot
-     * @return Número de registros copiados
+     * Flushes all partition buffers
      */
-    private long copyFileWithSnapshotUpdate(String sourceFilePath, Long newSnapshotId, int fileIndex) throws IOException {
-        File sourceFile = new File(sourceFilePath);
-        if (!sourceFile.exists()) {
-            logger.debug("COPY FILE: Source file does not exist: {}", sourceFilePath);
-            return 0;
+    public synchronized void flushAllBuffers() throws IOException {
+        logger.info("FACT REPO: Flushing {} partition buffers", partitionBuffers.size());
+        
+        List<String> partitionKeys = new ArrayList<>(partitionBuffers.keySet());
+        for (String partitionKey : partitionKeys) {
+            flushPartitionBuffer(partitionKey);
         }
         
-        String targetFilePath = getDataFilePath(newSnapshotId, fileIndex);
-        org.apache.hadoop.fs.Path targetPath = new org.apache.hadoop.fs.Path(targetFilePath);
+        logger.info("FACT REPO: All buffers flushed");
+    }
+
+    /**
+     * HELPER: Converts FactOccurrence back to ValidationStatObservationParquet for writer
+     * This is a temporary conversion - writer will re-explode it
+     */
+    private ValidationStatObservationParquet convertToParquetObservation(FactOccurrence fact) {
+        Map<String, List<String>> occurrences = new HashMap<>();
+        occurrences.put(String.valueOf(fact.getRuleId()), 
+                       fact.getValue() != null ? Arrays.asList(fact.getValue()) : new ArrayList<>());
+
+        Map<String, List<String>> validOccurrences = fact.getIsValid() ? occurrences : null;
+        Map<String, List<String>> invalidOccurrences = !fact.getIsValid() ? occurrences : null;
+
+        return new ValidationStatObservationParquet(
+            fact.getId(),
+            fact.getIdentifier(),
+            fact.getSnapshotId(),
+            fact.getOrigin(),
+            fact.getSetSpec(),
+            fact.getMetadataPrefix(),
+            fact.getNetwork(),
+            fact.getRepository(),
+            fact.getInstitution(),
+            fact.getIsValid(),
+            fact.getIsTransformed(),
+            validOccurrences,
+            invalidOccurrences,
+            fact.getIsValid() ? Arrays.asList(String.valueOf(fact.getRuleId())) : new ArrayList<>(),
+            !fact.getIsValid() ? Arrays.asList(String.valueOf(fact.getRuleId())) : new ArrayList<>()
+        );
+    }
+
+    /**
+     * Gets all partition paths for a snapshot
+     */
+    private List<String> getAllPartitionPaths(Long snapshotId) throws IOException {
+        String snapshotPath = factBasePath + "/snapshot_id=" + snapshotId;
+        File snapshotDir = new File(snapshotPath);
         
-        logger.debug("COPY FILE: Streaming copy from {} to {} with snapshot ID update", 
-                   sourceFile.getName(), targetFilePath);
+        if (!snapshotDir.exists() || !snapshotDir.isDirectory()) {
+            logger.debug("FACT REPO: No data found for snapshot {}", snapshotId);
+            return new ArrayList<>();
+        }
+
+        List<String> paths = new ArrayList<>();
         
-        long copiedRecords = 0;
-        
-        try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(sourceFilePath), hadoopConf))
-                .withConf(hadoopConf)
-                .build();
-             ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
-                org.apache.parquet.hadoop.util.HadoopOutputFile.fromPath(targetPath, hadoopConf))
-                .withWriteMode(ParquetFileWriter.Mode.CREATE)
-                .withCompressionCodec(CompressionCodecName.SNAPPY)
-                .withConf(hadoopConf)
-                .withSchema(avroSchema)
-                .build()) {
-            
-            GenericRecord record;
-            while ((record = reader.read()) != null) {
-                // Create a new record with updated snapshot ID
-                GenericRecord newRecord = new GenericData.Record(avroSchema);
-                
-                // Copy all fields except snapshotID
-                for (Schema.Field field : avroSchema.getFields()) {
-                    if ("snapshotID".equals(field.name())) {
-                        newRecord.put("snapshotID", newSnapshotId);
-                    } else {
-                        newRecord.put(field.name(), record.get(field.name()));
+        // Walk through network partitions
+        File[] networkDirs = snapshotDir.listFiles(File::isDirectory);
+        if (networkDirs != null) {
+            for (File networkDir : networkDirs) {
+                // Walk through is_valid partitions
+                File[] isValidDirs = networkDir.listFiles(File::isDirectory);
+                if (isValidDirs != null) {
+                    for (File isValidDir : isValidDirs) {
+                        paths.add(isValidDir.getAbsolutePath());
                     }
                 }
-                
-                writer.write(newRecord);
-                copiedRecords++;
+            }
+        }
+
+        logger.debug("FACT REPO: Found {} partition paths for snapshot {}", paths.size(), snapshotId);
+        return paths;
+    }
+
+    /**
+     * Gets all Parquet files within partition directories
+     */
+    private List<String> getAllParquetFiles(List<String> partitionPaths) {
+        List<String> parquetFiles = new ArrayList<>();
+        
+        for (String partitionPath : partitionPaths) {
+            File dir = new File(partitionPath);
+            File[] files = dir.listFiles((d, name) -> name.endsWith(".parquet"));
+            
+            if (files != null) {
+                for (File file : files) {
+                    parquetFiles.add(file.getAbsolutePath());
+                }
             }
         }
         
-        // Update file counter for the new snapshot
-        snapshotFileCounters.put(newSnapshotId, fileIndex + 1);
-        
-        logger.debug("COPY FILE: Copied {} records from {} to {}", 
-                   copiedRecords, sourceFile.getName(), targetFilePath);
-        
-        return copiedRecords;
+        logger.debug("FACT REPO: Found {} parquet files across partitions", parquetFiles.size());
+        return parquetFiles;
     }
 
-
     /**
-     * Obtains aggregated statistics by snapshot ID - automatically uses cache when beneficial.
-     * 
-     * INTELLIGENT CACHING:
-     * - If memory cache is enabled, tries cache first
-     * - Falls back to disk-based aggregation if cache not available
-     * - Transparently handles cache loading and eviction
-     *
-     * @param snapshotId the ID of the snapshot
-     * @return a map containing aggregated statistics (totalCount, validCount, transformedCount, rule counts)
-     * @throws IOException if an I/O error occurs during file operations
+     * AGGREGATED STATS: Computes statistics without loading full data
+     * Uses predicate pushdown and row group metadata
      */
     public Map<String, Object> getAggregatedStats(Long snapshotId) throws IOException {
-        // TRY CACHE FIRST if enabled
-        if (memoryCacheEnabled) {
-            try {
-                logger.debug("CACHE ATTEMPT: Trying memory cache for aggregated stats (snapshot {})", snapshotId);
-                return getAggregatedStatsFromCache(snapshotId);
-            } catch (Exception e) {
-                logger.debug("Cache miss or loading - using disk query: {}", e.getMessage());
-            }
-        }
+        logger.debug("FACT REPO: Computing aggregated stats for snapshot {}", snapshotId);
         
-        // FALLBACK: Use disk-based aggregation
-        return getAggregatedStatsFromDisk(snapshotId);
-    }
+        List<String> partitionPaths = getAllPartitionPaths(snapshotId);
+        List<String> parquetFiles = getAllParquetFiles(partitionPaths);
+        
+        if (parquetFiles.isEmpty()) {
+            return buildEmptyStats();
+        }
 
-    /**
-     * INTERNAL: Disk-based aggregated statistics (used as fallback when cache not available).
-     * Uses the optimized multi-file version with query engine to avoid loading all records.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @return a map containing aggregated statistics
-     * @throws IOException if an I/O error occurs during file operations
-     */
-    private Map<String, Object> getAggregatedStatsFromDisk(Long snapshotId) throws IOException {
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
+        // Aggregation accumulators - using arrays to make them effectively final
+        final long[] totalCount = {0};
+        final long[] validCount = {0};
+        final long[] transformedCount = {0};
+        Map<String, Long> validRuleCounts = new HashMap<>();
+        Map<String, Long> invalidRuleCounts = new HashMap<>();
+
+        // Process each file with aggregation-only (no object materialization)
+        FilterPredicate filter = FactOccurrencesReader.snapshotIdEquals(snapshotId);
         
-        if (!dir.exists()) {
-            logger.debug("MULTI-FILE STATS: Snapshot directory does not exist: {}", snapshotId);
-            // Return empty statistics
-            Map<String, Object> emptyStats = new HashMap<>();
-            emptyStats.put("totalCount", 0L);
-            emptyStats.put("validCount", 0L);
-            emptyStats.put("transformedCount", 0L);
-            emptyStats.put("validRuleCounts", new HashMap<String, Long>());
-            emptyStats.put("invalidRuleCounts", new HashMap<String, Long>());
-            return emptyStats;
-        }
-        
-        // Get all data files in the snapshot directory
-        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("MULTI-FILE STATS: No data files found for snapshot: {}", snapshotId);
-            // Return empty statistics
-            Map<String, Object> emptyStats = new HashMap<>();
-            emptyStats.put("totalCount", 0L);
-            emptyStats.put("validCount", 0L);
-            emptyStats.put("transformedCount", 0L);
-            emptyStats.put("validRuleCounts", new HashMap<String, Long>());
-            emptyStats.put("invalidRuleCounts", new HashMap<String, Long>());
-            return emptyStats;
-        }
-        
-        // Aggregate statistics from all files
-        AggregationFilter filter = new AggregationFilter(); // No filters, process all records
-        
-        // Initialize combined results
-        long totalCount = 0;
-        long validCount = 0;
-        long transformedCount = 0;
-        Map<String, Long> combinedValidRuleCounts = new HashMap<>();
-        Map<String, Long> combinedInvalidRuleCounts = new HashMap<>();
-        
-        logger.debug("MULTI-FILE STATS: Processing {} data files for snapshot {}", dataFiles.length, snapshotId);
-        
-        // Process each data file and combine results
-        for (File dataFile : dataFiles) {
-            try {
-                AggregationResult result = getAggregatedStatsOptimized(dataFile.getAbsolutePath(), filter);
-                
-                // Combine counts
-                totalCount += result.getTotalCount();
-                validCount += result.getValidCount();
-                transformedCount += result.getTransformedCount();
-                
-                // Combine rule counts
-                for (Map.Entry<String, Long> entry : result.getValidRuleCounts().entrySet()) {
-                    combinedValidRuleCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
-                }
-                
-                for (Map.Entry<String, Long> entry : result.getInvalidRuleCounts().entrySet()) {
-                    combinedInvalidRuleCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
-                }
-                
-                logger.debug("MULTI-FILE STATS: Processed {} - {} records, {} valid", 
-                           dataFile.getName(), result.getTotalCount(), result.getValidCount());
-                           
-            } catch (Exception e) {
-                logger.error("MULTI-FILE STATS: Error processing file {} for snapshot {}", dataFile.getName(), snapshotId, e);
-                // Continue with other files, don't fail completely
+        for (String filePath : parquetFiles) {
+            try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
+                reader.aggregateFromGroups(group -> {
+                    // Extract fields directly from Group (no object creation)
+                    boolean isValid = group.getBoolean("is_valid", 0);
+                    boolean isTransformed = group.getBoolean("is_transformed", 0);
+                    int ruleId = group.getInteger("rule_id", 0);
+                    
+                    // Update counters
+                    synchronized (validRuleCounts) {
+                        totalCount[0]++;
+                        if (isValid) validCount[0]++;
+                        if (isTransformed) transformedCount[0]++;
+                        
+                        String ruleIdStr = String.valueOf(ruleId);
+                        if (isValid) {
+                            validRuleCounts.merge(ruleIdStr, 1L, Long::sum);
+                        } else {
+                            invalidRuleCounts.merge(ruleIdStr, 1L, Long::sum);
+                        }
+                    }
+                });
             }
         }
-        
-        // Convert result to compatible format
+
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalCount", totalCount);
-        stats.put("validCount", validCount);
-        stats.put("transformedCount", transformedCount);
-        stats.put("validRuleCounts", combinedValidRuleCounts);
-        stats.put("invalidRuleCounts", combinedInvalidRuleCounts);
+        stats.put("totalCount", totalCount[0]);
+        stats.put("validCount", validCount[0]);
+        stats.put("transformedCount", transformedCount[0]);
+        stats.put("validRuleCounts", validRuleCounts);
+        stats.put("invalidRuleCounts", invalidRuleCounts);
         
-        logger.info("MULTI-FILE STATS: Combined statistics for snapshot {}: {} total records, {} valid, {} transformed from {} files", 
-                   snapshotId, totalCount, validCount, transformedCount, dataFiles.length);
+        logger.debug("FACT REPO: Stats computed - total: {}, valid: {}, transformed: {}", 
+                   totalCount[0], validCount[0], transformedCount[0]);
         
         return stats;
     }
 
-    /**
-     * Obtains aggregated statistics with filters - automatically uses cache when beneficial.
-     * 
-     * INTELLIGENT CACHING:
-     * - If memory cache is enabled, tries cache first
-     * - Falls back to disk-based filtered aggregation if cache not available
-     * - Transparently handles cache loading and eviction
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param filter the filters to apply (isValid, isTransformed, ruleIds, etc.)
-     * @return filtered aggregated statistics map
-     * @throws IOException if an I/O error occurs during file operations
-     */
-    public Map<String, Object> getAggregatedStatsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
-        // TRY CACHE FIRST if enabled
-        if (memoryCacheEnabled) {
-            try {
-                logger.debug("CACHE ATTEMPT: Trying memory cache for filtered stats (snapshot {})", snapshotId);
-                return getAggregatedStatsWithFilterFromCache(snapshotId, filter);
-            } catch (Exception e) {
-                logger.debug("Cache miss or loading - using disk query: {}", e.getMessage());
-            }
-        }
-        
-        // FALLBACK: Use disk-based filtered aggregation
-        return getAggregatedStatsWithFilterFromDisk(snapshotId, filter);
-    }
-
-    /**
-     * INTERNAL: Disk-based aggregated statistics with filters (used as fallback when cache not available).
-     * Optimized using predicate pushdown.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param filter the filters to apply
-     * @return filtered aggregated statistics map
-     * @throws IOException if an I/O error occurs during file operations
-     */
-    private Map<String, Object> getAggregatedStatsWithFilterFromDisk(Long snapshotId, AggregationFilter filter) throws IOException {
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
-        
-        if (!dir.exists()) {
-            logger.debug("PREDICATE AGGREGATION API: Snapshot directory does not exist: {}", snapshotId);
-            // Return empty statistics
-            Map<String, Object> emptyStats = new HashMap<>();
-            emptyStats.put("totalCount", 0L);
-            emptyStats.put("validCount", 0L);
-            emptyStats.put("transformedCount", 0L);
-            emptyStats.put("validRuleCounts", new HashMap<String, Long>());
-            emptyStats.put("invalidRuleCounts", new HashMap<String, Long>());
-            return emptyStats;
-        }
-        
-        // Get all data files in the snapshot directory
-        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("PREDICATE AGGREGATION API: No data files found for snapshot: {}", snapshotId);
-            // Return empty statistics
-            Map<String, Object> emptyStats = new HashMap<>();
-            emptyStats.put("totalCount", 0L);
-            emptyStats.put("validCount", 0L);
-            emptyStats.put("transformedCount", 0L);
-            emptyStats.put("validRuleCounts", new HashMap<String, Long>());
-            emptyStats.put("invalidRuleCounts", new HashMap<String, Long>());
-            return emptyStats;
-        }
-        
-        // Aggregate filtered statistics from all files using predicate pushdown
-        long totalCount = 0;
-        long validCount = 0;
-        long transformedCount = 0;
-        Map<String, Long> combinedValidRuleCounts = new HashMap<>();
-        Map<String, Long> combinedInvalidRuleCounts = new HashMap<>();
-        
-        logger.debug("PREDICATE AGGREGATION API: Processing {} data files for snapshot {} with PREDICATE PUSHDOWN filters", 
-                   dataFiles.length, snapshotId);
-        
-        // Process each data file and combine filtered results using pushdown
-        for (File dataFile : dataFiles) {
-            try {
-                AggregationResult result = getAggregatedStatsWithPredicatePushdown(dataFile.getAbsolutePath(), filter);
-                
-                // Combine counts
-                totalCount += result.getTotalCount();
-                validCount += result.getValidCount();
-                transformedCount += result.getTransformedCount();
-                
-                // Combine rule counts
-                for (Map.Entry<String, Long> entry : result.getValidRuleCounts().entrySet()) {
-                    combinedValidRuleCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
-                }
-                
-                for (Map.Entry<String, Long> entry : result.getInvalidRuleCounts().entrySet()) {
-                    combinedInvalidRuleCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
-                }
-                
-            } catch (Exception e) {
-                logger.error("PREDICATE AGGREGATION API: Error processing file {} for snapshot {}", 
-                           dataFile.getName(), snapshotId, e);
-                // Continue with other files, don't fail completely
-            }
-        }
-        
-        // Convert result to compatible format
+    private Map<String, Object> buildEmptyStats() {
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalCount", totalCount);
-        stats.put("validCount", validCount);
-        stats.put("transformedCount", transformedCount);
-        stats.put("validRuleCounts", combinedValidRuleCounts);
-        stats.put("invalidRuleCounts", combinedInvalidRuleCounts);
-        
-        logger.debug("PREDICATE AGGREGATION API: OPTIMIZED combined statistics for snapshot {}: {} records matched criteria from {} files using PREDICATE PUSHDOWN", 
-                   snapshotId, totalCount, dataFiles.length);
-        
+        stats.put("totalCount", 0L);
+        stats.put("validCount", 0L);
+        stats.put("transformedCount", 0L);
+        stats.put("validRuleCounts", new HashMap<>());
+        stats.put("invalidRuleCounts", new HashMap<>());
         return stats;
     }
 
     /**
-     * CACHE HELPER: Obtiene clave de cache para conteo
+     * Deletes all data for a snapshot by removing partition directories
      */
-    private String getCountCacheKey(Long snapshotId, AggregationFilter filter) {
-        return "count_" + snapshotId + "_" + (filter != null ? filter.hashCode() : "nofilter");
-    }
-    
-    /**
-     * CACHE HELPER: Verifica si el cache está vigente
-     */
-    private boolean isCountCacheValid(String cacheKey) {
-        Long timestamp = countCacheTimestamp.get(cacheKey);
-        if (timestamp == null) {
-            return false;
-        }
-        return (System.currentTimeMillis() - timestamp) < COUNT_CACHE_TTL_MS;
-    }
-    
-    /**
-     * Counts records with intelligent caching to avoid frequent recalculations.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param filter the filters to apply
-     * @return the number of records matching the criteria
-     * @throws IOException if an I/O error occurs during file operations
-     */
-    public long countRecordsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
-        String cacheKey = getCountCacheKey(snapshotId, filter);
+    public void deleteBySnapshotId(Long snapshotId) throws IOException {
+        String snapshotPath = factBasePath + "/snapshot_id=" + snapshotId;
+        File snapshotDir = new File(snapshotPath);
         
-        // Verificar cache primero
-        if (isCountCacheValid(cacheKey)) {
-            Long cachedCount = countCache.get(cacheKey);
-            if (cachedCount != null) {
-                logger.debug("PREDICATE COUNT CACHE: Returning cached count {} for snapshot {} (cache hit)", 
-                           cachedCount, snapshotId);
-                return cachedCount;
+        if (!snapshotDir.exists()) {
+            logger.debug("FACT REPO: No data to delete for snapshot {}", snapshotId);
+            return;
+        }
+
+        logger.info("FACT REPO: Deleting all data for snapshot {}", snapshotId);
+        deleteRecursively(snapshotDir);
+        
+        // Clear any buffers for this snapshot
+        List<String> keysToRemove = partitionBuffers.keySet().stream()
+            .filter(key -> key.startsWith("snapshot_id=" + snapshotId + "/"))
+            .collect(Collectors.toList());
+        keysToRemove.forEach(partitionBuffers::remove);
+        keysToRemove.forEach(partitionFileCounters::remove);
+        
+        logger.info("FACT REPO: Snapshot {} deleted successfully", snapshotId);
+    }
+
+    private void deleteRecursively(File file) throws IOException {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursively(child);
+                }
             }
         }
-        
-        // No hay cache válido, calcular el conteo
-        logger.debug("PREDICATE COUNT CACHE: Cache miss or expired, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
-                   snapshotId);
-        
-        long count = calculateCountWithPredicate(snapshotId, filter);
-        
-        // Guardar en cache
-        countCache.put(cacheKey, count);
-        countCacheTimestamp.put(cacheKey, System.currentTimeMillis());
-        
-        logger.debug("PREDICATE COUNT CACHE: Calculated and cached count {} for snapshot {} (cache stored)", 
-                   count, snapshotId);
-        
-        return count;
-    }
-    
-    /**
-     * Counts records without using cache for specific cases where fresh data is required.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param filter the filters to apply
-     * @return the number of records matching the criteria
-     * @throws IOException if an I/O error occurs during file operations
-     */
-    public long countRecordsWithFilterNoCache(Long snapshotId, AggregationFilter filter) throws IOException {
-        logger.debug("PREDICATE COUNT FORCE: Bypassing cache, calculating count for snapshot {} with PREDICATE PUSHDOWN", 
-                   snapshotId);
-        return calculateCountWithPredicate(snapshotId, filter);
-    }
-    
-    /**
-     * Clears the count cache for a specific snapshot.
-     *
-     * @param snapshotId the ID of the snapshot
-     */
-    public void clearCountCache(Long snapshotId) {
-        invalidateCountCache(snapshotId);
-        logger.info("CACHE: Manually cleared count cache for snapshot {}", snapshotId);
-    }
-    
-    /**
-     * Clears all count cache entries.
-     *
-     * @throws IOException if an I/O error occurs during cache operations
-     */
-    public void clearAllCountCache() throws IOException {
-        countCache.clear();
-        countCacheTimestamp.clear();
-        logger.info("CACHE: Manually cleared all count cache");
-    }
-    
-    /**
-     * INTERNAL: Realiza el cálculo real del conteo con predicate pushdown
-     */
-    private long calculateCountWithPredicate(Long snapshotId, AggregationFilter filter) throws IOException {
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
-        
-        if (!dir.exists()) {
-            logger.debug("PREDICATE COUNT API: Snapshot directory does not exist: {}", snapshotId);
-            return 0L;
+        if (!file.delete()) {
+            throw new IOException("Failed to delete: " + file.getAbsolutePath());
         }
-        
-        // Get all data files in the snapshot directory
-        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("PREDICATE COUNT API: No data files found for snapshot: {}", snapshotId);
-            return 0L;
-        }
-        
-        logger.debug("PREDICATE COUNT API: Counting in {} data files for snapshot {} with PREDICATE PUSHDOWN", 
-                   dataFiles.length, snapshotId);
+    }
+
+    /**
+     * Counts records matching filter without loading data
+     */
+    public long countRecords(Long snapshotId, FilterPredicate filter) throws IOException {
+        List<String> partitionPaths = getAllPartitionPaths(snapshotId);
+        List<String> parquetFiles = getAllParquetFiles(partitionPaths);
         
         long totalCount = 0;
-        int processedFiles = 0;
         
-        // Count records from all data files using predicate pushdown
-        for (File dataFile : dataFiles) {
-            processedFiles++;
-            try {
-                long fileCount = countFileWithPredicatePushdown(dataFile.getAbsolutePath(), filter);
-                totalCount += fileCount;
-                logger.debug("PREDICATE COUNT API: File {} ({}/{}) has {} matching records with pushdown", 
-                           dataFile.getName(), processedFiles, dataFiles.length, fileCount);
-            } catch (Exception e) {
-                logger.error("PREDICATE COUNT API: Error counting records in file {} for snapshot {}", 
-                           dataFile.getName(), snapshotId, e);
-                // Continue with other files
+        for (String filePath : parquetFiles) {
+            try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
+                totalCount += reader.count();
             }
         }
         
-        logger.debug("PREDICATE COUNT API: OPTIMIZED total matching records for snapshot {}: {} using PREDICATE PUSHDOWN across {} files", 
-                   snapshotId, totalCount, processedFiles);
+        logger.debug("FACT REPO: Counted {} records for snapshot {} with filter", totalCount, snapshotId);
         return totalCount;
     }
 
     /**
-     * Performs paginated search with filters optimized using predicate pushdown.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param filter the filters to apply
-     * @param page the page number (zero-based)
-     * @param size the page size
-     * @return a list of observations matching the criteria
-     * @throws IOException if an I/O error occurs during file operations
+     * Finds records with pagination and filtering
      */
-    public List<ValidationStatObservationParquet> findWithFilterAndPagination(Long snapshotId, 
-                                                                              AggregationFilter filter, 
-                                                                              int page, int size) throws IOException {
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
+    public List<FactOccurrence> findWithPagination(Long snapshotId, 
+                                                    FilterPredicate filter,
+                                                    int page, 
+                                                    int size) throws IOException {
+        List<String> partitionPaths = getAllPartitionPaths(snapshotId);
+        List<String> parquetFiles = getAllParquetFiles(partitionPaths);
         
-        if (!dir.exists()) {
-            logger.debug("PREDICATE API: Snapshot directory does not exist: {}", snapshotId);
-            return Collections.emptyList();
-        }
-        
-        // Get all data files in the snapshot directory
-        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("PREDICATE API: No data files found for snapshot: {}", snapshotId);
-            return Collections.emptyList();
-        }
-        
-        // Sort files to ensure consistent ordering
-        Arrays.sort(dataFiles, (f1, f2) -> f1.getName().compareTo(f2.getName()));
-        
-        logger.debug("PREDICATE API: Processing up to {} data files for snapshot {} with PREDICATE PUSHDOWN optimization", 
-                   dataFiles.length, snapshotId);
-        
-        List<ValidationStatObservationParquet> results = new ArrayList<>();
-        int totalOffset = page * size; // Total de registros a saltar
-        int remainingToSkip = totalOffset; // Registros que aún necesitamos saltar
-        int targetSize = size; // Número de registros que queremos recolectar
-        int processedFiles = 0;
-        
-        // Process each file with predicate pushdown until we have enough results
-        for (File dataFile : dataFiles) {
-            processedFiles++;
-            
-            // Si ya tenemos suficientes resultados, no procesar más archivos
-            if (results.size() >= targetSize) {
-                logger.debug("PREDICATE API: EARLY STOP - Already collected {} records, skipping remaining {} files", 
-                           results.size(), dataFiles.length - processedFiles + 1);
+        int offset = page * size;
+        int remaining = size;
+        int currentOffset = offset;
+        List<FactOccurrence> results = new ArrayList<>();
+
+        for (String filePath : parquetFiles) {
+            if (remaining <= 0) {
                 break;
             }
-            
-            try {
-                logger.debug("PREDICATE API: Processing file {} ({}/{}) with pushdown optimization, remaining to skip: {}, need: {}", 
-                           dataFile.getName(), processedFiles, dataFiles.length, remainingToSkip, targetSize - results.size());
+
+            try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
+                // Count records in this file first to determine if we can skip it
+                long fileCount = reader.count();
                 
-                // Calcular cuántos registros necesitamos de este archivo
-                int remainingNeeded = targetSize - results.size();
-                
-                // Stream through this file with predicate pushdown
-                List<ValidationStatObservationParquet> fileResults = streamFileWithPredicatePushdown(
-                    dataFile.getAbsolutePath(), filter, remainingToSkip, remainingNeeded);
-                
-                // Si obtuvimos resultados, significa que hemos terminado de saltar registros
-                if (!fileResults.isEmpty()) {
-                    results.addAll(fileResults);
-                    remainingToSkip = 0; // Ya no necesitamos saltar más registros
-                    
-                    logger.debug("PREDICATE API: File {} contributed {} results (total collected: {}/{})", 
-                               dataFile.getName(), fileResults.size(), results.size(), targetSize);
-                    
-                    // Si ya tenemos suficientes resultados, terminar
-                    if (results.size() >= targetSize) {
-                        logger.debug("PREDICATE API: TARGET REACHED - Collected {} records after processing {} of {} files", 
-                                   results.size(), processedFiles, dataFiles.length);
-                        break;
-                    }
-                } else {
-                    // No obtuvimos resultados, actualizar cuántos registros saltamos en este archivo
-                    // Necesitamos contar cuántos registros había que cumplían el filtro en este archivo
-                    long filteredInThisFile = countFileWithPredicatePushdown(dataFile.getAbsolutePath(), filter);
-                    remainingToSkip = Math.max(0, remainingToSkip - (int)filteredInThisFile);
-                    
-                    logger.debug("PREDICATE API: File {} had {} filtered records, remaining to skip: {}", 
-                               dataFile.getName(), filteredInThisFile, remainingToSkip);
+                if (currentOffset >= fileCount) {
+                    // Skip this entire file
+                    currentOffset -= fileCount;
+                    continue;
                 }
-                           
-            } catch (Exception e) {
-                logger.error("PREDICATE API: Error processing file {} for snapshot {}", 
-                           dataFile.getName(), snapshotId, e);
-                // Continue with other files
+
+                // Re-open reader to actually read records
+                try (FactOccurrencesReader dataReader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
+                    List<FactOccurrence> pageResults = dataReader.readWithLimit((int) currentOffset, remaining);
+                    results.addAll(pageResults);
+                    remaining -= pageResults.size();
+                    currentOffset = 0; // Reset offset after first file
+                }
             }
         }
-        
-        logger.debug("PREDICATE API: OPTIMIZED results - {} records from page {} for snapshot {} using PREDICATE PUSHDOWN (processed {}/{} files)", 
-                   results.size(), page, snapshotId, processedFiles, dataFiles.length);
+
+        logger.debug("FACT REPO: Retrieved {} records (page {}, size {}) for snapshot {}", 
+                   results.size(), page, size, snapshotId);
         
         return results;
     }
-    
-    /**
-     * Obtains rule occurrence counts by snapshot and rule ID.
-     * The 'valid' parameter indicates whether to search in validOccurrencesByRuleID (true) or invalidOccurrencesByRuleID (false).
-     * Processes file by file accumulating results.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param ruleId the ID of the rule
-     * @param valid true for valid occurrences, false for invalid occurrences
-     * @return a map of occurrence counts by field
-     * @throws IOException if an I/O error occurs during file operations
-     */
-    public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, String ruleId, boolean valid) throws IOException {
-        return getRuleOccurrenceCounts(snapshotId, ruleId, valid, new HashMap<>());
-    }
-    
-    /**
-     * Obtains rule occurrence counts by snapshot and rule ID with additional filters.
-     * The 'valid' parameter indicates whether to search in validOccurrencesByRuleID (true) or invalidOccurrencesByRuleID (false).
-     * Filters allow counting only occurrences in records that meet specific criteria.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param ruleId the ID of the rule
-     * @param valid true for valid occurrences, false for invalid occurrences
-     * @param filters additional filters to apply when counting occurrences
-     * @return a map of occurrence counts by field
-     * @throws IOException if an I/O error occurs during file operations
-     */
-    public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, String ruleId, boolean valid, Map<String, Object> filters) throws IOException {
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
-        
-        if (!dir.exists()) {
-            logger.debug("Snapshot directory does not exist: {}", snapshotId);
-            return new HashMap<>();
-        }
-        
-        // Get all data files in the snapshot directory
-        File[] dataFiles = dir.listFiles(file -> file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        if (dataFiles == null || dataFiles.length == 0) {
-            logger.debug("No data files found for snapshot: {}", snapshotId);
-            return new HashMap<>();
-        }
-        
-        Map<String, Long> occurrenceCounts = new HashMap<>();
-        
-        logger.debug("Processing {} files for rule {} ({} map) with filters: {}", 
-                   dataFiles.length, ruleId, valid ? "valid" : "invalid", filters);
-        
-        // Process each file sequentially
-        for (File dataFile : dataFiles) {
-            try {
-                Map<String, Long> fileOccurrences = getRuleOccurrenceCountsFromFile(
-                    dataFile.getAbsolutePath(), ruleId, valid, filters);
-                
-                // Merge counts from this file
-                for (Map.Entry<String, Long> entry : fileOccurrences.entrySet()) {
-                    occurrenceCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
-                }
-                           
-            } catch (Exception e) {
-                logger.error("Error processing file {} for snapshot {}", dataFile.getName(), snapshotId, e);
-                // Continue with other files
-            }
-        }
-        
-        logger.debug("Found {} unique occurrences for rule {} ({} map) across {} files", 
-                   occurrenceCounts.size(), ruleId, valid ? "valid" : "invalid", dataFiles.length);
-        
-        return occurrenceCounts;
-    }
-    
-    /**
-     * Procesa conteos de ocurrencias de reglas con filtros adicionales
-     * El parámetro 'valid' indica si buscar en validOccurrencesByRuleID o invalidOccurrencesByRuleID
-     * Los filtros permiten contar solo ocurrencias en registros que cumplen criterios específicos
-     */
-    private Map<String, Long> getRuleOccurrenceCountsFromFile(String filePath, String ruleId, boolean valid, Map<String, Object> filters) throws IOException {
-        Map<String, Long> fileOccurrenceCounts = new HashMap<>();
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            logger.debug("File does not exist: {}", filePath);
-            return fileOccurrenceCounts;
-        }
-        
-        logger.debug("Processing {} for rule {} ({} map)", file.getName(), ruleId, valid ? "valid" : "invalid");
-        
-        int totalRecords = 0;
-        int recordsWithMap = 0;
-        int recordsWhereRuleFound = 0;
-        int recordsFilteredOut = 0;
-        
-        try {
-            ParquetReader.Builder<GenericRecord> readerBuilder = AvroParquetReader.<GenericRecord>builder(
-                HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
-                .withConf(hadoopConf);
-            
-            try (ParquetReader<GenericRecord> reader = readerBuilder.build()) {
-                GenericRecord record;
-                while ((record = reader.read()) != null) {
-                    totalRecords++;
-                    
-                    // Apply filters if present
-                    if (!filters.isEmpty() && !matchesFilters(record, filters, ruleId, valid)) {
-                        recordsFilteredOut++;
-                        continue;
-                    }
-                    
-                    String fieldName = valid ? "validOccurrencesByRuleID" : "invalidOccurrencesByRuleID";
-                    Object occurrenceMapObj = record.get(fieldName);
-                    
-                    if (occurrenceMapObj != null) {
-                        recordsWithMap++;
-                        @SuppressWarnings("unchecked")
-                        Map<Object, Object> occurrenceMap = (Map<Object, Object>) occurrenceMapObj;
-                        
-                        Object occurrencesObj = findValueInAvroMap(occurrenceMap, ruleId);
-                        
-                        if (occurrencesObj != null) {
-                            recordsWhereRuleFound++;
-                            @SuppressWarnings("unchecked")
-                            List<Object> occurrences = (List<Object>) occurrencesObj;
-                            
-                            for (Object occurrence : occurrences) {
-                                String occurrenceStr = avroToString(occurrence);
-                                if (occurrenceStr != null) {
-                                    fileOccurrenceCounts.merge(occurrenceStr, 1L, Long::sum);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Error processing file {}", file.getName(), e);
-            throw new IOException("Failed to process rule occurrences: " + file.getName(), e);
-        }
-        
-        logger.debug("File {} - Total: {}, Filtered: {}, WithMap: {}, RuleFound: {}, Unique: {}", 
-                   file.getName(), totalRecords, recordsFilteredOut, recordsWithMap, 
-                   recordsWhereRuleFound, fileOccurrenceCounts.size());
-        
-        return fileOccurrenceCounts;
-    }
-    
-    /**
-     * Verifica si un registro cumple con los filtros especificados
-     */
-    private boolean matchesFilters(GenericRecord record, Map<String, Object> filters, String ruleId, boolean valid) {
-        for (Map.Entry<String, Object> filter : filters.entrySet()) {
-            String filterKey = filter.getKey();
-            Object filterValue = filter.getValue();
-            
-            switch (filterKey) {
-                case "valid_rules":
-                    if (!valid) return false;
-                    Object validMapObj = record.get("validOccurrencesByRuleID");
-                    if (validMapObj == null) return false;
-                    @SuppressWarnings("unchecked")
-                    Map<Object, Object> validMap = (Map<Object, Object>) validMapObj;
-                    if (findValueInAvroMap(validMap, filterValue.toString()) == null) return false;
-                    break;
-                    
-                case "invalid_rules":
-                    if (valid) return false;
-                    Object invalidMapObj = record.get("invalidOccurrencesByRuleID");
-                    if (invalidMapObj == null) return false;
-                    @SuppressWarnings("unchecked")
-                    Map<Object, Object> invalidMap = (Map<Object, Object>) invalidMapObj;
-                    if (findValueInAvroMap(invalidMap, filterValue.toString()) == null) return false;
-                    break;
-                    
-                case "isValid":
-                    Boolean isValid = (Boolean) filterValue;
-                    Object recordIsValidObj = record.get("isValid");
-                    if (recordIsValidObj == null || !recordIsValidObj.equals(isValid)) return false;
-                    break;
-                    
-                case "isTransformed":
-                    Boolean isTransformed = (Boolean) filterValue;
-                    Object recordIsTransformedObj = record.get("isTransformed");
-                    if (recordIsTransformedObj == null || !recordIsTransformedObj.equals(isTransformed)) return false;
-                    break;
-            }
-        }
-        
-        return true;
-    }
-    
-    /**
-     * Obtains the file path for a snapshot's Parquet file.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @return the absolute path to the snapshot's Parquet file
-     */
-    public String getSnapshotFilePath(Long snapshotId) {
-        return parquetBasePath + "/snapshot_" + snapshotId + ".parquet";
-    }
-    
-    /**
-     * Saves observations immediately with intelligent buffering.
-     * Accumulates records until reaching recordsPerFile limit and only writes when buffer is full or explicitly flushed.
-     *
-     * @param observations the list of observations to save
-     * @throws IOException if an I/O error occurs during file operations
-     */
-    public void saveAllImmediate(List<ValidationStatObservationParquet> observations) throws IOException {
-        if (observations == null || observations.isEmpty()) {
-            logger.debug("SAVE: No observations to save (null or empty)");
-            return;
-        }
-        
-        logger.debug("SAVE: Processing {} observations with intelligent buffering", observations.size());
-        
-        // Group by snapshot ID to handle multiple snapshots in one batch
-        Map<Long, List<ValidationStatObservationParquet>> groupedBySnapshot = observations.stream()
-            .collect(Collectors.groupingBy(ValidationStatObservationParquet::getSnapshotID));
-        
-        logger.debug("SAVE: Grouped observations into {} snapshots: {}", groupedBySnapshot.size(), groupedBySnapshot.keySet());
-        
-        // Process each snapshot with buffering approach
-        for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : groupedBySnapshot.entrySet()) {
-            Long snapshotId = entry.getKey();
-            List<ValidationStatObservationParquet> snapshotObservations = entry.getValue();
-            
-            logger.debug("SAVE: Processing {} observations for snapshot {}", snapshotObservations.size(), snapshotId);
-            addToBufferAndFlushIfNeeded(snapshotId, snapshotObservations);
-        }
-        
-        logger.debug("SAVE: Completed processing {} observations", observations.size());
-        
-        // CACHE INVALIDATION: Automatically invalidate cache when data changes
-        if (memoryCacheEnabled && observations != null) {
-            Set<Long> affectedSnapshots = observations.stream()
-                .map(ValidationStatObservationParquet::getSnapshotID)
-                .collect(Collectors.toSet());
-            
-            for (Long snapshotId : affectedSnapshots) {
-                evictFromCache(snapshotId);
-                logger.debug("CACHE INVALIDATION: Evicted snapshot {} due to data changes", snapshotId);
-            }
-        }
-    }
 
     /**
-     * BUFFER MANAGEMENT: Adds observations to buffer and flushes when reaching recordsPerFile limit
-     * This ensures exactly recordsPerFile records per file (e.g., 10000)
-     */
-    private synchronized void addToBufferAndFlushIfNeeded(Long snapshotId, List<ValidationStatObservationParquet> newObservations) throws IOException {
-        // Get or create buffer for this snapshot
-        List<ValidationStatObservationParquet> buffer = snapshotBuffers.computeIfAbsent(snapshotId, k -> new ArrayList<>());
-        
-        // Add new observations to buffer
-        buffer.addAll(newObservations);
-        
-        logger.debug("BUFFER: Added {} observations to snapshot {} buffer (now {} total)", 
-                   newObservations.size(), snapshotId, buffer.size());
-        
-        // Check if buffer should be flushed
-        while (buffer.size() >= recordsPerFile) {
-            // Extract exactly recordsPerFile records for writing
-            List<ValidationStatObservationParquet> recordsToWrite = new ArrayList<>(buffer.subList(0, recordsPerFile));
-            
-            // Remove these records from buffer
-            buffer.subList(0, recordsPerFile).clear();
-            
-            // Write the file
-            writeBufferToFile(snapshotId, recordsToWrite);
-            
-            // Invalidar cache de conteo ya que se agregaron nuevos datos
-            invalidateCountCache(snapshotId);
-            
-            logger.debug("BUFFER: Flushed {} records for snapshot {} (buffer remaining: {})", 
-                       recordsToWrite.size(), snapshotId, buffer.size());
-        }
-        
-        // Log current buffer state
-        if (buffer.size() > 0) {
-            logger.debug("BUFFER: Snapshot {} has {} records waiting for flush threshold ({})", 
-                       snapshotId, buffer.size(), recordsPerFile);
-        }
-    }
-
-    /**
-     * CORE: Write exactly recordsPerFile records to a new file
-     * This creates files with exactly the configured number of records
-     */
-    private void writeBufferToFile(Long snapshotId, List<ValidationStatObservationParquet> observations) throws IOException {
-        if (observations == null || observations.isEmpty()) {
-            return;
-        }
-        
-        // Ensure snapshot directory exists
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        Files.createDirectories(Paths.get(snapshotDir));
-        
-        // Get next file index for this snapshot
-        int nextFileIndex = snapshotFileCounters.getOrDefault(snapshotId, 0);
-        String filePath = getDataFilePath(snapshotId, nextFileIndex);
-        
-        logger.debug("BUFFER: Writing {} records to file: {}", observations.size(), filePath);
-        
-        org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(filePath);
-        try (ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(
-                org.apache.parquet.hadoop.util.HadoopOutputFile.fromPath(hadoopPath, hadoopConf))
-                .withWriteMode(ParquetFileWriter.Mode.CREATE)
-                .withCompressionCodec(CompressionCodecName.SNAPPY)
-                .withConf(hadoopConf)
-                .withSchema(avroSchema)
-                .build()) {
-            
-            // Write all observations in this batch
-            for (ValidationStatObservationParquet obs : observations) {
-                writer.write(toGenericRecord(obs));
-            }
-            
-            logger.debug("BUFFER: Successfully wrote {} records to {}", observations.size(), filePath);
-        }
-        
-        // Update file counter for this snapshot
-        snapshotFileCounters.put(snapshotId, nextFileIndex + 1);
-    }
-    
-    /**
-     * CLEANUP: Clean snapshot directory when starting a new collection
-     * Removes all existing data files to prevent mixing old and new data
-     */
-    private void cleanSnapshotDirectory(Long snapshotId) throws IOException {
-        String snapshotDir = getSnapshotDirectoryPath(snapshotId);
-        File dir = new File(snapshotDir);
-        
-        if (!dir.exists()) {
-            logger.debug("CLEANUP: Snapshot directory does not exist, creating: {}", snapshotDir);
-            Files.createDirectories(Paths.get(snapshotDir));
-            return;
-        }
-        
-        // Find and remove all existing data files
-        File[] existingFiles = dir.listFiles(file -> 
-            file.isFile() && file.getName().startsWith("data-") && file.getName().endsWith(".parquet"));
-        
-        if (existingFiles != null && existingFiles.length > 0) {
-            logger.info("CLEANUP: Removing {} existing data files from snapshot {} directory", 
-                       existingFiles.length, snapshotId);
-            
-            for (File file : existingFiles) {
-                if (file.delete()) {
-                    logger.debug("CLEANUP: Deleted existing file: {}", file.getName());
-                } else {
-                    logger.warn("CLEANUP: Failed to delete file: {}", file.getAbsolutePath());
-                }
-            }
-        } else {
-            logger.debug("CLEANUP: No existing data files found in snapshot {} directory", snapshotId);
-        }
-        
-        // Reset file counter for this snapshot
-        snapshotFileCounters.put(snapshotId, 0);
-        logger.info("CLEANUP: Cleaned snapshot {} directory and reset file counter", snapshotId);
-    }
-    
-    /**
-     * Forces the flushing of all buffered records to disk.
-     * Useful for shutdown or testing scenarios.
-     *
-     * @throws IOException if an I/O error occurs during flush operations
-     */
-    public synchronized void flushAllBuffers() throws IOException {
-        logger.debug("BUFFER: Force flushing all snapshot buffers");
-        
-        for (Map.Entry<Long, List<ValidationStatObservationParquet>> entry : snapshotBuffers.entrySet()) {
-            Long snapshotId = entry.getKey();
-            List<ValidationStatObservationParquet> buffer = entry.getValue();
-            
-            if (!buffer.isEmpty()) {
-                logger.debug("BUFFER: Force flushing {} remaining records for snapshot {}", buffer.size(), snapshotId);
-                writeBufferToFile(snapshotId, new ArrayList<>(buffer));
-                buffer.clear();
-            }
-        }
-        
-        logger.debug("BUFFER: All buffers flushed");
-    }
-    
-    /**
-     * Manually cleans a snapshot directory, useful for starting new validation.
-     * Removes all existing data files and resets counters for the specified snapshot.
-     *
-     * @param snapshotId the ID of the snapshot to clean
-     * @throws IOException if an I/O error occurs during cleanup operations
+     * Cleans a snapshot directory in preparation for new data
      */
     public synchronized void cleanSnapshot(Long snapshotId) throws IOException {
-        logger.info("MANUAL CLEANUP: Cleaning snapshot {} by user request", snapshotId);
-        
-        // Clear any buffered data for this snapshot
-        List<ValidationStatObservationParquet> buffer = snapshotBuffers.get(snapshotId);
-        if (buffer != null && !buffer.isEmpty()) {
-            logger.warn("MANUAL CLEANUP: Discarding {} buffered records for snapshot {}", buffer.size(), snapshotId);
-            buffer.clear();
-        }
-        
-        // Clean the directory
-        cleanSnapshotDirectory(snapshotId);
-        
-        logger.info("MANUAL CLEANUP: Completed cleaning snapshot {}", snapshotId);
+        deleteBySnapshotId(snapshotId);
+        // Clear snapshot size tracking for dynamic sizing
+        snapshotRecordCounts.remove(snapshotId);
+        logger.info("FACT REPO: Snapshot {} cleaned and ready for new data", snapshotId);
     }
-    
-    // ==================== MEMORY CACHE CORE METHODS ====================
+
+    // ==================== AGREGATION FILTER ====================
     
     /**
-     * SMART CACHE LOADER: Loads snapshot data into memory cache if not already loaded
-     * Thread-safe with loading indicators to prevent multiple concurrent loads
+     * Filter class for aggregation and query operations
      */
-    private SnapshotCache ensureSnapshotInCache(Long snapshotId) throws IOException {
-        if (!memoryCacheEnabled) {
-            throw new UnsupportedOperationException("Memory cache is disabled");
-        }
-        
-        // Check if already in cache
-        SnapshotCache cached = snapshotMemoryCache.get(snapshotId);
-        if (cached != null) {
-            cacheHits.incrementAndGet();
-            logger.debug("MEMORY CACHE HIT: Snapshot {} found in cache ({} records)", 
-                       snapshotId, cached.getRecordCount());
-            return cached;
-        }
-        
-        // Check if loading is in progress
-        synchronized (cacheLoadingInProgress) {
-            if (cacheLoadingInProgress.getOrDefault(snapshotId, false)) {
-                logger.debug("MEMORY CACHE WAIT: Snapshot {} is being loaded by another thread, waiting...", snapshotId);
-                
-                // Wait for loading to complete
-                while (cacheLoadingInProgress.getOrDefault(snapshotId, false)) {
-                    try {
-                        Thread.sleep(100); // Wait 100ms and check again
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new IOException("Interrupted while waiting for cache load", e);
-                    }
-                }
-                
-                // Check cache again after waiting
-                cached = snapshotMemoryCache.get(snapshotId);
-                if (cached != null) {
-                    cacheHits.incrementAndGet();
-                    logger.debug("MEMORY CACHE HIT AFTER WAIT: Snapshot {} now available in cache", snapshotId);
-                    return cached;
-                }
-            }
-            
-            // Mark as loading in progress
-            cacheLoadingInProgress.put(snapshotId, true);
-        }
-        
-        try {
-            cacheMisses.incrementAndGet();
-            logger.info("MEMORY CACHE MISS: Loading snapshot {} into memory cache...", snapshotId);
-            
-            // Check if we need to evict old snapshots (LRU eviction)
-            evictOldSnapshotsIfNeeded();
-            
-            // Load all data from parquet files
-            long startTime = System.currentTimeMillis();
-            List<ValidationStatObservationParquet> allRecords = loadAllRecordsFromDisk(snapshotId);
-            
-            // Check record count limit
-            if (allRecords.size() > maxRecordsPerSnapshot) {
-                logger.warn("MEMORY CACHE LIMIT: Snapshot {} has {} records, exceeds limit of {}. Skipping cache.", 
-                           snapshotId, allRecords.size(), maxRecordsPerSnapshot);
-                return null; // Don't cache, fall back to disk queries
-            }
-            
-            // Precompute basic statistics for ultra-fast stats queries
-            Map<String, Object> precomputedStats = precomputeStatistics(allRecords);
-            
-            // Create cache entry
-            SnapshotCache newCache = new SnapshotCache(allRecords, precomputedStats);
-            
-            // Store in cache
-            snapshotMemoryCache.put(snapshotId, newCache);
-            cacheLoadTimestamp.put(snapshotId, System.currentTimeMillis());
-            cacheLoads.incrementAndGet();
-            
-            long loadTime = System.currentTimeMillis() - startTime;
-            logger.info("MEMORY CACHE LOADED: Snapshot {} cached in memory - {} records in {}ms ({}MB estimated)", 
-                       snapshotId, allRecords.size(), loadTime, estimateMemoryUsage(allRecords));
-            
-            return newCache;
-            
-        } finally {
-            // Always remove loading indicator
-            synchronized (cacheLoadingInProgress) {
-                cacheLoadingInProgress.remove(snapshotId);
-            }
-        }
+    public static class AggregationFilter {
+        private Long snapshotId;
+        private Boolean isValid;
+        private Boolean isTransformed;
+        private String recordOAIId;
+        private String validRulesFilter;
+        private String invalidRulesFilter;
+
+        public Long getSnapshotId() { return snapshotId; }
+        public void setSnapshotId(Long snapshotId) { this.snapshotId = snapshotId; }
+        public Boolean getIsValid() { return isValid; }
+        public void setIsValid(Boolean isValid) { this.isValid = isValid; }
+        public Boolean getIsTransformed() { return isTransformed; }
+        public void setIsTransformed(Boolean isTransformed) { this.isTransformed = isTransformed; }
+        public String getRecordOAIId() { return recordOAIId; }
+        public void setRecordOAIId(String recordOAIId) { this.recordOAIId = recordOAIId; }
+        public String getValidRulesFilter() { return validRulesFilter; }
+        public void setValidRulesFilter(String validRulesFilter) { this.validRulesFilter = validRulesFilter; }
+        public String getInvalidRulesFilter() { return invalidRulesFilter; }
+        public void setInvalidRulesFilter(String invalidRulesFilter) { this.invalidRulesFilter = invalidRulesFilter; }
     }
-    
+
+    // ==================== MÉTODOS ADICIONALES PARA COMPATIBILIDAD ====================
+
     /**
-     * DISK LOADER: Loads all records from parquet files (used for cache loading)
+     * Alias de saveAll para compatibilidad
      */
-    private List<ValidationStatObservationParquet> loadAllRecordsFromDisk(Long snapshotId) throws IOException {
-        logger.debug("DISK LOAD: Loading all records for snapshot {} from parquet files", snapshotId);
-        
-        List<String> filePaths = getAllDataFilePaths(snapshotId);
-        if (filePaths.isEmpty()) {
-            logger.debug("DISK LOAD: No data files found for snapshot {}", snapshotId);
-            return Collections.emptyList();
-        }
-        
-        List<ValidationStatObservationParquet> allRecords = new ArrayList<>();
-        
-        // Load from all parquet files
-        for (String filePath : filePaths) {
-            File file = new File(filePath);
-            if (!file.exists()) {
-                logger.warn("DISK LOAD: File does not exist: {}", filePath);
-                continue;
-            }
-            
-            try (ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(
-                    HadoopInputFile.fromPath(new Path(filePath), hadoopConf))
-                    .withConf(hadoopConf)
-                    .build()) {
-                
-                GenericRecord record;
-                int fileRecordCount = 0;
-                while ((record = reader.read()) != null) {
-                    ValidationStatObservationParquet observation = fromGenericRecord(record);
-                    allRecords.add(observation);
-                    fileRecordCount++;
-                }
-                
-                logger.debug("DISK LOAD: Loaded {} records from {}", fileRecordCount, file.getName());
-            }
-        }
-        
-        logger.info("DISK LOAD: Loaded {} total records for snapshot {} from {} files", 
-                   allRecords.size(), snapshotId, filePaths.size());
-        return allRecords;
+    public void saveAllImmediate(List<ValidationStatObservationParquet> observations) throws IOException {
+        saveAll(observations);
     }
-    
+
     /**
-     * PRECOMPUTE: Calculate basic statistics during cache load for ultra-fast stats queries
+     * Get aggregated stats with filters
      */
-    private Map<String, Object> precomputeStatistics(List<ValidationStatObservationParquet> records) {
-        logger.debug("PRECOMPUTE: Calculating statistics for {} records", records.size());
+    public Map<String, Object> getAggregatedStatsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
+        // Build predicate from filter
+        FilterPredicate predicate = buildPredicateFromFilter(filter);
         
-        long totalCount = records.size();
-        long validCount = 0;
-        long transformedCount = 0;
+        // Use the same aggregation logic but with filter
+        return getAggregatedStatsWithPredicate(snapshotId, predicate);
+    }
+
+    /**
+     * Helper: Build predicate from AggregationFilter
+     */
+    private FilterPredicate buildPredicateFromFilter(AggregationFilter filter) {
+        logger.debug("BUILD PREDICATE: Starting with filter -> snapshotId={}, isValid={}, isTransformed={}, recordOAIId={}", 
+                    filter.getSnapshotId(), filter.getIsValid(), filter.getIsTransformed(), filter.getRecordOAIId());
+        
+        FilterPredicate predicate = null;
+
+        if (filter.getSnapshotId() != null) {
+            predicate = FactOccurrencesReader.snapshotIdEquals(filter.getSnapshotId());
+            logger.debug("BUILD PREDICATE: Added snapshotId predicate: {}", filter.getSnapshotId());
+        }
+
+        if (filter.getIsValid() != null) {
+            // IMPORTANTE: Filtramos por record_is_valid (estado del record completo), no por is_valid (estado de la ocurrencia)
+            FilterPredicate validPredicate = FactOccurrencesReader.recordIsValidEquals(filter.getIsValid());
+            predicate = predicate == null ? validPredicate : FactOccurrencesReader.and(predicate, validPredicate);
+            logger.debug("BUILD PREDICATE: Added recordIsValid predicate: {}", filter.getIsValid());
+        }
+
+        if (filter.getIsTransformed() != null) {
+            FilterPredicate transformedPredicate = FactOccurrencesReader.isTransformedEquals(filter.getIsTransformed());
+            predicate = predicate == null ? transformedPredicate : FactOccurrencesReader.and(predicate, transformedPredicate);
+            logger.debug("BUILD PREDICATE: Added isTransformed predicate: {}", filter.getIsTransformed());
+        }
+
+        if (filter.getRecordOAIId() != null) {
+            FilterPredicate idPredicate = FactOccurrencesReader.identifierEquals(filter.getRecordOAIId());
+            predicate = predicate == null ? idPredicate : FactOccurrencesReader.and(predicate, idPredicate);
+            logger.debug("BUILD PREDICATE: Added identifier predicate: {}", filter.getRecordOAIId());
+        }
+
+        // Filtro por reglas válidas: busca ocurrencias donde rule_id = X AND is_valid = true
+        if (filter.getValidRulesFilter() != null) {
+            try {
+                Integer ruleId = Integer.parseInt(filter.getValidRulesFilter());
+                FilterPredicate ruleIdPredicate = FactOccurrencesReader.ruleIdEquals(ruleId);
+                FilterPredicate isValidTrue = FactOccurrencesReader.isValidEquals(true);
+                FilterPredicate validRulePredicate = FactOccurrencesReader.and(ruleIdPredicate, isValidTrue);
+                predicate = predicate == null ? validRulePredicate : FactOccurrencesReader.and(predicate, validRulePredicate);
+                logger.debug("BUILD PREDICATE: Added valid_rules predicate for rule_id: {}", ruleId);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid valid_rules filter value: {}", filter.getValidRulesFilter());
+            }
+        }
+
+        // Filtro por reglas inválidas: busca ocurrencias donde rule_id = X AND is_valid = false
+        if (filter.getInvalidRulesFilter() != null) {
+            try {
+                Integer ruleId = Integer.parseInt(filter.getInvalidRulesFilter());
+                FilterPredicate ruleIdPredicate = FactOccurrencesReader.ruleIdEquals(ruleId);
+                FilterPredicate isValidFalse = FactOccurrencesReader.isValidEquals(false);
+                FilterPredicate invalidRulePredicate = FactOccurrencesReader.and(ruleIdPredicate, isValidFalse);
+                predicate = predicate == null ? invalidRulePredicate : FactOccurrencesReader.and(predicate, invalidRulePredicate);
+                logger.debug("BUILD PREDICATE: Added invalid_rules predicate for rule_id: {}", ruleId);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid invalid_rules filter value: {}", filter.getInvalidRulesFilter());
+            }
+        }
+        
+        logger.debug("BUILD PREDICATE: Final predicate built: {}", predicate != null ? predicate.toString() : "NULL");
+
+        return predicate;
+    }
+
+    /**
+     * Get aggregated stats with predicate
+     */
+    private Map<String, Object> getAggregatedStatsWithPredicate(Long snapshotId, FilterPredicate filter) throws IOException {
+        List<String> partitionPaths = getAllPartitionPaths(snapshotId);
+        List<String> parquetFiles = getAllParquetFiles(partitionPaths);
+        
+        if (parquetFiles.isEmpty()) {
+            return buildEmptyStats();
+        }
+
+        final long[] totalCount = {0};
+        final long[] validCount = {0};
+        final long[] transformedCount = {0};
         Map<String, Long> validRuleCounts = new HashMap<>();
         Map<String, Long> invalidRuleCounts = new HashMap<>();
-        
-        for (ValidationStatObservationParquet obs : records) {
-            // Count valid/invalid
-            if (Boolean.TRUE.equals(obs.getIsValid())) {
-                validCount++;
-            }
-            
-            // Count transformed
-            if (Boolean.TRUE.equals(obs.getIsTransformed())) {
-                transformedCount++;
-            }
-            
-            // Count rules
-            if (obs.getValidRulesIDList() != null) {
-                for (String rule : obs.getValidRulesIDList()) {
-                    if (rule != null && !rule.isEmpty()) {
-                        validRuleCounts.merge(rule, 1L, Long::sum);
+
+        for (String filePath : parquetFiles) {
+            try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, filter)) {
+                reader.aggregateFromGroups(group -> {
+                    boolean isValid = group.getBoolean("is_valid", 0);
+                    boolean isTransformed = group.getBoolean("is_transformed", 0);
+                    int ruleId = group.getInteger("rule_id", 0);
+                    
+                    synchronized (validRuleCounts) {
+                        totalCount[0]++;
+                        if (isValid) validCount[0]++;
+                        if (isTransformed) transformedCount[0]++;
+                        
+                        String ruleIdStr = String.valueOf(ruleId);
+                        if (isValid) {
+                            validRuleCounts.merge(ruleIdStr, 1L, Long::sum);
+                        } else {
+                            invalidRuleCounts.merge(ruleIdStr, 1L, Long::sum);
+                        }
                     }
-                }
-            }
-            
-            if (obs.getInvalidRulesIDList() != null) {
-                for (String rule : obs.getInvalidRulesIDList()) {
-                    if (rule != null && !rule.isEmpty()) {
-                        invalidRuleCounts.merge(rule, 1L, Long::sum);
-                    }
-                }
+                });
             }
         }
-        
+
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalCount", totalCount);
-        stats.put("validCount", validCount);
-        stats.put("invalidCount", totalCount - validCount);
-        stats.put("transformedCount", transformedCount);
+        stats.put("totalCount", totalCount[0]);
+        stats.put("validCount", validCount[0]);
+        stats.put("transformedCount", transformedCount[0]);
         stats.put("validRuleCounts", validRuleCounts);
         stats.put("invalidRuleCounts", invalidRuleCounts);
         
-        logger.debug("PRECOMPUTE: Statistics calculated - {} total, {} valid, {} rules", 
-                    totalCount, validCount, validRuleCounts.size() + invalidRuleCounts.size());
-        return stats;
-    }
-    
-    /**
-     * MEMORY MANAGEMENT: Evict old snapshots using LRU policy
-     */
-    private void evictOldSnapshotsIfNeeded() {
-        if (snapshotMemoryCache.size() >= maxCachedSnapshots) {
-            // Find oldest snapshot by load timestamp
-            Long oldestSnapshotId = cacheLoadTimestamp.entrySet().stream()
-                .min(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(null);
-            
-            if (oldestSnapshotId != null) {
-                SnapshotCache evicted = snapshotMemoryCache.remove(oldestSnapshotId);
-                cacheLoadTimestamp.remove(oldestSnapshotId);
-                
-                if (evicted != null) {
-                    logger.info("MEMORY CACHE EVICT: Removed snapshot {} from cache ({} records freed)", 
-                               oldestSnapshotId, evicted.getRecordCount());
-                }
-            }
-        }
-    }
-    
-    /**
-     * MEMORY ESTIMATION: Estimate memory usage of cached records
-     */
-    private long estimateMemoryUsage(List<ValidationStatObservationParquet> records) {
-        if (records.isEmpty()) return 0;
-        
-        // Rough estimation: ~500 bytes per record (strings, lists, etc.)
-        return records.size() * 500L / (1024 * 1024); // Return in MB
-    }
-
-    // ==================== QUERY OPTIMIZATION METHODS ====================
-    // (Moved from ValidationStatParquetQueryEngine for consolidated architecture)
-    
-    /**
-     * STREAMING OPTIMIZED: Consulta optimizada que procesa registros de forma streaming
-     * Lee registros uno por uno sin cargar todo el archivo en memoria
-     * Utiliza caché para evitar re-procesar archivos con los mismos filtros
-     */
-    private AggregationResult getAggregatedStatsOptimized(String filePath, AggregationFilter filter) throws IOException {
-        logger.debug("STREAMING STATS: Processing aggregated stats for: {} (streaming mode)", filePath);
-        
-        String cacheKey = filePath + "_" + filter.hashCode();
-        if (queryCache.containsKey(cacheKey)) {
-            logger.debug("Resultado desde cache");
-            return queryCache.get(cacheKey);
-        }
-        
-        AggregationResult result = new AggregationResult();
-        
-        // CRÍTICO: Para obtener estadísticas de reglas correctas, necesitamos leer registros reales
-        // Los metadatos no contienen información de validRuleCounts/invalidRuleCounts
-        logger.debug("CORRECCIÓN: Usando lectura real de registros para obtener estadísticas de reglas precisas");
-        
-        try (org.apache.parquet.hadoop.ParquetReader<GenericRecord> reader = 
-                org.apache.parquet.avro.AvroParquetReader.<GenericRecord>builder(HadoopInputFile.fromPath(new Path(filePath), new Configuration()))
-                .build()) {
-            
-            GenericRecord record;
-            int totalRecords = 0;
-            int filteredRecords = 0;
-            
-            while ((record = reader.read()) != null) {
-                totalRecords++;
-                
-                // Aplicar filtros si los hay
-                if (filter == null || matchesSpecificFilter(record, filter)) {
-                    filteredRecords++;
-                    result.incrementTotalCount();
-                    
-                    // Procesar estadísticas básicas
-                    Object isValidObj = record.get("isValid");
-                    Boolean isValid = (Boolean) isValidObj;
-                    if (isValid != null && isValid) {
-                        result.incrementValidCount();
-                    } else {
-                        result.incrementInvalidCount();
-                    }
-                    
-                    Object isTransformedObj = record.get("isTransformed");
-                    Boolean isTransformed = (Boolean) isTransformedObj;
-                    if (isTransformed != null && isTransformed) {
-                        result.incrementTransformedCount();
-                    }
-                    
-                    // CRÍTICO: Procesar estadísticas de reglas
-                    processRuleStatistics(record, result);
-                }
-            }
-            
-            logger.debug("FILTER DEBUG: File: {}, Total records: {}, Filtered records: {}, Filter: isValid={}, isTransformed={}", 
-                        filePath, totalRecords, filteredRecords, 
-                        filter != null ? filter.getIsValid() : "null",
-                        filter != null ? filter.getIsTransformed() : "null");
-        }
-        
-        queryCache.put(cacheKey, result);
-        logger.debug("Consulta híbrida completada: {} registros, {} reglas válidas, {} reglas inválidas", 
-                    result.getTotalCount(), result.getValidRuleCounts().size(), result.getInvalidRuleCounts().size());
-        return result;
-    }
-    
-    /**
-     * CORRECCIÓN: Procesa estadísticas de reglas desde registros reales
-     */
-    private void processRuleStatistics(GenericRecord record, AggregationResult result) {
-        try {
-            // Procesar reglas válidas
-            Object validRulesObj = record.get("validRulesIDList");
-            if (validRulesObj != null) {
-                @SuppressWarnings("unchecked")
-                java.util.List<Object> validRulesList = (java.util.List<Object>) validRulesObj;
-                for (Object ruleObj : validRulesList) {
-                    String rule = avroToString(ruleObj);
-                    if (rule != null && !rule.isEmpty()) {
-                        result.addValidRuleCount(rule);
-                    }
-                }
-            }
-            
-            // Procesar reglas inválidas
-            Object invalidRulesObj = record.get("invalidRulesIDList");
-            if (invalidRulesObj != null) {
-                @SuppressWarnings("unchecked")
-                java.util.List<Object> invalidRulesList = (java.util.List<Object>) invalidRulesObj;
-                for (Object ruleObj : invalidRulesList) {
-                    String rule = avroToString(ruleObj);
-                    if (rule != null && !rule.isEmpty()) {
-                        result.addInvalidRuleCount(rule);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("Error procesando estadísticas de reglas: {}", e.getMessage());
-        }
-    }
-    
-    /**
-     * Verificación específica de registros individuales
-     */
-    private boolean matchesSpecificFilter(GenericRecord record, AggregationFilter filter) {
-        try {
-            // Aplicar filtros específicos
-            if (filter.getSnapshotId() != null) {
-                Object snapshotIdObj = record.get("snapshotID");
-                String snapshotId = avroToString(snapshotIdObj);
-                if (!filter.getSnapshotId().toString().equals(snapshotId)) {
-                    return false;
-                }
-            }
-            
-            if (filter.getRecordOAIId() != null) {
-                Object identifierObj = record.get("identifier");
-                String identifier = avroToString(identifierObj);
-                if (!filter.getRecordOAIId().equals(identifier)) {
-                    return false;
-                }
-            }
-            
-            if (filter.getIsValid() != null) {
-                Object isValidObj = record.get("isValid");
-                Boolean isValid = (Boolean) isValidObj;
-                if (!filter.getIsValid().equals(isValid)) {
-                    return false;
-                }
-            }
-            
-            if (filter.getIsTransformed() != null) {
-                Object isTransformedObj = record.get("isTransformed");
-                Boolean isTransformed = (Boolean) isTransformedObj;
-                if (!filter.getIsTransformed().equals(isTransformed)) {
-                    return false;
-                }
-            }
-            
-            // Filtro de reglas válidas
-            if (filter.getValidRulesFilter() != null) {
-                Object validRulesObj = record.get("validRulesIDList");
-                if (validRulesObj != null) {
-                    @SuppressWarnings("unchecked")
-                    java.util.List<Object> validRulesList = (java.util.List<Object>) validRulesObj;
-                    String targetRule = filter.getValidRulesFilter();
-                    boolean found = false;
-                    for (Object ruleObj : validRulesList) {
-                        String rule = avroToString(ruleObj);
-                        if (targetRule.equals(rule)) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        return false;
-                    }
-                }
-            }
-            
-            // Filtro de reglas inválidas
-            if (filter.getInvalidRulesFilter() != null) {
-                Object invalidRulesObj = record.get("invalidRulesIDList");
-                if (invalidRulesObj != null) {
-                    @SuppressWarnings("unchecked")
-                    java.util.List<Object> invalidRulesList = (java.util.List<Object>) invalidRulesObj;
-                    String targetRule = filter.getInvalidRulesFilter();
-                    boolean found = false;
-                    for (Object ruleObj : invalidRulesList) {
-                        String rule = avroToString(ruleObj);
-                        if (targetRule.equals(rule)) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        return false;
-                    }
-                }
-            }
-            
-            return true;
-        } catch (Exception e) {
-            logger.warn("Error al verificar filtro específico: {}", e.getMessage());
-            return false;
-        }
-    }
-    
-    /**
-     * Obtains cache statistics including size and keys.
-     *
-     * @return a map containing cache statistics
-     */
-    public Map<String, Object> getCacheStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("size", queryCache.size());
-        stats.put("keys", new ArrayList<>(queryCache.keySet()));
         return stats;
     }
 
     /**
-     * Limpiar cache
+     * Find with filter and pagination (returns fact occurrences, not observations)
      */
-    public void clearCache() {
-        queryCache.clear();
-        logger.info("Query cache cleared");
+    public List<ValidationStatObservationParquet> findWithFilterAndPagination(Long snapshotId, 
+                                                                             AggregationFilter filter,
+                                                                             int page, 
+                                                                             int size) throws IOException {
+        FilterPredicate predicate = buildPredicateFromFilter(filter);
+        List<FactOccurrence> facts = findWithPagination(snapshotId, predicate, page, size);
+        
+        // Convert facts to observations (simplified - may need grouping by id)
+        return convertFactsToObservations(facts);
     }
-    
-    // ==================== MEMORY CACHE API METHODS ====================
-    
+
     /**
-     * Gets aggregated statistics from memory cache with millisecond response time.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @return a map containing precomputed aggregated statistics
-     * @throws IOException if an I/O error occurs or cache is unavailable
+     * Find from cache (stub - fact table is already fast)
      */
-    public Map<String, Object> getAggregatedStatsFromCache(Long snapshotId) throws IOException {
-        if (!memoryCacheEnabled) {
-            logger.info("CACHE DISABLED: Falling back to disk-based aggregation for snapshot {}", snapshotId);
-            return getAggregatedStats(snapshotId);
-        }
-        
-        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
-        if (cache == null) {
-            logger.warn("CACHE FALLBACK: Snapshot {} too large for cache, using disk queries", snapshotId);
-            return getAggregatedStats(snapshotId);
-        }
-        
-        logger.debug("ULTRA-FAST STATS: Returning precomputed statistics for snapshot {} from memory", snapshotId);
-        return new HashMap<>(cache.getPrecomputedStats());
+    public List<ValidationStatObservationParquet> findWithFilterAndPaginationFromCache(Long snapshotId,
+                                                                                      AggregationFilter filter,
+                                                                                      int page,
+                                                                                      int size) throws IOException {
+        // In fact table architecture, queries are already optimized
+        // No need for complex caching - predicate pushdown is the "cache"
+        return findWithFilterAndPagination(snapshotId, filter, page, size);
     }
-    
+
     /**
-     * Gets filtered aggregated statistics from memory cache with ultra-fast processing.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param filter the filter to apply on cached records
-     * @return a map containing filtered aggregated statistics
-     * @throws IOException if an I/O error occurs or cache is unavailable
+     * Count with filter
      */
-    public Map<String, Object> getAggregatedStatsWithFilterFromCache(Long snapshotId, AggregationFilter filter) throws IOException {
-        if (!memoryCacheEnabled) {
-            logger.info("CACHE DISABLED: Falling back to disk-based filtered aggregation for snapshot {}", snapshotId);
-            return getAggregatedStatsWithFilter(snapshotId, filter);
-        }
-        
-        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
-        if (cache == null) {
-            logger.warn("CACHE FALLBACK: Snapshot {} too large for cache, using disk queries", snapshotId);
-            return getAggregatedStatsWithFilter(snapshotId, filter);
-        }
-        
-        logger.debug("ULTRA-FAST FILTERED STATS: Processing filter on {} cached records", cache.getRecordCount());
-        
-        // Apply filter in memory - ultra fast!
-        List<ValidationStatObservationParquet> filteredRecords = cache.getAllRecords().stream()
-            .filter(record -> matchesFilter(record, filter))
-            .collect(Collectors.toList());
-        
-        // Compute stats on filtered results
-        Map<String, Object> filteredStats = precomputeStatistics(filteredRecords);
-        
-        logger.debug("ULTRA-FAST FILTERED STATS: {} records matched filter criteria", filteredRecords.size());
-        return filteredStats;
+    public long countRecordsWithFilter(Long snapshotId, AggregationFilter filter) throws IOException {
+        FilterPredicate predicate = buildPredicateFromFilter(filter);
+        return countRecords(snapshotId, predicate);
     }
-    
+
     /**
-     * Counts records with filter from memory cache with ultra-fast processing.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param filter the filter to apply on cached records
-     * @return the number of records matching the filter criteria
-     * @throws IOException if an I/O error occurs or cache is unavailable
+     * Count from cache (stub)
      */
     public long countRecordsWithFilterFromCache(Long snapshotId, AggregationFilter filter) throws IOException {
-        if (!memoryCacheEnabled) {
-            logger.info("CACHE DISABLED: Falling back to disk-based count for snapshot {}", snapshotId);
-            return countRecordsWithFilter(snapshotId, filter);
-        }
-        
-        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
-        if (cache == null) {
-            logger.warn("CACHE FALLBACK: Snapshot {} too large for cache, using disk queries", snapshotId);
-            return countRecordsWithFilter(snapshotId, filter);
-        }
-        
-        logger.debug("ULTRA-FAST COUNT: Counting on {} cached records with filter", cache.getRecordCount());
-        
-        // Count in memory - ultra fast!
-        long count = cache.getAllRecords().stream()
-            .filter(record -> matchesFilter(record, filter))
-            .count();
-        
-        logger.debug("ULTRA-FAST COUNT: {} records matched filter criteria", count);
-        return count;
+        return countRecordsWithFilter(snapshotId, filter);
     }
-    
+
     /**
-     * Finds records with filter and pagination from memory cache with ultra-fast processing.
-     *
-     * @param snapshotId the ID of the snapshot
-     * @param filter the filter to apply on cached records
-     * @param page the page number (zero-based)
-     * @param size the page size
-     * @return a list of paginated observations matching the filter criteria
-     * @throws IOException if an I/O error occurs or cache is unavailable
+     * Find by snapshot with pagination (simplified - returns grouped observations)
      */
-    public List<ValidationStatObservationParquet> findWithFilterAndPaginationFromCache(Long snapshotId, 
-                                                                                       AggregationFilter filter, 
-                                                                                       int page, int size) throws IOException {
-        if (!memoryCacheEnabled) {
-            logger.info("CACHE DISABLED: Falling back to disk-based pagination for snapshot {}", snapshotId);
-            return findWithFilterAndPagination(snapshotId, filter, page, size);
-        }
-        
-        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
-        if (cache == null) {
-            logger.warn("CACHE FALLBACK: Snapshot {} too large for cache, using disk queries", snapshotId);
-            return findWithFilterAndPagination(snapshotId, filter, page, size);
-        }
-        
-        logger.debug("ULTRA-FAST PAGINATION: Processing page {} (size {}) on {} cached records", 
-                   page, size, cache.getRecordCount());
-        
-        // Filter and paginate in memory - ultra fast!
-        List<ValidationStatObservationParquet> results = cache.getAllRecords().stream()
-            .filter(record -> matchesFilter(record, filter))
-            .skip((long) page * size)
-            .limit(size)
-            .collect(Collectors.toList());
-        
-        logger.debug("ULTRA-FAST PAGINATION: Returning {} results for page {}", results.size(), page);
-        return results;
+    public List<ValidationStatObservationParquet> findBySnapshotIdWithPagination(Long snapshotId, 
+                                                                                 int page, 
+                                                                                 int size) throws IOException {
+        List<FactOccurrence> facts = findWithPagination(snapshotId, null, page, size);
+        return convertFactsToObservations(facts);
     }
-    
+
     /**
-     * IN-MEMORY FILTER: Apply filter to individual record (ultra-fast)
+     * Count by snapshot
      */
-    private boolean matchesFilter(ValidationStatObservationParquet record, AggregationFilter filter) {
-        if (filter == null) {
-            return true;
-        }
-        
-        // Apply filters
-        if (filter.getRecordOAIId() != null && !filter.getRecordOAIId().equals(record.getIdentifier())) {
-            return false;
-        }
-        
-        if (filter.getIsValid() != null && !filter.getIsValid().equals(record.getIsValid())) {
-            return false;
-        }
-        
-        if (filter.getIsTransformed() != null && !filter.getIsTransformed().equals(record.getIsTransformed())) {
-            return false;
-        }
-        
-        if (filter.getValidRulesFilter() != null) {
-            List<String> validRules = record.getValidRulesIDList();
-            if (validRules == null || !validRules.contains(filter.getValidRulesFilter())) {
-                return false;
+    public long countBySnapshotId(Long snapshotId) throws IOException {
+        return countRecords(snapshotId, FactOccurrencesReader.snapshotIdEquals(snapshotId));
+    }
+
+    /**
+     * Get rule occurrence counts
+     */
+    public Map<String, Long> getRuleOccurrenceCounts(Long snapshotId, 
+                                                     String ruleId, 
+                                                     boolean valid,
+                                                     Map<String, Object> filters) throws IOException {
+        // Build filter predicate
+        FilterPredicate predicate = FactOccurrencesReader.and(
+            FactOccurrencesReader.snapshotIdEquals(snapshotId),
+            FactOccurrencesReader.ruleIdEquals(Integer.parseInt(ruleId)),
+            FactOccurrencesReader.isValidEquals(valid)
+        );
+
+        // Count occurrences by value
+        Map<String, Long> occurrenceCounts = new HashMap<>();
+        List<String> partitionPaths = getAllPartitionPaths(snapshotId);
+        List<String> parquetFiles = getAllParquetFiles(partitionPaths);
+
+        for (String filePath : parquetFiles) {
+            try (FactOccurrencesReader reader = FactOccurrencesReader.newReader(filePath, hadoopConf, predicate)) {
+                reader.stream(fact -> {
+                    String value = fact.getValue();
+                    if (value != null) {
+                        occurrenceCounts.merge(value, 1L, Long::sum);
+                    }
+                });
             }
         }
+
+        return occurrenceCounts;
+    }
+
+    /**
+     * Delete by ID (requires scanning to find matching fact rows)
+     */
+    public void deleteById(String id, Long snapshotId) throws IOException {
+        logger.warn("FACT REPO: deleteById() is expensive in fact table architecture - consider batch operations");
+        // TODO: Implement if really needed - requires rewriting files without matching id
+        throw new UnsupportedOperationException("deleteById not yet implemented for fact table");
+    }
+
+    /**
+     * Copy snapshot data
+     */
+    public void copySnapshotData(Long originalSnapshotId, Long newSnapshotId) throws IOException {
+        logger.warn("FACT REPO: copySnapshotData() is expensive - consider alternative approaches");
+        // TODO: Implement if really needed - requires reading all partitions and rewriting with new snapshot_id
+        throw new UnsupportedOperationException("copySnapshotData not yet implemented for fact table");
+    }
+
+    // ==================== CONVERSION HELPERS ====================
+
+    /**
+     * Convert FactOccurrences to ValidationStatObservationParquet
+     * Groups facts by id to reconstruct observations
+     */
+    private List<ValidationStatObservationParquet> convertFactsToObservations(List<FactOccurrence> facts) {
+        // Group facts by id
+        Map<String, List<FactOccurrence>> factsById = facts.stream()
+            .collect(Collectors.groupingBy(FactOccurrence::getId));
+
+        // Convert each group to an observation
+        List<ValidationStatObservationParquet> observations = new ArrayList<>();
         
-        if (filter.getInvalidRulesFilter() != null) {
-            List<String> invalidRules = record.getInvalidRulesIDList();
-            if (invalidRules == null || !invalidRules.contains(filter.getInvalidRulesFilter())) {
-                return false;
+        for (Map.Entry<String, List<FactOccurrence>> entry : factsById.entrySet()) {
+            ValidationStatObservationParquet obs = convertFactGroupToObservation(entry.getValue());
+            observations.add(obs);
+        }
+
+        return observations;
+    }
+
+    /**
+     * Convert a group of facts (same id) to a single observation
+     */
+    private ValidationStatObservationParquet convertFactGroupToObservation(List<FactOccurrence> facts) {
+        if (facts.isEmpty()) {
+            return null;
+        }
+
+        // Use first fact for common fields
+        FactOccurrence first = facts.get(0);
+
+        // Rebuild occurrence maps
+        Map<String, List<String>> validOccurrences = new HashMap<>();
+        Map<String, List<String>> invalidOccurrences = new HashMap<>();
+        List<String> validRules = new ArrayList<>();
+        List<String> invalidRules = new ArrayList<>();
+
+        for (FactOccurrence fact : facts) {
+            String ruleId = String.valueOf(fact.getRuleId());
+            String value = fact.getValue();
+
+            if (fact.getIsValid()) {
+                validOccurrences.computeIfAbsent(ruleId, k -> new ArrayList<>()).add(value);
+                if (!validRules.contains(ruleId)) {
+                    validRules.add(ruleId);
+                }
+            } else {
+                invalidOccurrences.computeIfAbsent(ruleId, k -> new ArrayList<>()).add(value);
+                if (!invalidRules.contains(ruleId)) {
+                    invalidRules.add(ruleId);
+                }
             }
         }
-        
-        return true;
+
+        return new ValidationStatObservationParquet(
+            first.getId(),
+            first.getIdentifier(),
+            first.getSnapshotId(),
+            first.getOrigin(),
+            first.getSetSpec(),
+            first.getMetadataPrefix(),
+            first.getNetwork(),
+            first.getRepository(),
+            first.getInstitution(),
+            first.getRecordIsValid(), // Usar el campo recordIsValid del registro original
+            first.getIsTransformed(),
+            validOccurrences,
+            invalidOccurrences,
+            validRules,
+            invalidRules
+        );
     }
-    
-    // ==================== CACHE MANAGEMENT API ====================
-    
-    /**
-     * Gets cache statistics and status information.
-     *
-     * @return a map containing cache statistics including enabled status, cached snapshots, hit ratios, and snapshot details
-     */
-    public Map<String, Object> getMemoryCacheInfo() {
-        Map<String, Object> info = new HashMap<>();
-        info.put("enabled", memoryCacheEnabled);
-        info.put("cachedSnapshots", snapshotMemoryCache.size());
-        info.put("maxSnapshots", maxCachedSnapshots);
-        info.put("maxRecordsPerSnapshot", maxRecordsPerSnapshot);
-        info.put("cacheHits", cacheHits.get());
-        info.put("cacheMisses", cacheMisses.get());
-        info.put("cacheLoads", cacheLoads.get());
-        
-        // Hit ratio
-        long totalRequests = cacheHits.get() + cacheMisses.get();
-        double hitRatio = totalRequests > 0 ? (double) cacheHits.get() / totalRequests * 100 : 0;
-        info.put("hitRatio", String.format("%.2f%%", hitRatio));
-        
-        // Snapshot details
-        Map<Long, Map<String, Object>> snapshotDetails = new HashMap<>();
-        for (Map.Entry<Long, SnapshotCache> entry : snapshotMemoryCache.entrySet()) {
-            Long snapshotId = entry.getKey();
-            SnapshotCache cache = entry.getValue();
-            Map<String, Object> details = new HashMap<>();
-            details.put("recordCount", cache.getRecordCount());
-            details.put("loadedTimestamp", cache.getLoadedTimestamp());
-            details.put("estimatedSizeMB", estimateMemoryUsage(Collections.emptyList()));
-            snapshotDetails.put(snapshotId, details);
-        }
-        info.put("snapshotDetails", snapshotDetails);
-        
-        return info;
-    }
-    
-    /**
-     * Manually warms up the cache for a specific snapshot by preloading its data into memory.
-     *
-     * @param snapshotId the ID of the snapshot to warm up
-     * @throws IOException if an I/O error occurs during cache loading
-     */
-    public void warmUpCache(Long snapshotId) throws IOException {
-        if (!memoryCacheEnabled) {
-            logger.warn("CACHE WARMUP: Memory cache is disabled");
-            return;
-        }
-        
-        logger.info("CACHE WARMUP: Manually warming up cache for snapshot {}", snapshotId);
-        SnapshotCache cache = ensureSnapshotInCache(snapshotId);
-        if (cache != null) {
-            logger.info("CACHE WARMUP: Successfully warmed up snapshot {} ({} records)", 
-                       snapshotId, cache.getRecordCount());
-        } else {
-            logger.warn("CACHE WARMUP: Failed to warm up snapshot {} (too large?)", snapshotId);
-        }
-    }
-    
-    /**
-     * Clears a specific snapshot from the memory cache, freeing its allocated memory.
-     *
-     * @param snapshotId the ID of the snapshot to evict from cache
-     */
-    public void evictFromCache(Long snapshotId) {
-        SnapshotCache evicted = snapshotMemoryCache.remove(snapshotId);
-        cacheLoadTimestamp.remove(snapshotId);
-        
-        if (evicted != null) {
-            logger.info("CACHE EVICT: Manually evicted snapshot {} from cache ({} records freed)", 
-                       snapshotId, evicted.getRecordCount());
-        } else {
-            logger.debug("CACHE EVICT: Snapshot {} was not in cache", snapshotId);
-        }
-    }
-    
-    /**
-     * CACHE CONTROL: Clear entire cache
-     */
-    public void clearMemoryCache() {
-        int evictedCount = snapshotMemoryCache.size();
-        snapshotMemoryCache.clear();
-        cacheLoadTimestamp.clear();
-        
-        // Reset statistics
-        cacheHits.set(0);
-        cacheMisses.set(0);
-        cacheLoads.set(0);
-        
-        logger.info("CACHE CLEAR: Cleared entire memory cache ({} snapshots freed)", evictedCount);
-    }
-    
-    // ==================== QUERY OPTIMIZATION CLASSES ====================
-    // (Moved from ValidationStatParquetQueryEngine for consolidated architecture)
-    
-    /**
-     * Filter class for aggregation operations on validation statistics.
-     * Provides criteria for filtering records based on validation status, transformation status, 
-     * OAI identifiers, and rule IDs.
-     */
-    public static class AggregationFilter {
-        /**
-         * Filter for validation status (true=valid, false=invalid, null=all).
-         */
-        private Boolean isValid;
-        
-        /**
-         * Filter for transformation status (true=transformed, false=not transformed, null=all).
-         */
-        private Boolean isTransformed;
-        
-        /**
-         * Filter for specific record OAI identifier.
-         */
-        private String recordOAIId;
-        
-        /**
-         * Filter for specific rule IDs.
-         */
-        private List<String> ruleIds;
-        
-        /**
-         * Filter for specific snapshot ID.
-         */
-        private Long snapshotId;
-        
-        /**
-         * Filter for records with specific valid rule.
-         */
-        private String validRulesFilter;
-        
-        /**
-         * Filter for records with specific invalid rule.
-         */
-        private String invalidRulesFilter;
-
-        /**
-         * Constructs a new AggregationFilter with default values.
-         */
-        public AggregationFilter() {
-        }
-
-        /**
-         * Gets the validation status filter.
-         *
-         * @return true for valid records, false for invalid, null for all
-         */
-        public Boolean getIsValid() { return isValid; }
-        
-        /**
-         * Sets the validation status filter.
-         *
-         * @param isValid true for valid records, false for invalid, null for all
-         */
-        public void setIsValid(Boolean isValid) { this.isValid = isValid; }
-
-        /**
-         * Gets the transformation status filter.
-         *
-         * @return true for transformed records, false for not transformed, null for all
-         */
-        public Boolean getIsTransformed() { return isTransformed; }
-        
-        /**
-         * Sets the transformation status filter.
-         *
-         * @param isTransformed true for transformed records, false for not transformed, null for all
-         */
-        public void setIsTransformed(Boolean isTransformed) { this.isTransformed = isTransformed; }
-
-        /**
-         * Gets the record OAI identifier filter.
-         *
-         * @return the OAI identifier to filter by
-         */
-        public String getRecordOAIId() { return recordOAIId; }
-        
-        /**
-         * Sets the record OAI identifier filter.
-         *
-         * @param recordOAIId the OAI identifier to filter by
-         */
-        public void setRecordOAIId(String recordOAIId) { this.recordOAIId = recordOAIId; }
-
-        /**
-         * Gets the list of rule IDs to filter by.
-         *
-         * @return the list of rule IDs
-         */
-        public List<String> getRuleIds() { return ruleIds; }
-        
-        /**
-         * Sets the list of rule IDs to filter by.
-         *
-         * @param ruleIds the list of rule IDs
-         */
-        public void setRuleIds(List<String> ruleIds) { this.ruleIds = ruleIds; }
-
-        /**
-         * Gets the snapshot ID filter.
-         *
-         * @return the snapshot ID to filter by
-         */
-        public Long getSnapshotId() { return snapshotId; }
-        
-        /**
-         * Sets the snapshot ID filter.
-         *
-         * @param snapshotId the snapshot ID to filter by
-         */
-        public void setSnapshotId(Long snapshotId) { this.snapshotId = snapshotId; }
-
-        /**
-         * Gets the valid rules filter.
-         *
-         * @return the valid rule ID to filter by
-         */
-        public String getValidRulesFilter() { return validRulesFilter; }
-        
-        /**
-         * Sets the valid rules filter.
-         *
-         * @param validRulesFilter the valid rule ID to filter by
-         */
-        public void setValidRulesFilter(String validRulesFilter) { this.validRulesFilter = validRulesFilter; }
-
-        /**
-         * Gets the invalid rules filter.
-         *
-         * @return the invalid rule ID to filter by
-         */
-        public String getInvalidRulesFilter() { return invalidRulesFilter; }
-        
-        /**
-         * Sets the invalid rules filter.
-         *
-         * @param invalidRulesFilter the invalid rule ID to filter by
-         */
-        public void setInvalidRulesFilter(String invalidRulesFilter) { this.invalidRulesFilter = invalidRulesFilter; }
-
-        /**
-         * Gets the minimum snapshot ID (compatibility alias for snapshotId).
-         *
-         * @return the snapshot ID
-         */
-        public Long getMinSnapshotId() { return snapshotId; }
-        
-        /**
-         * Sets the minimum snapshot ID (compatibility alias for snapshotId).
-         *
-         * @param minSnapshotId the snapshot ID
-         */
-        public void setMinSnapshotId(Long minSnapshotId) { this.snapshotId = minSnapshotId; }
-
-        /**
-         * Gets the maximum snapshot ID (compatibility alias for snapshotId).
-         *
-         * @return the snapshot ID
-         */
-        public Long getMaxSnapshotId() { return snapshotId; }
-        
-        /**
-         * Sets the maximum snapshot ID (compatibility alias for snapshotId).
-         *
-         * @param maxSnapshotId the snapshot ID
-         */
-        public void setMaxSnapshotId(Long maxSnapshotId) { this.snapshotId = maxSnapshotId; }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(isValid, isTransformed, recordOAIId, ruleIds, snapshotId, validRulesFilter, invalidRulesFilter);
-        }
-    }
-
-    /**
-     * Result class for aggregation operations containing counts and statistics.
-     */
-    public static class AggregationResult {
-        /**
-         * Total count of records.
-         */
-        private long totalCount = 0;
-        
-        /**
-         * Count of valid records.
-         */
-        private long validCount = 0;
-        
-        /**
-         * Constructs a new AggregationResult with default zero values.
-         */
-        public AggregationResult() {
-        }
-        
-        /**
-         * Count of invalid records.
-         */
-        private long invalidCount = 0;
-        
-        /**
-         * Count of transformed records.
-         */
-        private long transformedCount = 0;
-        
-        /**
-         * Map of valid rule IDs to their occurrence counts.
-         */
-        private Map<String, Long> validRuleCounts = new HashMap<>();
-        
-        /**
-         * Map of invalid rule IDs to their occurrence counts.
-         */
-        private Map<String, Long> invalidRuleCounts = new HashMap<>();
-
-        /**
-         * Gets the total count of records.
-         *
-         * @return the total record count
-         */
-        public long getTotalCount() { return totalCount; }
-        
-        /**
-         * Sets the total count of records.
-         *
-         * @param totalCount the total record count
-         */
-        public void setTotalCount(long totalCount) { this.totalCount = totalCount; }
-
-        /**
-         * Gets the count of valid records.
-         *
-         * @return the valid record count
-         */
-        public long getValidCount() { return validCount; }
-        
-        /**
-         * Sets the count of valid records.
-         *
-         * @param validCount the valid record count
-         */
-        public void setValidCount(long validCount) { this.validCount = validCount; }
-        
-        /**
-         * Increments the valid record count by one.
-         */
-        public void incrementValidCount() { this.validCount++; }
-
-        /**
-         * Gets the count of invalid records.
-         *
-         * @return the invalid record count
-         */
-        public long getInvalidCount() { return invalidCount; }
-        
-        /**
-         * Sets the count of invalid records.
-         *
-         * @param invalidCount the invalid record count
-         */
-        public void setInvalidCount(long invalidCount) { this.invalidCount = invalidCount; }
-        
-        /**
-         * Increments the invalid record count by one.
-         */
-        public void incrementInvalidCount() { this.invalidCount++; }
-
-        /**
-         * Gets the count of transformed records.
-         *
-         * @return the transformed record count
-         */
-        public long getTransformedCount() { return transformedCount; }
-        
-        /**
-         * Sets the count of transformed records.
-         *
-         * @param transformedCount the transformed record count
-         */
-        public void setTransformedCount(long transformedCount) { this.transformedCount = transformedCount; }
-        
-        /**
-         * Increments the transformed record count by one.
-         */
-        public void incrementTransformedCount() { this.transformedCount++; }
-
-        /**
-         * Increments the total record count by one.
-         */
-        public void incrementTotalCount() { this.totalCount++; }
-
-        /**
-         * Gets the map of valid rule occurrence counts.
-         *
-         * @return the map of valid rule IDs to their counts
-         */
-        public Map<String, Long> getValidRuleCounts() { return validRuleCounts; }
-        
-        /**
-         * Gets the map of invalid rule occurrence counts.
-         *
-         * @return the map of invalid rule IDs to their counts
-         */
-        public Map<String, Long> getInvalidRuleCounts() { return invalidRuleCounts; }
-
-        /**
-         * Adds an occurrence of a valid rule, incrementing its count.
-         *
-         * @param rule the rule ID to increment
-         */
-        public void addValidRuleCount(String rule) {
-            validRuleCounts.merge(rule, 1L, Long::sum);
-        }
-
-        /**
-         * Adds an occurrence of an invalid rule, incrementing its count.
-         *
-         * @param rule the rule ID to increment
-         */
-        public void addInvalidRuleCount(String rule) {
-            invalidRuleCounts.merge(rule, 1L, Long::sum);
-        }
-    }
-
 }
+

@@ -47,18 +47,19 @@ import java.util.stream.Collectors;
 import lombok.Getter;
 
 /**
- * Validation statistics service based on Parquet files.
+ * Validation statistics service based on Fact Table Parquet architecture.
  * 
- * SIMPLIFIED ARCHITECTURE:
- * - All caching logic is encapsulated in ValidationStatParquetRepository
- * - Service focuses on business logic and data transformation
- * - Repository handles performance optimizations transparently
+ * ARCHITECTURE:
+ * - Fact table: 1 row per rule occurrence (optimized for analytics)
+ * - Partitioning: snapshot_id / network / is_valid
+ * - Compression: ZSTD with dictionary encoding
+ * - Queries: Predicate pushdown for columnar filtering
  * 
  * RESPONSIBILITIES:
  * - Transform validation results to observations
  * - Parse and convert filter queries
  * - Build result objects for API responses
- * - Delegate all storage operations to repository
+ * - Delegate storage operations to repository
  */
 @Service
 @Scope("prototype")
@@ -142,22 +143,40 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     public static final String VALID_RULE_SUFFIX = "_rule_valid_occrs";
 
     /**
-     * INITIALIZATION: Initialize a new validation for a snapshot
-     * This method should be called when starting a new validation process
-     * to ensure clean state and remove any previous validation data
+     * Initialize a new validation for a snapshot
      */
     public void initializeValidationForSnapshot(Long snapshotId) {
         try {
-            logger.info("INIT VALIDATION: Starting new validation for snapshot {}", snapshotId);
-            
-            // Clean the snapshot directory and reset all state
+            logger.info("Initializing validation for snapshot {}", snapshotId);
             parquetRepository.cleanSnapshot(snapshotId);
             
-            logger.info("INIT VALIDATION: Successfully initialized validation for snapshot {}", snapshotId);
+            // DYNAMIC SIZING: Register snapshot size for optimal file sizing
+            Integer snapshotSize = metadataStoreService.getSnapshotSize(snapshotId);
+            if (snapshotSize != null && snapshotSize > 0) {
+                parquetRepository.registerSnapshotSize(snapshotId, snapshotSize);
+            }
             
+            logger.info("Successfully initialized validation for snapshot {}", snapshotId);
         } catch (Exception e) {
-            logger.error("INIT VALIDATION: Error initializing validation for snapshot {}", snapshotId, e);
+            logger.error("Error initializing validation for snapshot {}", snapshotId, e);
             throw new RuntimeException("Failed to initialize validation for snapshot: " + snapshotId, e);
+        }
+    }
+    
+    /**
+     * Registers the total size of a snapshot for dynamic file sizing optimization.
+     * This method is called automatically during initialization, but can be called
+     * explicitly if needed for recalculation.
+     * 
+     * @param snapshotId the snapshot ID
+     * @param totalRecords total number of records in the snapshot
+     */
+    public void registerSnapshotSize(Long snapshotId, int totalRecords) {
+        try {
+            parquetRepository.registerSnapshotSize(snapshotId, totalRecords);
+            logger.info("Registered snapshot {} size: {} records for dynamic sizing", snapshotId, totalRecords);
+        } catch (Exception e) {
+            logger.warn("Failed to register snapshot size (will use default sizing): {}", e.getMessage());
         }
     }
 
@@ -223,58 +242,29 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Registers a list of validation observations with IMMEDIATE streaming writes
-     * 
-     * OPTIMIZED FOR ValidationWorker pattern:
-     * - ValidationWorker calls prePage() -> processItem() (1000x) -> postPage()
-     * - postPage() calls this method with exactly 1000 observations per batch
-     * - We use immediate streaming writes to minimize memory accumulation
-     * - No size-based optimization needed - all batches use the same fast path
-     * 
-     * PERFORMANCE CHARACTERISTICS:
-     * - For new files: Direct write (fastest path)
-     * - For existing files: Read + merge + write (limitation of Parquet format)
-     * - Memory usage: O(existing_file_size + 1000) instead of O(massive_dataset)
-     * - CPU usage: Optimized for frequent small writes vs. rare large writes
+     * Registers a list of validation observations.
      * 
      * @param validationStatsObservations the list of validation observations to register
      */
     public void registerObservations(List<ValidationStatObservationParquet> validationStatsObservations) {
         if (validationStatsObservations == null || validationStatsObservations.isEmpty()) {
-            logger.debug("REGISTER: No observations to register (null or empty)");
+            logger.debug("No observations to register");
             return;
         }
         
         try {
-            int observationCount = validationStatsObservations.size();
-            logger.debug("REGISTER: Processing {} observations with immediate streaming", observationCount);
-            
-            // Log first observation details for debugging
-            if (!validationStatsObservations.isEmpty()) {
-                ValidationStatObservationParquet firstObs = validationStatsObservations.get(0);
-                logger.debug("REGISTER: First observation - snapshotId: {}, identifier: {}, isValid: {}, isTransformed: {}", 
-                           firstObs.getSnapshotID(), 
-                           firstObs.getIdentifier(), 
-                           firstObs.getIsValid(), 
-                           firstObs.getIsTransformed());
-            }
-            
-            // Always use immediate streaming writes for all batch sizes
-            // This is optimized for frequent 1000-record batches from ValidationWorker
-            parquetRepository.saveAllImmediate(validationStatsObservations);
-            
-            logger.debug("REGISTER: Successfully streamed {} observations to Parquet", observationCount);
-            
+            logger.debug("Registering {} observations", validationStatsObservations.size());
+            parquetRepository.saveAll(validationStatsObservations);
+            logger.debug("Successfully registered {} observations", validationStatsObservations.size());
         } catch (Exception e) {
-            logger.error("REGISTER: Error streaming observations: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to stream validation observations", e);
+            logger.error("Error registering observations: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to register validation observations", e);
         }
     }   
 
     /**
-     * Query validation rule statistics by snapshot - repository handles caching transparently
+     * Query validation rule statistics by snapshot
      */
-                           
     public ValidationStatsResult queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws ValidationStatisticsException {
         logger.debug("Querying validation statistics for snapshot {} with filters: {}", snapshot.getId(), fq);
 
@@ -284,12 +274,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             Map<String, Object> aggregatedStats;
             
             if (fq != null && !fq.isEmpty()) {
-                // With filters - repository handles optimization
                 Map<String, Object> filters = parseFilterQueries(fq);
                 ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshot.getId());
                 aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
             } else {
-                // Without filters - repository handles optimization
                 aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
             }
             
@@ -425,62 +413,32 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Query validation statistics observations by snapshot ID with pagination (never loads all records in memory)
-     * This method focuses ONLY on returning filtered paginated records, NOT aggregated statistics
+     * Query validation statistics observations by snapshot ID with pagination
      */
     @Override
     public ValidationStatsObservationsResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
-        logger.debug("OPTIMIZED Parquet query - snapshotID: {}, filters: {}, page: {}, size: {}", snapshotID, fq, pageable.getPageNumber(), pageable.getPageSize());
+        logger.debug("Querying observations for snapshot {} with filters: {}, page: {}, size: {}", 
+                    snapshotID, fq, pageable.getPageNumber(), pageable.getPageSize());
         
         try {
             if (fq != null && !fq.isEmpty()) {
                 Map<String, Object> filters = parseFilterQueries(fq);
-                logger.debug("FILTER RECORDS: Parsed filters from fq: {}", filters);
-                logger.debug("FILTER RECORDS: Original fq list: {}", fq);
-                
-                // **USE ADVANCED OPTIMIZATIONS**: Convert filters to AggregationFilter
                 ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
-                logger.debug("FILTER RECORDS: Converted AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
-                           aggregationFilter.getIsValid(), aggregationFilter.getIsTransformed(), aggregationFilter.getRecordOAIId());
                 
-                // TRY ULTRA-FAST CACHE FIRST for pagination
-                List<ValidationStatObservationParquet> pageResults;
-                long totalElements;
+                List<ValidationStatObservationParquet> pageResults = parquetRepository.findWithFilterAndPagination(
+                    snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
+                long totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
                 
-                try {
-                    logger.debug("CACHE ATTEMPT: Trying memory cache for filtered pagination (snapshot {})", snapshotID);
-                    pageResults = parquetRepository.findWithFilterAndPaginationFromCache(snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
-                    totalElements = parquetRepository.countRecordsWithFilterFromCache(snapshotID, aggregationFilter);
-                    logger.debug("ULTRA-FAST CACHE HIT: Used memory cache for filtered pagination (response in milliseconds)");
-                } catch (Exception e) {
-                    logger.debug("CACHE MISS/LOADING: Loading paginated data from disk for snapshot {} - subsequent queries will be ultra-fast - {}", snapshotID, e.getMessage());
-                    pageResults = parquetRepository.findWithFilterAndPagination(snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
-                    totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
-                }
-                logger.debug("FILTER RECORDS: Total filtered elements: {}", totalElements);
-                
-                logger.debug("OPTIMIZED results - found: {} total, {} in page", totalElements, pageResults.size());
-                
-                // Return ONLY paginated records - NO aggregated statistics
-                // Aggregated statistics should be handled by separate endpoints like /public/diagnose/{snapshotID}
                 return new ValidationStatsObservationsResult(pageResults, totalElements, pageable);
-                
             } else {
-                // Without filters, use direct pagination
                 List<ValidationStatObservationParquet> parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
-                    snapshotID, 
-                    pageable.getPageNumber(), 
-                    pageable.getPageSize()
-                );
-                
+                    snapshotID, pageable.getPageNumber(), pageable.getPageSize());
                 long totalElements = parquetRepository.countBySnapshotId(snapshotID);
                 
-                // Return ONLY paginated records - NO aggregated statistics
                 return new ValidationStatsObservationsResult(parquetObservations, totalElements, pageable);
             }
-
         } catch (IOException e) {
-            logger.error("Error querying Parquet with pagination for snapshot {}", snapshotID, e);
+            logger.error("Error querying observations for snapshot {}", snapshotID, e);
             throw new ValidationStatisticsException("Error querying validation observations", e);
         }
     }
@@ -584,62 +542,66 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     // Private helper methods
 
     /**
-     * Converts filters from fq format to optimized AggregationFilter
+     * Converts filters from fq format to AggregationFilter
      */
     private ValidationStatParquetRepository.AggregationFilter convertToAggregationFilter(Map<String, Object> filters, Long snapshotId) {
         ValidationStatParquetRepository.AggregationFilter aggFilter = new ValidationStatParquetRepository.AggregationFilter();
         aggFilter.setSnapshotId(snapshotId);
         
-        logger.debug("FILTER CONVERSION: Converting filters to AggregationFilter: {}", filters);
+        logger.debug("CONVERT TO AGG FILTER: Starting conversion with filters: {}", filters);
         
         for (Map.Entry<String, Object> entry : filters.entrySet()) {
             String key = entry.getKey();
             Object value = entry.getValue();
             
-            logger.debug("FILTER CONVERSION: Processing filter - key: {}, value: {}", key, value);
+            logger.debug("CONVERT TO AGG FILTER: Processing key={}, value={}, valueType={}", key, value, value.getClass().getSimpleName());
             
             switch (key) {
                 case "record_is_valid":
-                case "isValid":  // Support both formats
+                case "isValid":
                     if (value instanceof Boolean) {
                         aggFilter.setIsValid((Boolean) value);
-                        logger.debug("FILTER CONVERSION: Set isValid filter to: {}", value);
+                        logger.debug("CONVERT TO AGG FILTER: Set isValid to {}", value);
+                    } else {
+                        logger.warn("CONVERT TO AGG FILTER: isValid value is not Boolean: {} ({})", value, value.getClass());
                     }
                     break;
                 case "record_is_transformed":
-                case "isTransformed":  // Support both formats
+                case "isTransformed":
                     if (value instanceof Boolean) {
                         aggFilter.setIsTransformed((Boolean) value);
-                        logger.debug("FILTER CONVERSION: Set isTransformed filter to: {}", value);
+                        logger.debug("CONVERT TO AGG FILTER: Set isTransformed to {}", value);
+                    } else {
+                        logger.warn("CONVERT TO AGG FILTER: isTransformed value is not Boolean: {} ({})", value, value.getClass());
                     }
                     break;
                 case "record_oai_id":
-                case "identifier":  // Support both formats
+                case "identifier":
                     if (value instanceof String) {
                         aggFilter.setRecordOAIId((String) value);
-                        logger.debug("FILTER CONVERSION: Set identifier filter to: {}", value);
+                        logger.debug("CONVERT TO AGG FILTER: Set recordOAIId to {}", value);
                     }
                     break;
                 case "valid_rules":
                     if (value instanceof String) {
                         aggFilter.setValidRulesFilter((String) value);
-                        logger.debug("FILTER CONVERSION: Set valid rules filter to: {}", value);
+                        logger.debug("CONVERT TO AGG FILTER: Set validRulesFilter to {}", value);
                     }
                     break;
                 case "invalid_rules":
                     if (value instanceof String) {
                         aggFilter.setInvalidRulesFilter((String) value);
-                        logger.debug("FILTER CONVERSION: Set invalid rules filter to: {}", value);
+                        logger.debug("CONVERT TO AGG FILTER: Set invalidRulesFilter to {}", value);
                     }
                     break;
                 default:
-                    logger.debug("FILTER CONVERSION: Unrecognized filter key: {}", key);
+                    logger.warn("CONVERT TO AGG FILTER: Unknown filter key: {}", key);
                     break;
             }
         }
         
-        logger.debug("FILTER CONVERSION: Final AggregationFilter - isValid: {}, isTransformed: {}, identifier: {}", 
-                   aggFilter.getIsValid(), aggFilter.getIsTransformed(), aggFilter.getRecordOAIId());
+        logger.debug("CONVERT TO AGG FILTER: Result -> isValid={}, isTransformed={}, recordOAIId={}", 
+                    aggFilter.getIsValid(), aggFilter.getIsTransformed(), aggFilter.getRecordOAIId());
         
         return aggFilter;
     }
@@ -834,20 +796,16 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     
     /**
      * Flush any remaining buffered validation data for a snapshot.
-     * This should be called at the end of validation to ensure all data is written to files.
-     * 
-     * NOTE: Cache pre-warming is now handled automatically on first query for better performance
-     * and to avoid unnecessary memory usage if data is never queried.
      * 
      * @param snapshotId the snapshot ID to flush data for
      */
     public void flushValidationData(Long snapshotId) {
         try {
-            logger.debug("VALIDATION FLUSH: Flushing remaining buffered data for snapshot {}", snapshotId);
+            logger.debug("Flushing buffered data for snapshot {}", snapshotId);
             parquetRepository.flushAllBuffers();
-            logger.debug("VALIDATION FLUSH: Successfully flushed validation data for snapshot {} - cache will be loaded on first query", snapshotId);
+            logger.debug("Successfully flushed validation data for snapshot {}", snapshotId);
         } catch (Exception e) {
-            logger.error("VALIDATION FLUSH: Error flushing validation data for snapshot {}", snapshotId, e);
+            logger.error("Error flushing validation data for snapshot {}", snapshotId, e);
             throw new RuntimeException("Error flushing validation data for snapshot " + snapshotId, e);
         }
     }
