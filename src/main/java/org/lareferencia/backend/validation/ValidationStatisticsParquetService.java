@@ -533,7 +533,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      */
     public void deleteValidationStatsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
         try {
-            parquetRepository.deleteBySnapshotId(snapshotID);
+            parquetRepository.cleanSnapshot(snapshotID);
         } catch (IOException e) {
             throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " :: " + e.getMessage());
         }
@@ -743,7 +743,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     @Override
     public void deleteValidationStatsObservationsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
         try {
-            parquetRepository.deleteBySnapshotId(snapshotID);
+            parquetRepository.cleanSnapshot(snapshotID);
             logger.info("Observaciones del snapshot {} eliminadas exitosamente", snapshotID);
         } catch (Exception e) {
             throw new ValidationStatisticsException("Error eliminando observaciones del snapshot: " + snapshotID, e);
