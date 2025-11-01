@@ -28,6 +28,7 @@ import org.lareferencia.backend.domain.Network;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.backend.domain.SnapshotIndexStatus;
 import org.lareferencia.backend.domain.SnapshotStatus;
+import org.lareferencia.backend.domain.Validator;
 import org.lareferencia.core.worker.IPaginator;
 
 /**
@@ -87,6 +88,13 @@ public interface IMetadataRecordStoreService {
 	 */
 	public List<Long> listSnapshotsIds(Long networkId, boolean includeDeleted);
 
+	/**
+	 * Gets the snapshot metadata for the given snapshot ID.
+	 * 
+	 * @param snapshotId the snapshot ID
+	 * @return the snapshot metadata
+	 */
+	public SnapshotMetadata getSnapshotMetadata(Long snapshotId);
 	
 	/**
 	 * Updates the snapshot status.
@@ -176,6 +184,14 @@ public interface IMetadataRecordStoreService {
 	 */
 	public Integer getSnapshotSize(Long snapshot);
 
+	/**
+	 * Gets the validator associated with the snapshot.
+	 * 
+	 * @param snapshotId the snapshot ID
+	 * @return the validator
+	 */
+	public Validator getValidator(Long snapshotId);
+	
 
 	//public void updateSnapshot(Long snapshot);
 	

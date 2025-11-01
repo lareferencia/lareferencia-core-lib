@@ -21,17 +21,15 @@
 package org.lareferencia.backend.workers.validator;
 
 import java.text.NumberFormat;
-import java.util.ArrayList;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.SnapshotStatus;
-import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
+import org.lareferencia.backend.validation.IValidationStatisticsService;
 import org.lareferencia.backend.validation.ValidationStatisticsException;
-import org.lareferencia.backend.validation.ValidationStatisticsParquetService;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
 import org.lareferencia.core.metadata.MetadataRecordStoreException;
@@ -104,10 +102,10 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	private Long snapshotId;
 	
 
-	private ArrayList<ValidationStatObservation> validationStatsObservations = new ArrayList<ValidationStatObservation>();
+	//private ArrayList<ValidationStatObservation> validationStatsObservations = new ArrayList<ValidationStatObservation>();
 	
 	@Autowired
-	ValidationStatisticsParquetService validationStatisticsService;
+	IValidationStatisticsService validationStatisticsService;
 	
 	
 	// reusable objects
@@ -125,13 +123,13 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	@Override
 	public void preRun() {
 
-
+		// check if validation statistics service is available
 		if ( ! validationStatisticsService.isServiceAvailable() ) {
 			logError("Validation Statistics Service is not available, can't run validation");
 			this.stop();
 			return;
 		}
-		
+	
 		// new reusable validation result
 		reusableValidationResult = new ValidatorResult();
 		
@@ -143,10 +141,6 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			Long previousSnapshotId = metadataStoreService.getPreviousSnapshotId(snapshotId);
 
 			logInfo("Starting Validation/Tranformation " + runningContext.toString() + "  -  snapshot: " + snapshotId + (isIncremental() ? " (incremental)" : " (full)"));
-			
-			// INITIALIZE: Clean validation statistics for new validation run
-			logInfo("Initializing validation statistics for snapshot: " + snapshotId);
-			validationStatisticsService.initializeValidationForSnapshot(snapshotId);
 			
 			/***
 			 * Si es una validación incremental se crea un paginado que solo considera los untested, 
@@ -173,7 +167,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 			} else { /// si es full validation entonces trabajo sobre los no deleted
 
-			   // delete previous validation results if any
+			   // delete previous validation results if any (BEFORE initializing)
 				try {
 					validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
 				} catch (ValidationStatisticsException e) {
@@ -185,6 +179,10 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 				this.setPaginator(metadataStoreService.getNotDeletedRecordsPaginator(snapshotId));
 			}
 
+			
+			// INITIALIZE: Create fresh writers AFTER cleanup
+			logInfo("Initializing validation statistics for snapshot: " + snapshotId);
+			validationStatisticsService.initializeValidationForSnapshot( metadataStoreService.getSnapshotMetadata(snapshotId)  );
 
 		
 			logger.debug("Detailed diagnose: " + runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
@@ -221,9 +219,6 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 				return;
 			}
 			
-			
-			
-			
 			logger.debug("Starting - total pages: " + this.getTotalPages() );
 			
 		
@@ -256,12 +251,8 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 
 					// use record ids from page and call validation services delete
 					page.getContent().stream().forEach(record -> {
-						try {
-							validationStatisticsService.deleteValidationStatsObservationByRecordAndSnapshotID(snapshotId, record);
-							logger.debug("Deleting validation results for record: " + record.getId() + " :: Snapshot: " + snapshotId);
-						} catch (ValidationStatisticsException e) {
-							throw new RuntimeException(e);
-						}
+						validationStatisticsService.deleteValidationStatsObservationByRecordAndSnapshotID(snapshotId, record);
+						logger.debug("Deleting validation results for record: " + record.getId() + " :: Snapshot: " + snapshotId);
 					});
 
 				} catch (Exception e) {
@@ -278,7 +269,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	@Override
 	public void prePage() {
 		
-		validationStatsObservations.clear();
+		// validationStatsObservations.clear();
 	}
 	
 	@Override
@@ -350,7 +341,8 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			
 			// Se almacenan las estadísticas de cosecha
             logger.debug("Storing diagnose "  + record.getId() + " :: "+ record.getIdentifier() );
-            validationStatsObservations.add( validationStatisticsService.buildObservation(record, reusableValidationResult) );
+            // validationStatsObservations.add( validationStatisticsService.buildObservation(record, reusableValidationResult) );
+			validationStatisticsService.addObservation(snapshotId, record, reusableValidationResult);
 
 			logger.debug( record.getId() + " :: "+ record.getIdentifier() + " final status: " + record.getStatus() );
 
@@ -386,9 +378,9 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	@Override
 	public void postPage() {
 		
-		if ( validationStatisticsService.isServiceAvailable() ) {
-			validationStatisticsService.registerObservations(validationStatsObservations);
-		} 
+		// if ( validationStatisticsService.isServiceAvailable() ) {
+		// 	validationStatisticsService.registerObservations(validationStatsObservations);
+		// } 
 		
 		metadataStoreService.saveSnapshot(snapshotId);
 
@@ -399,7 +391,7 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	public void postRun() {
 		// CRITICAL: Flush any remaining buffered validation data before marking as complete
 		try {
-			validationStatisticsService.flushValidationData(snapshotId);
+			validationStatisticsService.finalizeValidationForSnapshot(snapshotId);
 		} catch (Exception e) {
 			logger.error("ERROR: Failed to flush validation data for snapshot {}", snapshotId, e);
 		}

@@ -20,9 +20,14 @@
 
 package org.lareferencia.backend.validation;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
+import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.validation.QuantifierValues;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -54,4 +59,64 @@ public class ValidationStatsResult {
     Map<String, ValidationRuleStat> rulesByID;
     /** Map of faceted field entries for search and filtering */
     Map<String, List<FacetFieldEntry>> facets;
+    
+    /**
+     * Creates a ValidationStatsResult from a SnapshotValidationStats instance.
+     * Converts the internal domain structure to the API result format.
+     * 
+     * @param snapshotStats the snapshot validation statistics to convert
+     * @return a new ValidationStatsResult with converted data
+     */
+    public static ValidationStatsResult fromSnapshotValidationStats(SnapshotValidationStats snapshotStats) {
+        ValidationStatsResult result = new ValidationStatsResult();
+        
+        // Convert basic counts (Long to Integer)
+        result.setSize(snapshotStats.getTotalRecords() != null ? snapshotStats.getTotalRecords().intValue() : 0);
+        result.setTransformedSize(snapshotStats.getTransformedRecords() != null ? snapshotStats.getTransformedRecords().intValue() : 0);
+        result.setValidSize(snapshotStats.getValidRecords() != null ? snapshotStats.getValidRecords().intValue() : 0);
+        
+        // Convert rules statistics
+        Map<String, ValidationRuleStat> rulesByID = new HashMap<>();
+        SnapshotMetadata metadata = snapshotStats.getSnapshotMetadata();
+        
+        if (metadata != null && metadata.getRuleDefinitions() != null) {
+            for (Map.Entry<Long, SnapshotMetadata.RuleDefinition> entry : metadata.getRuleDefinitions().entrySet()) {
+                Long ruleID = entry.getKey();
+                SnapshotMetadata.RuleDefinition ruleDef = entry.getValue();
+                SnapshotValidationStats.RuleStats ruleStats = snapshotStats.getRuleStats(ruleID);
+                
+                ValidationRuleStat ruleStat = new ValidationRuleStat();
+                ruleStat.setRuleID(ruleID.longValue());
+                ruleStat.setName(ruleDef.getName());
+                ruleStat.setDescription(ruleDef.getDescription());
+                ruleStat.setQuantifier(QuantifierValues.valueOf(ruleDef.getQuantifier()));
+                ruleStat.setMandatory(ruleDef.getMandatory());
+                ruleStat.setValidCount(ruleStats != null ? ruleStats.getValidCount().intValue() : 0);
+                ruleStat.setInvalidCount(ruleStats != null ? ruleStats.getInvalidCount().intValue() : null);
+                
+                rulesByID.put(ruleID.toString(), ruleStat);
+            }
+        }
+        
+        result.setRulesByID(rulesByID);
+        
+        // Convert facets
+        Map<String, List<FacetFieldEntry>> facets = new HashMap<>();
+        
+        for (Map.Entry<String, Map<String, Long>> facetEntry : snapshotStats.getFacets().entrySet()) {
+            String facetName = facetEntry.getKey();
+            Map<String, Long> facetValues = facetEntry.getValue();
+            
+            List<FacetFieldEntry> facetEntries = new ArrayList<>();
+            for (Map.Entry<String, Long> valueEntry : facetValues.entrySet()) {
+                facetEntries.add(new FacetFieldEntry(valueEntry.getKey(), valueEntry.getValue(), facetName));
+            }
+            
+            facets.put(facetName, facetEntries);
+        }
+        
+        result.setFacets(facets);
+        
+        return result;
+    }
 }

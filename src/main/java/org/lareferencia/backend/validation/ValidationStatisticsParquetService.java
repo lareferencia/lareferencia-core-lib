@@ -25,35 +25,35 @@ import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.NetworkSnapshot;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.backend.domain.ValidatorRule;
-
-import org.lareferencia.backend.domain.validation.ValidationStatObservation;
+import org.lareferencia.backend.domain.parquet.RecordValidation;
+import org.lareferencia.backend.domain.parquet.RuleFact;
+import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetRepository;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.IMetadataRecordStoreService;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.IRecordFingerprintHelper;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.validation.ValidatorRuleResult;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import com.codahale.metrics.Snapshot;
+
 import java.io.IOException;
 import java.util.*;
-import java.util.stream.Collectors;
 
-import lombok.Getter;
 
 /**
  * Validation statistics service based on Fact Table Parquet architecture.
  * 
  * ARCHITECTURE:
  * - Fact table: 1 row per rule occurrence (optimized for analytics)
- * - Partitioning: snapshot_id / network / is_valid
+ * - Partitioning: snapshot_id / network / record_is_valid (validez del registro completo)
  * - Compression: ZSTD with dictionary encoding
- * - Queries: Predicate pushdown for columnar filtering
+ * - Queries: Predicate pushdown for columnar filtering + partition pruning
  * 
  * RESPONSIBILITIES:
  * - Transform validation results to observations
@@ -70,44 +70,23 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     @Autowired
     private ValidationStatParquetRepository parquetRepository;
 
-    /**
-     * Field name for repository information.
-     */
-    @Value("${reponame.fieldname}")
-    private String repositoryFieldName;
-
-    /**
-     * Prefix for repository field values.
-     */
-    @Value("${reponame.prefix}")
-    private String repositoryPrefix;
-
-    /**
-     * Field name for institution information.
-     */
-    @Value("${instname.fieldname}")
-    private String institutionFieldName;
-
-    /**
-     * Prefix for institution field values.
-     */
-    @Value("${instname.prefix}")
-    private String institutionPrefix;
-
     @Autowired
     IMetadataRecordStoreService metadataStoreService;
 
-    @Getter
-    boolean detailedDiagnose = false;
+    private boolean detailedDiagnose = false;
 
     /**
      * Configures whether detailed diagnosis should be performed.
      * 
      * @param detailedDiagnose true to enable detailed diagnosis, false otherwise
      */
-    public void setDetailedDiagnose(boolean detailedDiagnose) {
+    public void setDetailedDiagnose(Boolean detailedDiagnose) {
         this.detailedDiagnose = detailedDiagnose;
         logger.info("ValidationStatisticsParquetService detailedDiagnose set to: {}", detailedDiagnose);
+    }
+    
+    public boolean isDetailedDiagnose() {
+        return detailedDiagnose;
     }
 
     @Autowired
@@ -143,43 +122,19 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     public static final String VALID_RULE_SUFFIX = "_rule_valid_occrs";
 
     /**
-     * Initialize a new validation for a snapshot
+     * Initialize validation for snapshot (SIMPLIFIED)
      */
-    public void initializeValidationForSnapshot(Long snapshotId) {
+    public void initializeValidationForSnapshot(SnapshotMetadata snapshotMetadata) {
+        logger.debug("SIMPLIFIED: Initialize validation for snapshot {} (no pre-cleanup needed)", snapshotMetadata.getSnapshotId());
         try {
-            logger.info("Initializing validation for snapshot {}", snapshotId);
-            parquetRepository.cleanSnapshot(snapshotId);
-            
-            // DYNAMIC SIZING: Register snapshot size for optimal file sizing
-            Integer snapshotSize = metadataStoreService.getSnapshotSize(snapshotId);
-            if (snapshotSize != null && snapshotSize > 0) {
-                parquetRepository.registerSnapshotSize(snapshotId, snapshotSize);
-            }
-            
-            logger.info("Successfully initialized validation for snapshot {}", snapshotId);
-        } catch (Exception e) {
-            logger.error("Error initializing validation for snapshot {}", snapshotId, e);
-            throw new RuntimeException("Failed to initialize validation for snapshot: " + snapshotId, e);
+            parquetRepository.initializeSnapshot( snapshotMetadata );
+        } catch (IOException e) {
+            logger.error("Error initializing validation for snapshot {}: {}", snapshotMetadata.getSnapshotId(), e.getMessage(), e);
+            throw new RuntimeException("Failed to initialize validation for snapshot " + snapshotMetadata.getSnapshotId(), e);
         }
     }
     
-    /**
-     * Registers the total size of a snapshot for dynamic file sizing optimization.
-     * This method is called automatically during initialization, but can be called
-     * explicitly if needed for recalculation.
-     * 
-     * @param snapshotId the snapshot ID
-     * @param totalRecords total number of records in the snapshot
-     */
-    public void registerSnapshotSize(Long snapshotId, int totalRecords) {
-        try {
-            parquetRepository.registerSnapshotSize(snapshotId, totalRecords);
-            logger.info("Registered snapshot {} size: {} records for dynamic sizing", snapshotId, totalRecords);
-        } catch (Exception e) {
-            logger.warn("Failed to register snapshot size (will use default sizing): {}", e.getMessage());
-        }
-    }
-
+ 
     /**
      * Builds a validation observation from validator result.
      * 
@@ -241,80 +196,137 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         );
     }
 
-    /**
-     * Registers a list of validation observations.
-     * 
-     * @param validationStatsObservations the list of validation observations to register
-     */
-    public void registerObservations(List<ValidationStatObservation> validationStatsObservations) {
-        if (validationStatsObservations == null || validationStatsObservations.isEmpty()) {
-            logger.debug("No observations to register");
-            return;
+    public void addObservation(Long snapshotId, OAIRecord record, ValidatorResult validationResult) {
+                
+        String id = fingerprintHelper.getStatsIDfromRecord(record);
+        String networkAcronym = record.getSnapshot().getNetwork().getAcronym();
+        logger.debug("Adding observation for record ID: {} in snapshot {} network: {}", id, snapshotId, networkAcronym);
+
+        // Create RecordValidation object
+        RecordValidation recordValidation = new RecordValidation();
+        recordValidation.setId(id);
+        recordValidation.setIdentifier(record.getIdentifier());
+        recordValidation.setRecordIsValid(validationResult.isValid());
+        recordValidation.setIsTransformed(record.getTransformed());
+
+        // Create and add RuleFact objects directly to RecordValidation
+        for (ValidatorRuleResult ruleResult : validationResult.getRulesResults()) {
+            String ruleID = ruleResult.getRule().getRuleId().toString();
+            RuleFact ruleFact = new RuleFact();
+            ruleFact.setRuleId(Integer.parseInt(ruleID));
+            ruleFact.setIsValid(ruleResult.getValid());
+
+
+            if ( detailedDiagnose )
+            { // detailed diagnose enabled
+
+                // for validation of each occurrence
+                for (ContentValidatorResult contentResult : ruleResult.getResults()) {
+                
+                    if (contentResult.isValid()) {
+                        ruleFact.setValidOccurrences(
+                            Collections.singletonList(contentResult.getReceivedValue())
+                        );
+                    } else {
+                        ruleFact.setInvalidOccurrences(
+                            Collections.singletonList(contentResult.getReceivedValue())
+                        );
+                    }
+                }
+            }
+            
+            recordValidation.addRuleFact(ruleFact);
         }
-        
+
         try {
-            logger.debug("Registering {} observations", validationStatsObservations.size());
-            parquetRepository.saveAll(validationStatsObservations);
-            logger.debug("Successfully registered {} observations", validationStatsObservations.size());
-        } catch (Exception e) {
-            logger.error("Error registering observations: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to register validation observations", e);
+            parquetRepository.saveRecordAndFacts(snapshotId, networkAcronym, recordValidation);
+
+            logger.debug("Successfully added observation for record ID: {} in snapshot {}", id, snapshotId);
+        } catch (IOException e) {
+            logger.error("Error adding observation for record ID: {} in snapshot {}: {}", id, snapshotId, e.getMessage(), e);
+            throw new RuntimeException("Failed to add validation observation", e);
         }
-    }   
+       
+        
+    }
+
 
     /**
      * Query validation rule statistics by snapshot
      */
     public ValidationStatsResult queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws ValidationStatisticsException {
-        logger.debug("Querying validation statistics for snapshot {} with filters: {}", snapshot.getId(), fq);
+        logger.debug("SIMPLIFIED: Querying stats for snapshot {} (filters ignored in new architecture)", snapshot.getId());
 
         ValidationStatsResult result = new ValidationStatsResult();
 
+        // if validation stats exist in cache return oherwise read from parquet
+        SnapshotValidationStats snapshotStats;
         try {
-            Map<String, Object> aggregatedStats;
-            
-            if (fq != null && !fq.isEmpty()) {
-                Map<String, Object> filters = parseFilterQueries(fq);
-                ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshot.getId());
-                aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshot.getId(), aggregationFilter);
-            } else {
-                aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
-            }
-            
-            // Build result from aggregated stats
-            result.setSize(((Number) aggregatedStats.getOrDefault("totalCount", 0L)).intValue());
-            result.setValidSize(((Number) aggregatedStats.getOrDefault("validCount", 0L)).intValue());
-            result.setTransformedSize(((Number) aggregatedStats.getOrDefault("transformedCount", 0L)).intValue());
-            
-            @SuppressWarnings("unchecked")
-            Map<String, Long> validRuleCounts = (Map<String, Long>) aggregatedStats.getOrDefault("validRuleCounts", new HashMap<>());
-            @SuppressWarnings("unchecked")
-            Map<String, Long> invalidRuleCounts = (Map<String, Long>) aggregatedStats.getOrDefault("invalidRuleCounts", new HashMap<>());
-            
-            // Build facets
-            result.setFacets(buildSimulatedFacets(snapshot.getId(), fq));
-            
-            // Build rule statistics
-            if (snapshot.getNetwork().getValidator() != null) {
-                for (ValidatorRule rule : snapshot.getNetwork().getValidator().getRules()) {
-                    String ruleID = rule.getId().toString();
-                    ValidationRuleStat ruleResult = new ValidationRuleStat();
-                    ruleResult.setRuleID(rule.getId());
-                    ruleResult.setValidCount(validRuleCounts.getOrDefault(ruleID, 0L).intValue());
-                    ruleResult.setInvalidCount(invalidRuleCounts.getOrDefault(ruleID, 0L).intValue());
-                    ruleResult.setName(rule.getName());
-                    ruleResult.setDescription(rule.getDescription());
-                    ruleResult.setMandatory(rule.getMandatory());
-                    ruleResult.setQuantifier(rule.getQuantifier());
-                    result.getRulesByID().put(ruleID, ruleResult);
-                }
-            }
-
+            snapshotStats = parquetRepository.getSnapshotValidationStats(snapshot.getId());
         } catch (IOException e) {
-            throw new ValidationStatisticsException("Error querying validation statistics: " + e.getMessage());
+            throw new ValidationStatisticsException("Error querying validation statistics from Parquet: " + e.getMessage());
+        }
+        
+        if (snapshotStats != null) {
+            result = ValidationStatsResult.fromSnapshotValidationStats(snapshotStats);
+            logger.debug("Validation statistics retrieved from Parquet for snapshot {}", snapshot.getId());
+        } else {
+            logger.warn("No validation statistics found for snapshot {} in Parquet", snapshot.getId());
         }
 
+
+
+        // try {
+        //     // NUEVA ARQUITECTURA: Stats desde metadata JSON (<1ms)
+        //     Map<String, Object> aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
+            
+        //     // Build result from metadata
+        //     Long totalRecords = (Long) aggregatedStats.getOrDefault("totalRecords", 0L);
+        //     Long validRecords = (Long) aggregatedStats.getOrDefault("validRecords", 0L);
+            
+        //     result.setSize(totalRecords.intValue());
+        //     result.setValidSize(validRecords.intValue());
+        //     result.setTransformedSize(0); // No longer tracked separately
+            
+        //     // Facets simplificados
+        //     result.setFacets(buildSimplifiedFacets(snapshot.getId(), validRecords, totalRecords));
+            
+        //     // Rule statistics - TODO: Implementar desde Layer 3 (RuleFacts) cuando sea necesario
+        //     if (snapshot.getNetwork().getValidator() != null) {
+        //         for (ValidatorRule rule : snapshot.getNetwork().getValidator().getRules()) {
+        //             String ruleID = rule.getId().toString();
+        //             ValidationRuleStat ruleResult = new ValidationRuleStat();
+        //             ruleResult.setRuleID(rule.getId());
+        //             ruleResult.setValidCount(0); // TODO: Query from RuleFacts layer
+        //             ruleResult.setInvalidCount(0); // TODO: Query from RuleFacts layer
+        //             ruleResult.setName(rule.getName());
+        //             ruleResult.setDescription(rule.getDescription());
+        //             ruleResult.setMandatory(rule.getMandatory());
+        //             ruleResult.setQuantifier(rule.getQuantifier());
+        //             result.getRulesByID().put(ruleID, ruleResult);
+        //         }
+        //     }
+
+        // } catch (IOException e) {
+        //     throw new ValidationStatisticsException("Error querying validation statistics: " + e.getMessage());
+        // }
+
         return result;
+    }
+
+    /**
+     * Build simplified facets from metadata (no complex filtering)
+     */
+    private Map<String, List<FacetFieldEntry>> buildSimplifiedFacets(Long snapshotId, Long validRecords, Long totalRecords) {
+        Map<String, List<FacetFieldEntry>> facets = new HashMap<>();
+        
+        // Record validity facet
+        List<FacetFieldEntry> validityFacet = new ArrayList<>();
+        validityFacet.add(new FacetFieldEntry("true", validRecords, "record_is_valid"));
+        validityFacet.add(new FacetFieldEntry("false", totalRecords - validRecords, "record_is_valid"));
+        facets.put("record_is_valid", validityFacet);
+               
+        return facets;
     }
 
     /**
@@ -322,7 +334,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      */
     public boolean isServiceAvailable() {
         try {
-            // Check that the base directory exists and is accessible
             return parquetRepository != null;
         } catch (Exception e) {
             logger.error("Error checking parquet service availability", e);
@@ -331,116 +342,42 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Query valid rule occurrences count by snapshot ID and rule ID
-     * Soporta filtros para analizar solo ocurrencias en registros que cumplen criterios específicos
+     * Query valid rule occurrences count by snapshot ID and rule ID (SIMPLIFIED)
      */
     public ValidationRuleOccurrencesCount queryValidRuleOccurrencesCountBySnapshotID(Long snapshotID, Long ruleID, List<String> fq) {
-
-        logger.debug("Query rule occurrences - snapshotID: {}, ruleID: {}, filters: {}", snapshotID, ruleID, fq);
+        logger.debug("SIMPLIFIED: Query rule occurrences for snapshot={}, rule={}", snapshotID, ruleID);
         
         ValidationRuleOccurrencesCount result = new ValidationRuleOccurrencesCount();
-
-        try {
-            String ruleIdStr = ruleID.toString();
-            
-            // Parse filters to determine which occurrences to analyze
-            Map<String, Object> filters = parseFilterQueries(fq);
-            
-            // Determine if we should analyze valid occurrences, invalid occurrences, or both
-            boolean analyzeValidOccurrences = true;
-            boolean analyzeInvalidOccurrences = true;
-            
-            // Check if there's a filter for valid_rules or invalid_rules
-            if (filters.containsKey("valid_rules")) {
-                String validRulesFilter = filters.get("valid_rules").toString();
-                if (validRulesFilter.equals(ruleIdStr)) {
-                    analyzeInvalidOccurrences = false; // Solo válidas
-                } else {
-                    // La regla no está en el filtro, no hay nada que analizar
-                    result.setValidRuleOccrs(new ArrayList<>());
-                    result.setInvalidRuleOccrs(new ArrayList<>());
-                    return result;
-                }
-            }
-            
-            if (filters.containsKey("invalid_rules")) {
-                String invalidRulesFilter = filters.get("invalid_rules").toString();
-                if (invalidRulesFilter.equals(ruleIdStr)) {
-                    analyzeValidOccurrences = false; // Solo inválidas
-                } else {
-                    // La regla no está en el filtro, no hay nada que analizar
-                    result.setValidRuleOccrs(new ArrayList<>());
-                    result.setInvalidRuleOccrs(new ArrayList<>());
-                    return result;
-                }
-            }
-            
-            // Get occurrence counts based on what we should analyze
-            Map<String, Long> validOccurrences = new HashMap<>();
-            Map<String, Long> invalidOccurrences = new HashMap<>();
-            
-            if (analyzeValidOccurrences) {
-                validOccurrences = parquetRepository.getRuleOccurrenceCounts(snapshotID, ruleIdStr, true, filters);
-            }
-            
-            if (analyzeInvalidOccurrences) {
-                invalidOccurrences = parquetRepository.getRuleOccurrenceCounts(snapshotID, ruleIdStr, false, filters);
-            }
-
-            List<OccurrenceCount> validRuleOccurrence = validOccurrences.entrySet().stream()
-                    .map(entry -> new OccurrenceCount(entry.getKey(), entry.getValue().intValue()))
-                    .sorted((a, b) -> Integer.compare(b.getCount(), a.getCount()))
-                    .collect(Collectors.toList());
-
-            List<OccurrenceCount> invalidRuleOccurrence = invalidOccurrences.entrySet().stream()
-                    .map(entry -> new OccurrenceCount(entry.getKey(), entry.getValue().intValue()))
-                    .sorted((a, b) -> Integer.compare(b.getCount(), a.getCount()))
-                    .collect(Collectors.toList());
-
-            result.setValidRuleOccrs(validRuleOccurrence);
-            result.setInvalidRuleOccrs(invalidRuleOccurrence);
-
-            logger.debug("Rule occurrences for snapshotID={}, ruleID={}: {} valid, {} invalid", 
-                       snapshotID, ruleID, validRuleOccurrence.size(), invalidRuleOccurrence.size());
-
-        } catch (IOException e) {
-            logger.error("Error querying rule occurrences for snapshotID={}, ruleID={}", snapshotID, ruleID, e);
-            result.setValidRuleOccrs(new ArrayList<>());
-            result.setInvalidRuleOccrs(new ArrayList<>());
-        }
-
+        
+        // TODO: Implementar lectura desde Layer 3 (RuleFacts) cuando sea necesario
+        // Por ahora retorna listas vacías
+        result.setValidRuleOccrs(new ArrayList<>());
+        result.setInvalidRuleOccrs(new ArrayList<>());
+        
+        logger.debug("Rule occurrences query completed (not yet implemented in new architecture)");
         return result;
     }
 
     /**
-     * Query validation statistics observations by snapshot ID with pagination
+     * Query validation statistics observations by snapshot ID with pagination (SIMPLIFIED)
      */
     @Override
     public ValidationStatsObservationsResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
-        logger.debug("Querying observations for snapshot {} with filters: {}, page: {}, size: {}", 
-                    snapshotID, fq, pageable.getPageNumber(), pageable.getPageSize());
-        
-        try {
-            if (fq != null && !fq.isEmpty()) {
-                Map<String, Object> filters = parseFilterQueries(fq);
-                ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotID);
-                
-                List<ValidationStatObservation> pageResults = parquetRepository.findWithFilterAndPagination(
-                    snapshotID, aggregationFilter, pageable.getPageNumber(), pageable.getPageSize());
-                long totalElements = parquetRepository.countRecordsWithFilter(snapshotID, aggregationFilter);
-                
-                return new ValidationStatsObservationsResult(pageResults, totalElements, pageable);
-            } else {
-                List<ValidationStatObservation> parquetObservations = parquetRepository.findBySnapshotIdWithPagination(
+        logger.debug("SIMPLIFIED: Querying observations for snapshot {}, page={}, size={}", 
                     snapshotID, pageable.getPageNumber(), pageable.getPageSize());
-                long totalElements = parquetRepository.countBySnapshotId(snapshotID);
-                
-                return new ValidationStatsObservationsResult(parquetObservations, totalElements, pageable);
-            }
-        } catch (IOException e) {
-            logger.error("Error querying observations for snapshot {}", snapshotID, e);
-            throw new ValidationStatisticsException("Error querying validation observations", e);
-        }
+        
+            // NUEVA ARQUITECTURA: Sin filtros complejos, paginación directa desde Layer 2
+            // fq se ignora temporalmente - filtrado se puede agregar después si es necesario
+            Boolean recordIsValid = null; // null = todos los records
+            
+            // List<ValidationStatObservation> observations = parquetRepository.findBySnapshotIdWithPagination(
+            //     snapshotID, recordIsValid, pageable.getPageNumber(), pageable.getPageSize());
+            // long totalElements = parquetRepository.countRecords(snapshotID);
+            
+            // return new ValidationStatsObservationsResult(observations, totalElements, pageable);
+            return null;
+            
+      
     }
 
     /**
@@ -493,47 +430,28 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Deletes validation observation by record.
-     * 
-     * @param snapshotID the snapshot ID containing the record
-     * @param record the record whose validation observation should be deleted
-     * @throws ValidationStatisticsException if deletion fails
+     * Deletes validation observation by record (SIMPLIFIED - NOT IMPLEMENTED)
      */
-    public void deleteValidationStatsObservationByRecordAndSnapshotID(Long snapshotID, OAIRecord record) throws ValidationStatisticsException {
-        try {
-            String id = fingerprintHelper.getStatsIDfromRecord(record);
-            parquetRepository.deleteById(id, snapshotID);
-        } catch (IOException e) {
-            throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " recordID:" + record.getIdentifier() + " :: " + e.getMessage());
-        }
+    public void deleteValidationStatsObservationByRecordAndSnapshotID(Long snapshotID, OAIRecord record)  {
+        // TODO: Implementar eliminación individual cuando sea necesario
+        logger.warn("Individual record deletion not yet implemented in new architecture");
     }
 
     /**
-     * Copies validation observations from one snapshot to another.
-     * 
-     * @param originalSnapshotId the source snapshot ID
-     * @param newSnapshotId the destination snapshot ID
-     * @return true if copy was successful
-     * @throws ValidationStatisticsException if copy operation fails
+     * Copies validation observations from one snapshot to another (SIMPLIFIED - NOT IMPLEMENTED)
      */
-    public boolean copyValidationStatsObservationsFromTo(Long originalSnapshotId, Long newSnapshotId) throws ValidationStatisticsException {
-        try {
-            parquetRepository.copySnapshotData(originalSnapshotId, newSnapshotId);
-            return true;
-        } catch (IOException e) {
-            throw new ValidationStatisticsException("Error copying validation information | snapshot:" + originalSnapshotId + " to snapshot:" + newSnapshotId + " :: " + e.getMessage());
-        }
+    public Boolean copyValidationStatsObservationsFromTo(Long originalSnapshotId, Long newSnapshotId)  {
+        // TODO: Implementar copia cuando sea necesario
+        logger.warn("Snapshot copy not yet implemented in new architecture");
+        return false;
     }
 
     /**
-     * Deletes validation statistics by snapshot ID.
-     * 
-     * @param snapshotID the snapshot ID whose validation statistics should be deleted
-     * @throws ValidationStatisticsException if deletion fails
+     * Deletes validation statistics by snapshot ID (SIMPLIFIED)
      */
     public void deleteValidationStatsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
         try {
-            parquetRepository.cleanSnapshot(snapshotID);
+            parquetRepository.deleteSnapshot(snapshotID);
         } catch (IOException e) {
             throw new ValidationStatisticsException("Error deleting validation information | snapshot:" + snapshotID + " :: " + e.getMessage());
         }
@@ -541,94 +459,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
     // Private helper methods
 
-    /**
-     * Converts filters from fq format to AggregationFilter
-     */
-    private ValidationStatParquetRepository.AggregationFilter convertToAggregationFilter(Map<String, Object> filters, Long snapshotId) {
-        ValidationStatParquetRepository.AggregationFilter aggFilter = new ValidationStatParquetRepository.AggregationFilter();
-        aggFilter.setSnapshotId(snapshotId);
-        
-        logger.debug("CONVERT TO AGG FILTER: Starting conversion with filters: {}", filters);
-        
-        for (Map.Entry<String, Object> entry : filters.entrySet()) {
-            String key = entry.getKey();
-            Object value = entry.getValue();
-            
-            logger.debug("CONVERT TO AGG FILTER: Processing key={}, value={}, valueType={}", key, value, value.getClass().getSimpleName());
-            
-            switch (key) {
-                case "record_is_valid":
-                case "isValid":
-                    if (value instanceof Boolean) {
-                        aggFilter.setIsValid((Boolean) value);
-                        logger.debug("CONVERT TO AGG FILTER: Set isValid to {}", value);
-                    } else {
-                        logger.warn("CONVERT TO AGG FILTER: isValid value is not Boolean: {} ({})", value, value.getClass());
-                    }
-                    break;
-                case "record_is_transformed":
-                case "isTransformed":
-                    if (value instanceof Boolean) {
-                        aggFilter.setIsTransformed((Boolean) value);
-                        logger.debug("CONVERT TO AGG FILTER: Set isTransformed to {}", value);
-                    } else {
-                        logger.warn("CONVERT TO AGG FILTER: isTransformed value is not Boolean: {} ({})", value, value.getClass());
-                    }
-                    break;
-                case "record_oai_id":
-                case "identifier":
-                    if (value instanceof String) {
-                        aggFilter.setRecordOAIId((String) value);
-                        logger.debug("CONVERT TO AGG FILTER: Set recordOAIId to {}", value);
-                    }
-                    break;
-                case "valid_rules":
-                    if (value instanceof String) {
-                        aggFilter.setValidRulesFilter((String) value);
-                        logger.debug("CONVERT TO AGG FILTER: Set validRulesFilter to {}", value);
-                    }
-                    break;
-                case "invalid_rules":
-                    if (value instanceof String) {
-                        aggFilter.setInvalidRulesFilter((String) value);
-                        logger.debug("CONVERT TO AGG FILTER: Set invalidRulesFilter to {}", value);
-                    }
-                    break;
-                default:
-                    logger.warn("CONVERT TO AGG FILTER: Unknown filter key: {}", key);
-                    break;
-            }
-        }
-        
-        logger.debug("CONVERT TO AGG FILTER: Result -> isValid={}, isTransformed={}, recordOAIId={}", 
-                    aggFilter.getIsValid(), aggFilter.getIsTransformed(), aggFilter.getRecordOAIId());
-        
-        return aggFilter;
-    }
 
-    private Map<String, List<FacetFieldEntry>> buildSimulatedFacets(Long snapshotId, List<String> fq) throws IOException {
-        Map<String, List<FacetFieldEntry>> facets = new HashMap<>();
-        
-        Map<String, Object> aggregatedStats;
-        
-        if (fq != null && !fq.isEmpty()) {
-            Map<String, Object> filters = parseFilterQueries(fq);
-            ValidationStatParquetRepository.AggregationFilter aggregationFilter = convertToAggregationFilter(filters, snapshotId);
-            aggregatedStats = parquetRepository.getAggregatedStatsWithFilter(snapshotId, aggregationFilter);
-        } else {
-            aggregatedStats = parquetRepository.getAggregatedStats(snapshotId);
-        }
-        
-        // Build facets from aggregated statistics
-        facets.put("record_is_valid", buildFacetFromAggregatedStats(aggregatedStats, "isValid"));
-        facets.put("record_is_transformed", buildFacetFromAggregatedStats(aggregatedStats, "isTransformed"));
-        facets.put("institution_name", buildFacetForInstitutionName(aggregatedStats));
-        facets.put("repository_name", buildFacetForRepositoryName(aggregatedStats));
-        facets.put("valid_rules", buildFacetForValidRulesFromStats(aggregatedStats));
-        facets.put("invalid_rules", buildFacetForInvalidRulesFromStats(aggregatedStats));
-        
-        return facets;
-    }
 
     /**
      * Build facets from aggregated statistics instead of loading all records
@@ -729,21 +560,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
     // Implementación de métodos de la interfaz IValidationStatisticsService
     
-
-    
-    @Override
-    public void saveValidationStatObservations(List<ValidationStatObservation> observations) throws ValidationStatisticsException {
-        try {
-            // Ya no necesitamos conversión - todos son ValidationStatObservation
-            registerObservations(observations);
-        } catch (Exception e) {
-            throw new ValidationStatisticsException("Error guardando observaciones de validación", e);
-        }
-    }
     @Override
     public void deleteValidationStatsObservationsBySnapshotID(Long snapshotID) throws ValidationStatisticsException {
         try {
-            parquetRepository.cleanSnapshot(snapshotID);
+            parquetRepository.deleteSnapshot(snapshotID);
             logger.info("Observaciones del snapshot {} eliminadas exitosamente", snapshotID);
         } catch (Exception e) {
             throw new ValidationStatisticsException("Error eliminando observaciones del snapshot: " + snapshotID, e);
@@ -771,18 +591,41 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
     
     /**
-     * Flush any remaining buffered validation data for a snapshot.
+     * Finaliza la validación de un snapshot.
      * 
-     * @param snapshotId the snapshot ID to flush data for
+     * CICLO DE VIDA COMPLETO:
+     * 1. initializeValidationForSnapshot(id) → Preparación inicial
+     * 2. registerObservations() × N veces → Escritura incremental con auto-flush
+     * 3. finalizeValidationForSnapshot(id) → Cierre de writers y flush final
+     * 
+     * Este método debe ser llamado por el worker cuando termina completamente
+     * la validación de un snapshot. Garantiza:
+     * - Flush final de buffers pendientes (si hay < 10k registros sin flush)
+     * - Cierre de archivos Parquet
+     * - Liberación de memoria
+     * - Datos 100% persistidos en disco
+     * 
+     * THREAD-SAFE: Puede ser llamado desde cualquier thread del worker
+     * 
+     * @param snapshotId el ID del snapshot que terminó validación
+     * @throws IOException si hay error al finalizar
      */
-    public void flushValidationData(Long snapshotId) {
+    public void finalizeValidationForSnapshot(Long snapshotId)  {
+        logger.info("FINALIZE VALIDATION: Snapshot {} - closing writers and flushing data", snapshotId);
         try {
-            logger.debug("Flushing buffered data for snapshot {}", snapshotId);
-            parquetRepository.flushAllBuffers();
-            logger.debug("Successfully flushed validation data for snapshot {}", snapshotId);
-        } catch (Exception e) {
-            logger.error("Error flushing validation data for snapshot {}", snapshotId, e);
-            throw new RuntimeException("Error flushing validation data for snapshot " + snapshotId, e);
+            parquetRepository.finalizeSnapshot(snapshotId);
+        } catch (IOException e) {
+            // logger.error("Error finalizing validation for snapshot {}: {}", snapshotId, e.getMessage(), e);
+            throw new RuntimeException("Error finalizing validation for snapshot " + snapshotId + ": " + e.getMessage(), e);
         }
+        logger.info("Validation finalized for snapshot {} - all data persisted", snapshotId);
     }
+
+ 
+
+ 
+    
+  
+    
+
 }

@@ -1,31 +1,29 @@
 package org.lareferencia.backend.validation;
 
 import org.lareferencia.backend.domain.NetworkSnapshot;
-import org.lareferencia.backend.domain.validation.ValidationStatObservation;
+import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.validation.ValidatorResult;
 import org.springframework.data.domain.Pageable;
+
+import com.codahale.metrics.Snapshot;
 
 import java.util.List;
 
 /**
- * Interface principal para servicios de estadísticas de validación
- * Permite abstraer la implementación (Parquet, Solr, DB, etc.)
+ * Main interface for validation statistics services
+ * Allows abstraction of the implementation (Parquet, Solr, DB, etc.)
  */
 public interface IValidationStatisticsService {
     
+      
     /**
-     * Guarda observaciones de estadísticas de validación
-     * @param observations Lista de observaciones a guardar
-     * @throws ValidationStatisticsException Si ocurre un error durante el guardado
-     */
-    void saveValidationStatObservations(List<ValidationStatObservation> observations) throws ValidationStatisticsException;
-    
-    /**
-     * Consulta observaciones por snapshot ID con filtros y paginación
-     * @param snapshotID ID del snapshot
-     * @param filters Lista de filtros en formato "campo@@valor"
-     * @param pageable Configuración de paginación
-     * @return Resultado de la consulta con datos paginados
-     * @throws ValidationStatisticsException Si ocurre un error durante la consulta
+     * Query observations by snapshot ID with filters and pagination
+     * @param snapshotID Snapshot ID
+     * @param filters List of filters in "field@@value" format
+     * @param pageable Pagination configuration
+     * @return Query result with paginated data
+     * @throws ValidationStatisticsException If an error occurs during the query
      */
     ValidationStatsObservationsResult queryValidationStatsObservationsBySnapshotID(
         Long snapshotID, 
@@ -34,11 +32,11 @@ public interface IValidationStatisticsService {
     ) throws ValidationStatisticsException;
     
     /**
-     * Consulta estadísticas de reglas de validación por snapshot
-     * @param snapshot El snapshot para el cual consultar estadísticas
-     * @param filters Lista de filtros aplicados
-     * @return Estadísticas agregadas por reglas
-     * @throws ValidationStatisticsException Si ocurre un error durante la consulta
+     * Query validation rules statistics by snapshot
+     * @param snapshot The snapshot for which to query statistics
+     * @param filters List of applied filters
+     * @return Statistics aggregated by rules
+     * @throws ValidationStatisticsException If an error occurs during the query
      */
     ValidationStatsResult queryValidatorRulesStatsBySnapshot(
         NetworkSnapshot snapshot, 
@@ -47,45 +45,55 @@ public interface IValidationStatisticsService {
 
 
     /**
-     * Consulta la cantidad de ocurrencias de reglas válidas por snapshot
-     * @param snapshotID ID del snapshot
-     * @param ruleID ID de la regla
-     * @param fq Filtros adicionales
-     * @return Conteo de ocurrencias de reglas válidas
-     * @throws ValidationStatisticsException Si ocurre un error durante la consulta
+     * Query the count of valid rule occurrences by snapshot
+     * @param snapshotID Snapshot ID
+     * @param ruleID Rule ID
+     * @param fq Additional filters
+     * @return Count of valid rule occurrences
+     * @throws ValidationStatisticsException If an error occurs during the query
      */
     ValidationRuleOccurrencesCount queryValidRuleOccurrencesCountBySnapshotID(Long snapshotID, Long ruleID, List<String> fq) throws ValidationStatisticsException;
 
 
 
     /**
-     * Elimina observaciones por snapshot ID
-     * @param snapshotID ID del snapshot a eliminar
-     * @throws ValidationStatisticsException Si ocurre un error durante la eliminación
+     * Delete observations by snapshot ID
+     * @param snapshotID Snapshot ID to delete
+     * @throws ValidationStatisticsException If an error occurs during deletion
      */
     void deleteValidationStatsObservationsBySnapshotID(Long snapshotID) throws ValidationStatisticsException;
 
     
     
     /**
-     * Inicializa una nueva validación para un snapshot específico
-     * Este método debe ser llamado al iniciar un nuevo proceso de validación
-     * para garantizar un estado limpio y eliminar datos previos de validación
-     * @param snapshotId ID del snapshot para el cual inicializar la validación
-     * @throws ValidationStatisticsException Si ocurre un error durante la inicialización
+     * Initialize a new validation for a specific snapshot
+     * This method should be called when starting a new validation process
+     * to ensure a clean state and remove previous validation data
+     * @param metadata Snapsphot metadata
+     * @throws ValidationStatisticsException If an error occurs during initialization
      */
-    void initializeValidationForSnapshot(Long snapshotId) throws ValidationStatisticsException;
+    void initializeValidationForSnapshot(SnapshotMetadata metadata);
     
     /**
-     * Verifica si el servicio está disponible y funcionando
-     * @return true si el servicio está disponible
+     * Check if the service is available and working
+     * @return true if the service is available
      */
     boolean isServiceAvailable();
            
     /**
-     * Valida los filtros proporcionados
-     * @param filters Lista de filtros a validar
-     * @return true si todos los filtros son válidos
+     * Validate the provided filters
+     * @param filters List of filters to validate
+     * @return true if all filters are valid
      */
     boolean validateFilters(List<String> filters);
+
+    void setDetailedDiagnose(Boolean booleanPropertyValue);
+
+    Boolean copyValidationStatsObservationsFromTo(Long previousSnapshotId, Long snapshotId);
+
+    void deleteValidationStatsObservationByRecordAndSnapshotID(Long snapshotId, OAIRecord record);
+
+    void addObservation(Long snapshotId, OAIRecord record, ValidatorResult reusableValidationResult);
+
+    void finalizeValidationForSnapshot(Long snapshotId);
 }

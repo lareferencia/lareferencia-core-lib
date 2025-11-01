@@ -1,4 +1,4 @@
-package org.lareferencia.backend.domain.validation;
+package org.lareferencia.backend.validation;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;

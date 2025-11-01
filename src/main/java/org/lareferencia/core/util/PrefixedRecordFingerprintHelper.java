@@ -25,10 +25,10 @@ import java.util.Map;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.validation.ValidationStatObservation;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 
 /**
  * Helper for generating record fingerprints with configurable prefix and network acronym translation.

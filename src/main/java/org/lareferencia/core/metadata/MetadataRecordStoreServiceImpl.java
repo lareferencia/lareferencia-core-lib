@@ -34,6 +34,7 @@ import org.lareferencia.backend.domain.NetworkSnapshot;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.backend.domain.SnapshotIndexStatus;
 import org.lareferencia.backend.domain.SnapshotStatus;
+import org.lareferencia.backend.domain.Validator;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.repositories.jpa.NetworkSnapshotRepository;
 import org.lareferencia.backend.repositories.jpa.OAIRecordRepository;
@@ -246,6 +247,71 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 
 		} catch (MetadataRecordStoreException e) {
 			logger.error("MetadataRecordStore::getPreviousSnapshotId::"+e.getMessage());
+			return null;
+		}
+	}
+
+	@Override
+	public SnapshotMetadata getSnapshotMetadata(Long snapshotId) {
+		NetworkSnapshot snapshot;
+		try {
+			snapshot = getSnapshot(snapshotId);
+
+			SnapshotMetadata metadata = new SnapshotMetadata(snapshotId);
+
+			// Set basic snapshot information
+			metadata.setSize(snapshot.getSize() != null ? snapshot.getSize().longValue() : 0L);
+			metadata.setValidSize(snapshot.getValidSize() != null ? snapshot.getValidSize().longValue() : 0L);
+			metadata.setTransformedSize(snapshot.getTransformedSize() != null ? snapshot.getTransformedSize().longValue() : 0L);
+
+			// Set creation timestamp
+			if (snapshot.getStartTime() != null) {
+				metadata.setCreatedAt(snapshot.getStartTime().toInstant(java.time.ZoneOffset.UTC).toEpochMilli());
+			}
+
+			// Set network information
+			if (snapshot.getNetwork() != null) {
+				metadata.setOrigin(snapshot.getNetwork().getOriginURL());
+				metadata.setSetSpec(String.join(",", snapshot.getNetwork().getSets()));
+				metadata.setMetadataPrefix(snapshot.getNetwork().getMetadataPrefix());
+				metadata.setNetworkAcronym(snapshot.getNetwork().getAcronym());
+			}
+
+			// Populate rule definitions from the associated validator
+			snapshot.getNetwork().getValidator().getRules().forEach(rule -> {
+				SnapshotMetadata.RuleDefinition ruleDef = new SnapshotMetadata.RuleDefinition(
+						rule.getId(),
+						rule.getName(),
+						rule.getDescription(),
+						rule.getQuantifier().name(),
+						rule.getMandatory()
+				);
+				metadata.getRuleDefinitions().put(rule.getId(), ruleDef);
+			});
+
+
+			return metadata;
+
+		} catch (MetadataRecordStoreException e) {
+			logger.error("MetadataRecordStore::getSnapshotMetadata::"+e.getMessage());
+			return null;
+		}
+	}
+
+	/**
+	 * Gets the validator associated with the snapshot.
+	 * 
+	 * @param snapshotId the snapshot ID
+	 * @return the validator
+	 */
+	@Override
+	public Validator getValidator(Long snapshotId) {
+		NetworkSnapshot snapshot;
+		try {
+			snapshot = getSnapshot(snapshotId);
+			return snapshot.getNetwork().getValidator();
+		} catch (MetadataRecordStoreException e) {
+			logger.error("MetadataRecordStore::getValidator::"+e.getMessage());
 			return null;
 		}
 	}

@@ -21,7 +21,7 @@
 package org.lareferencia.core.util;
 
 import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.domain.validation.ValidationStatObservation;
+import org.lareferencia.backend.validation.ValidationStatObservation;
 
 /**
  * Interface for generating unique fingerprints and statistics IDs from records.

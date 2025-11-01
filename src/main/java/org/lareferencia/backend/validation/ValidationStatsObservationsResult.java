@@ -1,7 +1,6 @@
 package org.lareferencia.backend.validation;
 
 import org.springframework.data.domain.Pageable;
-import org.lareferencia.backend.domain.validation.ValidationStatObservation;
 
 import java.util.List;
 import java.util.Map;
