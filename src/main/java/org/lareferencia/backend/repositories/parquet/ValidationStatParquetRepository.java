@@ -87,7 +87,7 @@ public class ValidationStatParquetRepository {
     private final Map<Long, SnapshotValidationStats> snapshotStatsCache = new ConcurrentHashMap<>();
     
     // MANAGER PERSISTENTE: Se reutiliza entre llamadas para aprovechar buffer de 10k
-    private final Map<Long, RecordsManager> recordsManagers = new ConcurrentHashMap<>();
+    private final Map<Long, ValidationRecordManager> recordsManagers = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void init() {
@@ -144,7 +144,7 @@ public class ValidationStatParquetRepository {
             Files.createDirectories(Paths.get(snapshotDir));
 
             // Crear manager persistente para escritura
-            RecordsManager recordsManager = RecordsManager.forWriting(basePath, snapshotId, hadoopConf);
+            ValidationRecordManager recordsManager = ValidationRecordManager.forWriting(basePath, snapshotId, hadoopConf);
             recordsManagers.put(snapshotId, recordsManager);
             logger.info("Created RecordsManager for snapshot {}", snapshotId);
 
@@ -265,7 +265,7 @@ public class ValidationStatParquetRepository {
             throws IOException {
         
         // Obtener RecordsManager persistente (creado en initializeSnapshot)
-        RecordsManager recordsManager = recordsManagers.get(snapshotId);
+        ValidationRecordManager recordsManager = recordsManagers.get(snapshotId);
         if (recordsManager == null) {
             throw new IllegalStateException("RecordsManager not found for snapshot " + snapshotId + ". Call initializeSnapshot() first.");
         }
@@ -385,7 +385,7 @@ public class ValidationStatParquetRepository {
         }
         
         // Cerrar manager
-        RecordsManager recordsManager = recordsManagers.remove(snapshotId);
+        ValidationRecordManager recordsManager = recordsManagers.remove(snapshotId);
         if (recordsManager != null) {
             recordsManager.close();
             logger.info("RecordsManager closed: {} total records in {} batches", 
@@ -416,7 +416,7 @@ public class ValidationStatParquetRepository {
     public void flush(Long snapshotId) throws IOException {
         logger.debug("FLUSH requested for snapshot {}", snapshotId);
         
-        RecordsManager recordsManager = recordsManagers.get(snapshotId);
+        ValidationRecordManager recordsManager = recordsManagers.get(snapshotId);
         if (recordsManager != null) {
             recordsManager.flush();
             logger.debug("Flushed RecordsManager for snapshot {}", snapshotId);

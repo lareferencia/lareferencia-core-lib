@@ -72,9 +72,9 @@ import java.util.List;
  * - Transparente: El caller no sabe que hay múltiples archivos
  * - Streaming: Lee un archivo a la vez (no carga todo en memoria)
  */
-public final class RecordsManager implements AutoCloseable {
+public final class ValidationRecordManager implements AutoCloseable {
     
-    private static final Logger logger = LogManager.getLogger(RecordsManager.class);
+    private static final Logger logger = LogManager.getLogger(ValidationRecordManager.class);
     
     // Umbrales para flush automático (escritura)
     private static final int FLUSH_THRESHOLD_RECORDS = 10000;  // Flush cada 10k records
@@ -130,7 +130,7 @@ public final class RecordsManager implements AutoCloseable {
     private ParquetReader<Group> currentReader;
     private long recordsRead = 0;
     
-    private RecordsManager(String basePath, Long snapshotId, Configuration hadoopConf) {
+    private ValidationRecordManager(String basePath, Long snapshotId, Configuration hadoopConf) {
         this.basePath = basePath;
         this.snapshotId = snapshotId;
         this.hadoopConf = hadoopConf;
@@ -153,10 +153,10 @@ public final class RecordsManager implements AutoCloseable {
      * @return manager listo para escritura
      * @throws IOException si falla
      */
-    public static RecordsManager forWriting(String basePath, Long snapshotId, Configuration hadoopConf) 
+    public static ValidationRecordManager forWriting(String basePath, Long snapshotId, Configuration hadoopConf) 
             throws IOException {
         logger.info("RECORDS MANAGER: Creating writer for snapshot {}", snapshotId);
-        return new RecordsManager(basePath, snapshotId, hadoopConf);
+        return new ValidationRecordManager(basePath, snapshotId, hadoopConf);
     }
     
     /**
@@ -169,9 +169,9 @@ public final class RecordsManager implements AutoCloseable {
      * @return manager listo para lectura
      * @throws IOException si falla
      */
-    public static RecordsManager forReading(String basePath, Long snapshotId, Configuration hadoopConf) 
+    public static ValidationRecordManager forReading(String basePath, Long snapshotId, Configuration hadoopConf) 
             throws IOException {
-        RecordsManager manager = new RecordsManager(basePath, snapshotId, hadoopConf);
+        ValidationRecordManager manager = new ValidationRecordManager(basePath, snapshotId, hadoopConf);
         manager.initializeReader();
         return manager;
     }
