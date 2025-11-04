@@ -255,80 +255,53 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * Query validation rule statistics by snapshot
      */
     public ValidationStatsResult queryValidatorRulesStatsBySnapshot(NetworkSnapshot snapshot, List<String> fq) throws ValidationStatisticsException {
-        logger.debug("SIMPLIFIED: Querying stats for snapshot {} (filters ignored in new architecture)", snapshot.getId());
 
+        logger.debug("Querying stats for snapshot {}, filters={}", snapshot.getId(), fq);
+        
         ValidationStatsResult result = new ValidationStatsResult();
 
-        // if validation stats exist in cache return oherwise read from parquet
-        SnapshotValidationStats snapshotStats;
-        try {
-            snapshotStats = parquetRepository.getSnapshotValidationStats(snapshot.getId());
-        } catch (IOException e) {
-            throw new ValidationStatisticsException("Error querying validation statistics from Parquet: " + e.getMessage());
-        }
-        
-        if (snapshotStats != null) {
-            result = ValidationStatsResult.fromSnapshotValidationStats(snapshotStats);
-            logger.debug("Validation statistics retrieved from Parquet for snapshot {}", snapshot.getId());
+        if (fq != null && !fq.isEmpty()) {
+            // we need calculate the stats based on filters
+            logger.info("FILTERS APPLIED: Calculating filtered snapshot statistics from Parquet for snapshot {}", snapshot.getId());
+            try {
+                // Obtener SnapshotMetadata desde el record store service
+                SnapshotMetadata metadata = metadataStoreService.getSnapshotMetadata(snapshot.getId());
+                if (metadata == null) {
+                    throw new ValidationStatisticsException("Snapshot metadata not found for snapshot: " + snapshot.getId());
+                }
+                
+                SnapshotValidationStats filteredStats = parquetRepository.buildStats(metadata, fq);
+                result = ValidationStatsResult.fromSnapshotValidationStats(filteredStats);
+                logger.info("FILTERED STATS: snapshot={}, total={}, valid={}, filters={}", 
+                           snapshot.getId(), filteredStats.getTotalRecords(), filteredStats.getValidRecords(), fq);
+            } catch (IOException e) {
+                throw new ValidationStatisticsException("Error building filtered statistics for snapshot " + snapshot.getId() + ": " + e.getMessage());
+            }
+
+
         } else {
-            logger.warn("No validation statistics found for snapshot {} in Parquet", snapshot.getId());
+            logger.debug("No filters applied, retrieving full snapshot statistics from Parquet for snapshot {}", snapshot.getId());
+            
+            // if validation stats exist in cache return otherwise read from parquet
+            SnapshotValidationStats snapshotStats;
+            try {
+                snapshotStats = parquetRepository.getSnapshotValidationStats(snapshot.getId());
+            } catch (IOException e) {
+                throw new ValidationStatisticsException("Error querying validation statistics from Parquet: " + e.getMessage());
+            }
+            
+            if (snapshotStats != null) {
+                result = ValidationStatsResult.fromSnapshotValidationStats(snapshotStats);
+                logger.debug("Validation statistics retrieved from Parquet for snapshot {}", snapshot.getId());
+            } else {
+                logger.warn("No validation statistics found for snapshot {} in Parquet", snapshot.getId());
+            }
         }
-
-
-
-        // try {
-        //     // NUEVA ARQUITECTURA: Stats desde metadata JSON (<1ms)
-        //     Map<String, Object> aggregatedStats = parquetRepository.getAggregatedStats(snapshot.getId());
-            
-        //     // Build result from metadata
-        //     Long totalRecords = (Long) aggregatedStats.getOrDefault("totalRecords", 0L);
-        //     Long validRecords = (Long) aggregatedStats.getOrDefault("validRecords", 0L);
-            
-        //     result.setSize(totalRecords.intValue());
-        //     result.setValidSize(validRecords.intValue());
-        //     result.setTransformedSize(0); // No longer tracked separately
-            
-        //     // Facets simplificados
-        //     result.setFacets(buildSimplifiedFacets(snapshot.getId(), validRecords, totalRecords));
-            
-        //     // Rule statistics - TODO: Implementar desde Layer 3 (RuleFacts) cuando sea necesario
-        //     if (snapshot.getNetwork().getValidator() != null) {
-        //         for (ValidatorRule rule : snapshot.getNetwork().getValidator().getRules()) {
-        //             String ruleID = rule.getId().toString();
-        //             ValidationRuleStat ruleResult = new ValidationRuleStat();
-        //             ruleResult.setRuleID(rule.getId());
-        //             ruleResult.setValidCount(0); // TODO: Query from RuleFacts layer
-        //             ruleResult.setInvalidCount(0); // TODO: Query from RuleFacts layer
-        //             ruleResult.setName(rule.getName());
-        //             ruleResult.setDescription(rule.getDescription());
-        //             ruleResult.setMandatory(rule.getMandatory());
-        //             ruleResult.setQuantifier(rule.getQuantifier());
-        //             result.getRulesByID().put(ruleID, ruleResult);
-        //         }
-        //     }
-
-        // } catch (IOException e) {
-        //     throw new ValidationStatisticsException("Error querying validation statistics: " + e.getMessage());
-        // }
 
         return result;
     }
 
-    /**
-     * Build simplified facets from metadata (no complex filtering)
-     */
-    private Map<String, List<FacetFieldEntry>> buildSimplifiedFacets(Long snapshotId, Long validRecords, Long totalRecords) {
-        Map<String, List<FacetFieldEntry>> facets = new HashMap<>();
-        
-        // Record validity facet
-        List<FacetFieldEntry> validityFacet = new ArrayList<>();
-        validityFacet.add(new FacetFieldEntry("true", validRecords, "record_is_valid"));
-        validityFacet.add(new FacetFieldEntry("false", totalRecords - validRecords, "record_is_valid"));
-        facets.put("record_is_valid", validityFacet);
-               
-        return facets;
-    }
-
+    
     /**
      * Checks if the service is available
      */
@@ -461,102 +434,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
 
 
 
-    /**
-     * Build facets from aggregated statistics instead of loading all records
-     */
-    private List<FacetFieldEntry> buildFacetFromAggregatedStats(Map<String, Object> stats, String fieldType) {
-        List<FacetFieldEntry> facetEntries = new ArrayList<>();
-        
-        long totalCount = ((Number) stats.getOrDefault("totalCount", 0L)).longValue();
-        long validCount = ((Number) stats.getOrDefault("validCount", 0L)).longValue();
-        long transformedCount = ((Number) stats.getOrDefault("transformedCount", 0L)).longValue();
-        
-        if ("isValid".equals(fieldType)) {
-            // Build isValid facet
-            if (validCount > 0) {
-                facetEntries.add(new FacetFieldEntry("true", validCount, "record_is_valid"));
-            }
-            
-            long invalidCount = totalCount - validCount;
-            if (invalidCount > 0) {
-                facetEntries.add(new FacetFieldEntry("false", invalidCount, "record_is_valid"));
-            }
-        } else if ("isTransformed".equals(fieldType)) {
-            // Build isTransformed facet
-            if (transformedCount > 0) {
-                facetEntries.add(new FacetFieldEntry("true", transformedCount, "record_is_transformed"));
-            }
-            
-            long notTransformedCount = totalCount - transformedCount;
-            if (notTransformedCount > 0) {
-                facetEntries.add(new FacetFieldEntry("false", notTransformedCount, "record_is_transformed"));
-            }
-        }
-        
-        return facetEntries;
-    }
-
-    /**
-     * Build facets for institution name from aggregated statistics
-     */
-    private List<FacetFieldEntry> buildFacetForInstitutionName(Map<String, Object> stats) {
-        List<FacetFieldEntry> facetEntries = new ArrayList<>();
-        
-        // For now, use simple logic (can be enhanced later)
-        long totalCount = ((Number) stats.getOrDefault("totalCount", 0L)).longValue();
-        if (totalCount > 0) {
-            facetEntries.add(new FacetFieldEntry("unknown", totalCount, "institutionName"));
-        }
-        
-        return facetEntries;
-    }
-
-    /**
-     * Build facets for repository name from aggregated statistics
-     */
-    private List<FacetFieldEntry> buildFacetForRepositoryName(Map<String, Object> stats) {
-        List<FacetFieldEntry> facetEntries = new ArrayList<>();
-        
-        // For now, use simple logic (can be enhanced later)
-        long totalCount = ((Number) stats.getOrDefault("totalCount", 0L)).longValue();
-        if (totalCount > 0) {
-            facetEntries.add(new FacetFieldEntry("unknown", totalCount, "repositoryName"));
-        }
-        
-        return facetEntries;
-    }
-
-    /**
-     * Build facets for valid rules from aggregated statistics
-     */
-    private List<FacetFieldEntry> buildFacetForValidRulesFromStats(Map<String, Object> stats) {
-        List<FacetFieldEntry> facetEntries = new ArrayList<>();
-        
-        @SuppressWarnings("unchecked")
-        Map<String, Long> validRuleCounts = (Map<String, Long>) stats.getOrDefault("validRuleCounts", new HashMap<>());
-        
-        for (Map.Entry<String, Long> entry : validRuleCounts.entrySet()) {
-            facetEntries.add(new FacetFieldEntry(entry.getKey(), entry.getValue(), "valid_rules"));
-        }
-        
-        return facetEntries;
-    }
-
-    /**
-     * Build facets for invalid rules from aggregated statistics
-     */
-    private List<FacetFieldEntry> buildFacetForInvalidRulesFromStats(Map<String, Object> stats) {
-        List<FacetFieldEntry> facetEntries = new ArrayList<>();
-        
-        @SuppressWarnings("unchecked")
-        Map<String, Long> invalidRuleCounts = (Map<String, Long>) stats.getOrDefault("invalidRuleCounts", new HashMap<>());
-        
-        for (Map.Entry<String, Long> entry : invalidRuleCounts.entrySet()) {
-            facetEntries.add(new FacetFieldEntry(entry.getKey(), entry.getValue(), "invalid_rules"));
-        }
-        
-        return facetEntries;
-    }
+   
 
     // Implementación de métodos de la interfaz IValidationStatisticsService
     

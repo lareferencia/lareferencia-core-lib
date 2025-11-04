@@ -45,14 +45,16 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 /**
  * RECORDS MANAGER: Gestiona lectura y escritura de records en archivos Parquet.
  * 
  * FUNCIONALIDADES:
  * - ESCRITURA: Buffer interno inteligente con auto-flush
- * - LECTURA: Streaming sobre múltiples archivos batch
+ * - LECTURA: Streaming sobre múltiples archivos batch con iterator lazy
  * - SCHEMA: Unificado con RuleFacts anidados
  * 
  * THREAD SAFETY:
@@ -71,8 +73,49 @@ import java.util.List;
  * - Procesa batches en orden numérico (batch_1, batch_2, ...)
  * - Transparente: El caller no sabe que hay múltiples archivos
  * - Streaming: Lee un archivo a la vez (no carga todo en memoria)
+ * - Iterator: Soporta iteración lazy sin cargar todo el dataset
+ * 
+ * EJEMPLOS DE USO:
+ * 
+ * 1. ESCRITURA:
+ * <pre>
+ * try (ValidationRecordManager writer = ValidationRecordManager.forWriting(basePath, snapshotId, conf)) {
+ *     for (RecordValidation record : records) {
+ *         writer.writeRecord(record);
+ *     }
+ *     writer.flush(); // Garantizar persistencia
+ * }
+ * </pre>
+ * 
+ * 2. LECTURA LAZY (RECOMENDADO para datasets grandes):
+ * <pre>
+ * try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, conf)) {
+ *     for (RecordValidation record : reader) {
+ *         // Procesa record sin cargar todo en memoria
+ *         processRecord(record);
+ *     }
+ * }
+ * </pre>
+ * 
+ * 3. LECTURA CON CONSUMER:
+ * <pre>
+ * try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, conf)) {
+ *     reader.processRecords(record -> {
+ *         // Lógica de procesamiento
+ *         updateStatistics(record);
+ *     });
+ * }
+ * </pre>
+ * 
+ * 4. CONTADOR SIN CARGAR EN MEMORIA:
+ * <pre>
+ * try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, conf)) {
+ *     long totalRecords = reader.countRecords();
+ *     System.out.println("Total records: " + totalRecords);
+ * }
+ * </pre>
  */
-public final class ValidationRecordManager implements AutoCloseable {
+public final class ValidationRecordManager implements AutoCloseable, Iterable<RecordValidation> {
     
     private static final Logger logger = LogManager.getLogger(ValidationRecordManager.class);
     
@@ -124,19 +167,22 @@ public final class ValidationRecordManager implements AutoCloseable {
     private long totalRecordsWritten = 0;
     private int batchNumber = 0;
     
-    // Estado de LECTURA
+    // Estado de LECTURA (SIN CACHE - readers se crean/cierran on-demand)
     private List<Path> batchFiles;
     private int currentBatchIndex = 0;
-    private ParquetReader<Group> currentReader;
     private long recordsRead = 0;
+    
+    // Cache temporal para iteración (solo durante un ciclo de iteración)
+    private List<RecordValidation> currentBatchRecords = null;
+    private int currentRecordIndex = 0;
     
     private ValidationRecordManager(String basePath, Long snapshotId, Configuration hadoopConf) {
         this.basePath = basePath;
         this.snapshotId = snapshotId;
         this.hadoopConf = hadoopConf;
         this.currentWriter = null;
-        this.currentReader = null;
         this.batchFiles = null;
+        this.currentBatchRecords = null;
     }
     
     // ============================================================================
@@ -163,6 +209,12 @@ public final class ValidationRecordManager implements AutoCloseable {
      * Crea un manager para LECTURA que lee TODOS los archivos batch de un snapshot.
      * Busca automáticamente todos los records_batch_*.parquet
      * 
+     * OPCIONES DE LECTURA:
+     * - readNext(): Lee record por record (streaming manual)
+     * - readAll(): Carga todos los records en memoria (solo para datasets pequeños)
+     * - iterator(): Iteración lazy (RECOMENDADO para datasets grandes)
+     * - processRecords(): Procesa con Consumer (streaming funcional)
+     * 
      * @param basePath ruta base (ej: /data/validation-stats)
      * @param snapshotId ID del snapshot
      * @param hadoopConf configuración Hadoop
@@ -174,6 +226,29 @@ public final class ValidationRecordManager implements AutoCloseable {
         ValidationRecordManager manager = new ValidationRecordManager(basePath, snapshotId, hadoopConf);
         manager.initializeReader();
         return manager;
+    }
+    
+    /**
+     * Método de conveniencia para iterar sobre records de forma lazy.
+     * Equivalente a: ValidationRecordManager.forReading(...).iterator()
+     * 
+     * Ejemplo de uso:
+     * <pre>
+     * for (RecordValidation record : ValidationRecordManager.iterate(basePath, snapshotId, hadoopConf)) {
+     *     // Procesar record sin cargar todo en memoria
+     *     processRecord(record);
+     * }
+     * </pre>
+     * 
+     * @param basePath ruta base
+     * @param snapshotId ID del snapshot
+     * @param hadoopConf configuración Hadoop
+     * @return iterable lazy sobre todos los records
+     * @throws IOException si falla
+     */
+    public static Iterable<RecordValidation> iterate(String basePath, Long snapshotId, Configuration hadoopConf) 
+            throws IOException {
+        return forReading(basePath, snapshotId, hadoopConf);
     }
     
     // ============================================================================
@@ -238,6 +313,8 @@ public final class ValidationRecordManager implements AutoCloseable {
         } else if (recordsInCurrentBatch >= FLUSH_THRESHOLD_RECORDS) {
             logger.info("RECORDS MANAGER: Auto-flush triggered at {} records", recordsInCurrentBatch);
             flush();
+            // Crear nuevo writer inmediatamente después del auto-flush
+            createNewBatchWriter();
         }
         
         Group group = new SimpleGroup(SCHEMA);
@@ -309,8 +386,8 @@ public final class ValidationRecordManager implements AutoCloseable {
             logger.info("RECORDS MANAGER: Flushing batch #{} with {} records", batchNumber, recordsInCurrentBatch);
             currentWriter.close();
             currentWriter = null;
-            // Crear inmediatamente un nuevo writer para continuar escribiendo
-            createNewBatchWriter();
+            recordsInCurrentBatch = 0;
+            // NO crear nuevo writer aquí - se creará en el próximo writeRecord() si es necesario
         }
     }
     
@@ -351,63 +428,68 @@ public final class ValidationRecordManager implements AutoCloseable {
     }
     
     /**
-     * Abre el siguiente archivo batch.
-     * Llamado automáticamente cuando se agota el archivo actual.
+     * Lee el siguiente archivo batch COMPLETO sin cachear el reader.
+     * Abre, lee todo el batch, cierra inmediatamente.
+     * SIN CACHE: cada batch se lee en una operación atómica.
      */
-    private boolean openNextBatch() throws IOException {
-        if (currentReader != null) {
-            currentReader.close();
-            currentReader = null;
-        }
-        
+    private boolean loadNextBatch() throws IOException {
         if (batchFiles == null || currentBatchIndex >= batchFiles.size()) {
             return false;  // No hay más archivos
         }
         
         Path batchPath = batchFiles.get(currentBatchIndex);
-        logger.debug("RECORDS MANAGER: Opening batch file {}/{}: {}", 
+        logger.debug("RECORDS MANAGER: Loading batch file {}/{}: {} (NO CACHE)", 
                     currentBatchIndex + 1, batchFiles.size(), batchPath.getName());
         
-        currentReader = ParquetReader.builder(new GroupReadSupport(), batchPath)
-            .withConf(hadoopConf)
-            .build();
+        // Leer TODO el batch de una vez (sin cachear reader)
+        List<RecordValidation> batchRecords = new ArrayList<>();
+        try (ParquetReader<Group> reader = ParquetReader.builder(new GroupReadSupport(), batchPath)
+                .withConf(hadoopConf)
+                .build()) {
+            
+            Group group;
+            while ((group = reader.read()) != null) {
+                batchRecords.add(convertGroupToRecord(group));
+            }
+        }
         
+        logger.debug("RECORDS MANAGER: Loaded {} records from batch {} (reader closed)", 
+                    batchRecords.size(), batchPath.getName());
+        
+        currentBatchRecords = batchRecords;
+        currentRecordIndex = 0;
         currentBatchIndex++;
+        
         return true;
     }
     
     /**
      * Lee siguiente record (automáticamente de todos los archivos batch).
-     * Transparente: El caller no sabe que hay múltiples archivos.
+     * SIN CACHE: cada batch se carga completo, se itera en memoria, luego se libera.
      * 
      * @return record o null si EOF (todos los archivos procesados)
      * @throws IOException si falla
      */
     public RecordValidation readNext() throws IOException {
         while (true) {
-            // Si no hay reader actual, abrir primer/siguiente batch
-            if (currentReader == null) {
-                if (!openNextBatch()) {
+            // Si no hay batch cargado o se agotó el actual, cargar siguiente
+            if (currentBatchRecords == null || currentRecordIndex >= currentBatchRecords.size()) {
+                if (!loadNextBatch()) {
                     return null;  // No hay más archivos
                 }
             }
             
-            // Intentar leer del batch actual
-            Group group = currentReader.read();
-            
-            if (group != null) {
+            // Retornar siguiente record del batch actual
+            if (currentRecordIndex < currentBatchRecords.size()) {
                 recordsRead++;
-                return convertGroupToRecord(group);
+                return currentBatchRecords.get(currentRecordIndex++);
             }
-            
-            // EOF del batch actual, cerrar y continuar con siguiente
-            currentReader.close();
-            currentReader = null;
         }
     }
     
     /**
      * Lee todos los records de los archivos batch.
+     * NOTA: Para datasets grandes, usar iterator() en su lugar para evitar cargar todo en memoria.
      * 
      * @return lista de records
      * @throws IOException si falla
@@ -422,6 +504,122 @@ public final class ValidationRecordManager implements AutoCloseable {
         
         logger.info("RECORDS MANAGER: Read {} records total", recordsRead);
         return records;
+    }
+    
+    // ============================================================================
+    // ITERADOR - LAZY ITERATION (RECOMENDADO PARA DATASETS GRANDES)
+    // ============================================================================
+    
+    /**
+     * Retorna un iterator que lee records de forma lazy (streaming).
+     * NO carga todo el dataset en memoria - ideal para datasets grandes.
+     * 
+     * IMPORTANTE: Solo un iterator activo por vez. Llamar reset() para crear nuevo iterator.
+     * 
+     * @return iterator lazy sobre todos los records
+     */
+    @Override
+    public Iterator<RecordValidation> iterator() {
+        return new RecordIterator();
+    }
+    
+    /**
+     * Reinicia el lector para permitir una nueva iteración desde el principio.
+     * Útil cuando se necesita iterar múltiples veces sobre el mismo dataset.
+     * 
+     * @throws IOException si falla al reinicializar
+     */
+    public void reset() throws IOException {
+        // Liberar batch actual en memoria
+        currentBatchRecords = null;
+        currentRecordIndex = 0;
+        
+        // Reiniciar contadores y estado
+        currentBatchIndex = 0;
+        recordsRead = 0;
+        
+        logger.debug("RECORDS MANAGER: Reset completed for snapshot {} (NO CACHE)", snapshotId);
+    }
+    
+    /**
+     * Iterador interno que lee records de forma lazy desde archivos Parquet.
+     * Maneja automáticamente múltiples archivos batch de forma transparente.
+     */
+    private class RecordIterator implements Iterator<RecordValidation> {
+        
+        private RecordValidation nextRecord;
+        private boolean hasNextComputed = false;
+        private boolean iteratorExhausted = false;
+        
+        @Override
+        public boolean hasNext() {
+            if (iteratorExhausted) {
+                return false;
+            }
+            
+            if (!hasNextComputed) {
+                try {
+                    nextRecord = readNext();
+                    hasNextComputed = true;
+                    if (nextRecord == null) {
+                        iteratorExhausted = true;
+                    }
+                } catch (IOException e) {
+                    logger.error("Error reading next record in iterator", e);
+                    iteratorExhausted = true;
+                    nextRecord = null;
+                }
+            }
+            
+            return nextRecord != null;
+        }
+        
+        @Override
+        public RecordValidation next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException("No more records available");
+            }
+            
+            RecordValidation current = nextRecord;
+            nextRecord = null;
+            hasNextComputed = false;
+            
+            return current;
+        }
+    }
+    
+    /**
+     * Cuenta el total de records sin cargarlos en memoria.
+     * Itera sobre todos los records pero solo cuenta, no los almacena.
+     * 
+     * @return número total de records en todos los archivos batch
+     */
+    public long countRecords() {
+        long count = 0;
+        for (@SuppressWarnings("unused") RecordValidation record : this) {
+            count++;
+        }
+        return count;
+    }
+    
+    /**
+     * Procesa records de forma streaming usando un Consumer.
+     * Permite procesar datasets grandes sin cargar todo en memoria.
+     * 
+     * Ejemplo de uso:
+     * <pre>
+     * manager.processRecords(record -> {
+     *     // Procesar cada record individualmente
+     *     System.out.println("Processing: " + record.getId());
+     * });
+     * </pre>
+     * 
+     * @param processor función que procesa cada record
+     */
+    public void processRecords(java.util.function.Consumer<RecordValidation> processor) {
+        for (RecordValidation record : this) {
+            processor.accept(record);
+        }
     }
     
     /**
@@ -514,19 +712,28 @@ public final class ValidationRecordManager implements AutoCloseable {
     
     @Override
     public void close() throws IOException {
-        // Cerrar writer si está activo
+        // Cerrar writer si está activo (flush final de datos pendientes)
         if (currentWriter != null) {
-            flush();
+            if (recordsInCurrentBatch > 0) {
+                logger.info("RECORDS MANAGER: Final flush - closing batch #{} with {} records", 
+                           batchNumber, recordsInCurrentBatch);
+                currentWriter.close();
+            } else {
+                // Writer existe pero no tiene datos - solo cerrarlo
+                currentWriter.close();
+            }
+            currentWriter = null;
             logger.info("RECORDS MANAGER: Closed writer. Total: {} records in {} batch files", 
                         totalRecordsWritten, batchNumber);
         }
         
-        // Cerrar reader si está activo
-        if (currentReader != null) {
-            currentReader.close();
-            currentReader = null;
-            logger.info("RECORDS MANAGER: Closed reader. Total records read: {} from {} batch files", 
-                        recordsRead, batchFiles != null ? batchFiles.size() : 0);
+        // Liberar batch en memoria (no hay reader persistente que cerrar)
+        currentBatchRecords = null;
+        currentRecordIndex = 0;
+        
+        if (batchFiles != null && !batchFiles.isEmpty()) {
+            logger.info("RECORDS MANAGER: Closed (NO CACHE). Total records read: {} from {} batch files", 
+                        recordsRead, batchFiles.size());
         }
     }
 }

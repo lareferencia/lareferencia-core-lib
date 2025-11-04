@@ -257,7 +257,215 @@ public class ValidationStatParquetRepository {
             }
         }
     }   
+
+    // iterate over all records of a snapshot, create an empty snapshotValidationStats and update with each record
+    public SnapshotValidationStats buildStats(SnapshotMetadata metadata, List<String> fq) throws IOException {
+        
+        SnapshotValidationStats stats = new SnapshotValidationStats(metadata);
+        Long snapshotId = metadata.getSnapshotId();
+
+        logger.debug("BUILD STATS: snapshot={}, filters={}", snapshotId, fq);
+
+        // Parsear filtros UNA SOLA VEZ (optimización: pre-parsea todos los strings/integers)
+        ParsedFilters filters = parseFilters(fq);
+        logger.debug("BUILD STATS: Parsed filters -> isValid={}, isTransformed={}, invalidRules={}, validRules={}", 
+                    filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
+
+        // Leer todos los records y procesarlos con Stream paralelo
+        ValidationRecordManager recordsManager = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf);
+        try {   
+            List<RecordValidation> allRecords = recordsManager.readAll();
+            int totalRecords = allRecords.size();
+            
+            logger.debug("BUILD STATS: Loaded {} records, starting parallel processing", totalRecords);
+            
+            // PROCESAMIENTO PARALELO: Filtrar y contar en múltiples threads
+            List<RecordValidation> matchingRecords = allRecords.parallelStream()
+                .filter(record -> matchesFilters(record, filters))
+                .toList();
+            
+            int filteredRecords = matchingRecords.size();
+            
+            // Actualizar stats con records filtrados (secuencial para evitar race conditions)
+            matchingRecords.forEach(record -> updateStats(stats, record));
+            
+            logger.info("BUILD STATS: Processed {} total records, {} matched filters (parallel)", 
+                       totalRecords, filteredRecords);
+        } finally {
+            recordsManager.close();
+        }
+
+        return stats;
+    }
+
+    /**
+     * Clase interna para representar filtros pre-parseados.
+     * Optimiza comparaciones evitando parseo repetido en cada record.
+     */
+    private static class ParsedFilters {
+        Boolean isValid;
+        Boolean isTransformed;
+        Set<Integer> invalidRuleIds;
+        Set<Integer> validRuleIds;
+        
+        boolean isEmpty() {
+            return isValid == null && isTransformed == null 
+                   && invalidRuleIds == null && validRuleIds == null;
+        }
+    }
     
+    /**
+     * Parsea filtros UNA SOLA VEZ convirtiendo strings a tipos nativos.
+     * OPTIMIZACIÓN: Pre-parsea rule IDs a Sets de Integers para lookups O(1).
+     */
+    private ParsedFilters parseFilters(List<String> fq) {
+        ParsedFilters filters = new ParsedFilters();
+        
+        if (fq == null || fq.isEmpty()) {
+            return filters;
+        }
+        
+        for (String filter : fq) {
+            if (filter == null || filter.trim().isEmpty()) {
+                continue;
+            }
+            
+            // Formato esperado: "campo:valor"
+            String[] parts = filter.split(":", 2);
+            if (parts.length != 2) {
+                logger.warn("BUILD STATS: Invalid filter format (expected campo:valor): {}", filter);
+                continue;
+            }
+            
+            String key = parts[0].trim();
+            String value = parts[1].trim();
+            
+            switch (key) {
+                case "isValid":
+                    filters.isValid = Boolean.parseBoolean(value);
+                    break;
+                    
+                case "isTransformed":
+                    filters.isTransformed = Boolean.parseBoolean(value);
+                    break;
+                    
+                case "invalid_rules":
+                    if (filters.invalidRuleIds == null) {
+                        filters.invalidRuleIds = new HashSet<>();
+                    }
+                    parseRuleIds(value, filters.invalidRuleIds);
+                    break;
+                    
+                case "valid_rules":
+                    if (filters.validRuleIds == null) {
+                        filters.validRuleIds = new HashSet<>();
+                    }
+                    parseRuleIds(value, filters.validRuleIds);
+                    break;
+                    
+                default:
+                    logger.warn("BUILD STATS: Unknown filter key: {}", key);
+            }
+        }
+        
+        return filters;
+    }
+    
+    /**
+     * Helper para parsear IDs de reglas (soporta múltiples valores separados por coma)
+     */
+    private void parseRuleIds(String value, Set<Integer> targetSet) {
+        String[] ruleIds = value.split(",");
+        for (String ruleIdStr : ruleIds) {
+            try {
+                targetSet.add(Integer.parseInt(ruleIdStr.trim()));
+            } catch (NumberFormatException e) {
+                logger.warn("BUILD STATS: Invalid rule ID: {}", ruleIdStr);
+            }
+        }
+    }
+
+    /**
+     * Verifica si un record cumple con TODOS los filtros (lógica AND).
+     * 
+     * OPTIMIZACIONES:
+     * - Filtros pre-parseados (no más split/parseInt por record)
+     * - Verificación directa sin crear Sets intermedios innecesarios
+     * - Short-circuit: retorna false en cuanto falla un criterio
+     * - anyMatch() para chequeos de intersección eficientes
+     */
+    private boolean matchesFilters(RecordValidation record, ParsedFilters filters) {
+        if (filters.isEmpty()) {
+            return true;
+        }
+        
+        // CRITERIO 1: record_is_valid (AND - debe cumplir si está presente)
+        if (filters.isValid != null) {
+            if (record.getRecordIsValid() == null || !record.getRecordIsValid().equals(filters.isValid)) {
+                return false; // Falla criterio 1 → short-circuit
+            }
+        }
+        
+        // CRITERIO 2: record_is_transformed (AND - debe cumplir si está presente)
+        if (filters.isTransformed != null) {
+            if (record.getIsTransformed() == null || !record.getIsTransformed().equals(filters.isTransformed)) {
+                return false; // Falla criterio 2 → short-circuit
+            }
+        }
+        
+        // Si no hay filtros de reglas, ya pasó todos los criterios
+        if (filters.invalidRuleIds == null && filters.validRuleIds == null) {
+            return true;
+        }
+        
+        // Verificar que el record tenga RuleFacts
+        if (record.getRuleFacts() == null || record.getRuleFacts().isEmpty()) {
+            // Sin facts, no puede cumplir filtros de reglas → falla criterios 3 y/o 4
+            return false;
+        }
+        
+        // CRITERIO 3: invalid_rules (AND - debe tener AL MENOS UNA regla inválida especificada)
+        if (filters.invalidRuleIds != null) {
+            // Verificar intersección: ¿el record tiene alguna de las reglas inválidas requeridas?
+            boolean hasInvalidMatch = filters.invalidRuleIds.stream()
+                .anyMatch(requiredRuleId -> 
+                    record.getRuleFacts().stream()
+                        .anyMatch(fact -> 
+                            fact.getRuleId() != null 
+                            && fact.getRuleId().equals(requiredRuleId)
+                            && fact.getIsValid() != null 
+                            && !fact.getIsValid() // Debe ser inválida
+                        )
+                );
+            
+            if (!hasInvalidMatch) {
+                return false; // Falla criterio 3 → short-circuit
+            }
+        }
+        
+        // CRITERIO 4: valid_rules (AND - debe tener AL MENOS UNA regla válida especificada)
+        if (filters.validRuleIds != null) {
+            // Verificar intersección: ¿el record tiene alguna de las reglas válidas requeridas?
+            boolean hasValidMatch = filters.validRuleIds.stream()
+                .anyMatch(requiredRuleId -> 
+                    record.getRuleFacts().stream()
+                        .anyMatch(fact -> 
+                            fact.getRuleId() != null 
+                            && fact.getRuleId().equals(requiredRuleId)
+                            && fact.getIsValid() != null 
+                            && fact.getIsValid() // Debe ser válida
+                        )
+                );
+            
+            if (!hasValidMatch) {
+                return false; // Falla criterio 4 → short-circuit
+            }
+        }
+        
+        // Pasó TODOS los criterios (AND completo)
+        return true;
+    }
+
     /**
      * Escribe un record usando el manager persistente
      */
