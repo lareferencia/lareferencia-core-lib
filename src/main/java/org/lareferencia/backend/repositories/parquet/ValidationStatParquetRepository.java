@@ -271,28 +271,31 @@ public class ValidationStatParquetRepository {
         logger.debug("BUILD STATS: Parsed filters -> isValid={}, isTransformed={}, invalidRules={}, validRules={}", 
                     filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
 
-        // Leer todos los records y procesarlos con Stream paralelo
-        ValidationRecordManager recordsManager = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf);
-        try {   
-            List<RecordValidation> allRecords = recordsManager.readAll();
-            int totalRecords = allRecords.size();
+        // ITERACIÓN LAZY: Procesar records sin cargar todo en memoria
+        try (ValidationRecordManager recordsManager = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
             
-            logger.debug("BUILD STATS: Loaded {} records, starting parallel processing", totalRecords);
+            long totalRecords = 0;
+            long filteredRecords = 0;
             
-            // PROCESAMIENTO PARALELO: Filtrar y contar en múltiples threads
-            List<RecordValidation> matchingRecords = allRecords.parallelStream()
-                .filter(record -> matchesFilters(record, filters))
-                .toList();
+            // Iterar sobre todos los records de forma lazy
+            for (RecordValidation record : recordsManager) {
+                totalRecords++;
+                
+                // Aplicar filtros y actualizar stats solo si cumple criterios
+                if (matchesFilters(record, filters)) {
+                    updateStats(stats, record);
+                    filteredRecords++;
+                }
+                
+                // Log de progreso cada 10k records
+                if (totalRecords % 10000 == 0) {
+                    logger.debug("BUILD STATS: Processed {} records, {} matched filters", 
+                               totalRecords, filteredRecords);
+                }
+            }
             
-            int filteredRecords = matchingRecords.size();
-            
-            // Actualizar stats con records filtrados (secuencial para evitar race conditions)
-            matchingRecords.forEach(record -> updateStats(stats, record));
-            
-            logger.info("BUILD STATS: Processed {} total records, {} matched filters (parallel)", 
+            logger.info("BUILD STATS: Processed {} total records, {} matched filters (lazy iteration)", 
                        totalRecords, filteredRecords);
-        } finally {
-            recordsManager.close();
         }
 
         return stats;
@@ -331,21 +334,21 @@ public class ValidationStatParquetRepository {
             }
             
             // Formato esperado: "campo:valor"
-            String[] parts = filter.split(":", 2);
+            String[] parts = filter.split(":|@@", 2);
             if (parts.length != 2) {
-                logger.warn("BUILD STATS: Invalid filter format (expected campo:valor): {}", filter);
+                logger.warn("BUILD STATS: Invalid filter format (expected field:value or field@@value): {}", filter);
                 continue;
             }
             
             String key = parts[0].trim();
-            String value = parts[1].trim();
+            String value = parts[1].trim().replaceAll("^\"|\"$|^'|'$", "");
             
             switch (key) {
-                case "isValid":
+                case "record_is_valid":
                     filters.isValid = Boolean.parseBoolean(value);
                     break;
                     
-                case "isTransformed":
+                case "record_is_transformed":
                     filters.isTransformed = Boolean.parseBoolean(value);
                     break;
                     
@@ -399,17 +402,15 @@ public class ValidationStatParquetRepository {
             return true;
         }
         
-        // CRITERIO 1: record_is_valid (AND - debe cumplir si está presente)
         if (filters.isValid != null) {
-            if (record.getRecordIsValid() == null || !record.getRecordIsValid().equals(filters.isValid)) {
-                return false; // Falla criterio 1 → short-circuit
+            if (!record.getRecordIsValid().equals(filters.isValid)) {
+                return false;
             }
         }
         
-        // CRITERIO 2: record_is_transformed (AND - debe cumplir si está presente)
         if (filters.isTransformed != null) {
-            if (record.getIsTransformed() == null || !record.getIsTransformed().equals(filters.isTransformed)) {
-                return false; // Falla criterio 2 → short-circuit
+            if (!record.getIsTransformed().equals(filters.isTransformed)) {
+                return false; 
             }
         }
         

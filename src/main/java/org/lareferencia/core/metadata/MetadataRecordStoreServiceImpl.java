@@ -278,16 +278,18 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 			}
 
 			// Populate rule definitions from the associated validator
-			snapshot.getNetwork().getValidator().getRules().forEach(rule -> {
-				SnapshotMetadata.RuleDefinition ruleDef = new SnapshotMetadata.RuleDefinition(
-						rule.getId(),
-						rule.getName(),
-						rule.getDescription(),
-						rule.getQuantifier().name(),
-						rule.getMandatory()
-				);
-				metadata.getRuleDefinitions().put(rule.getId(), ruleDef);
-			});
+			if (snapshot.getNetwork().getValidator() != null) {
+				snapshot.getNetwork().getValidator().getRules().forEach(rule -> {
+					SnapshotMetadata.RuleDefinition ruleDef = new SnapshotMetadata.RuleDefinition(
+							rule.getId(),
+							rule.getName(),
+							rule.getDescription(),
+							rule.getQuantifier().name(),
+							rule.getMandatory()
+					);
+					metadata.getRuleDefinitions().put(rule.getId(), ruleDef);
+				});
+			}
 
 
 			return metadata;
