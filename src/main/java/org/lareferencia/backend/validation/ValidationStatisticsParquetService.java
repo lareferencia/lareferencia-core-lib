@@ -379,25 +379,129 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Query validation statistics observations by snapshot ID with pagination (SIMPLIFIED)
+     * Query validation statistics observations by snapshot ID with pagination.
+     * 
+     * IMPLEMENTACIÓN CON STREAMING Y FILTRADO:
+     * - Usa ValidationRecordManager para lectura lazy (no carga todo en memoria)
+     * - Aplica filtros usando ParsedFilters (misma técnica que buildStats)
+     * - Acumula records filtrados hasta completar offset + size
+     * - Retorna solo la página solicitada
+     * 
+     * EJEMPLO DE PAGINACIÓN:
+     * - Página 0, size 20: Acumula 20 records filtrados, retorna [0-19]
+     * - Página 1, size 20: Acumula 40 records filtrados, retorna [20-39]
+     * - Página 2, size 20: Acumula 60 records filtrados, retorna [40-59]
+     * 
+     * @param snapshotID ID del snapshot
+     * @param fq filtros opcionales (formato "field@@value")
+     * @param pageable información de paginación (page, size)
+     * @return resultado con observaciones de la página y total de elementos
+     * @throws ValidationStatisticsException si hay error
      */
     @Override
     public ValidationStatsObservationsResult queryValidationStatsObservationsBySnapshotID(Long snapshotID, List<String> fq, Pageable pageable) throws ValidationStatisticsException {
-        logger.debug("SIMPLIFIED: Querying observations for snapshot {}, page={}, size={}", 
-                    snapshotID, pageable.getPageNumber(), pageable.getPageSize());
+        logger.info("QUERY OBSERVATIONS: snapshot={}, page={}, size={}, filters={}", 
+                   snapshotID, pageable.getPageNumber(), pageable.getPageSize(), fq);
         
-            // NUEVA ARQUITECTURA: Sin filtros complejos, paginación directa desde Layer 2
-            // fq se ignora temporalmente - filtrado se puede agregar después si es necesario
-            Boolean recordIsValid = null; // null = todos los records
+        try {
+            // Calcular offset y límite para paginación
+            int pageNumber = pageable.getPageNumber();
+            int pageSize = pageable.getPageSize();
+            int offset = pageNumber * pageSize;
+            int limit = offset + pageSize;
             
-            // List<ValidationStatObservation> observations = parquetRepository.findBySnapshotIdWithPagination(
-            //     snapshotID, recordIsValid, pageable.getPageNumber(), pageable.getPageSize());
-            // long totalElements = parquetRepository.countRecords(snapshotID);
+            logger.debug("PAGINATION: offset={}, limit={}", offset, limit);
             
-            // return new ValidationStatsObservationsResult(observations, totalElements, pageable);
-            return null;
+            // Lista para acumular observaciones de la página actual
+            List<ValidationStatObservation> pageObservations = new ArrayList<>();
             
-      
+            // Delegar a método del repositorio que hace el filtrado y paginación
+            Map<String, Object> result = parquetRepository.queryObservationsWithPagination(
+                snapshotID, fq, offset, limit
+            );
+
+            SnapshotMetadata metadata = parquetRepository.getSnapshotValidationStats(snapshotID).getSnapshotMetadata();
+
+            
+            @SuppressWarnings("unchecked")
+            List<RecordValidation> pageRecords = (List<RecordValidation>) result.get("records");
+            Long totalFiltered = (Long) result.get("totalFiltered");
+            
+            // Convertir RecordValidation a ValidationStatObservation
+            for (RecordValidation record : pageRecords) {
+                ValidationStatObservation obs = convertRecordToObservation(record, metadata);
+                pageObservations.add(obs);
+            }
+            
+            logger.info("OBSERVATIONS QUERY COMPLETED: snapshot={}, page={}, returned={}, totalFiltered={}", 
+                       snapshotID, pageNumber, pageObservations.size(), totalFiltered);
+            
+            return new ValidationStatsObservationsResult(pageObservations, totalFiltered, pageable);
+            
+        } catch (IOException e) {
+            logger.error("Error querying observations for snapshot {}: {}", snapshotID, e.getMessage(), e);
+            throw new ValidationStatisticsException("Error querying observations: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Convierte RecordValidation (Parquet) a ValidationStatObservation (API)
+     */
+    private ValidationStatObservation convertRecordToObservation(RecordValidation record, SnapshotMetadata metadata) {
+        
+        // Campos básicos
+        String id = record.getId();
+        String identifier = record.getIdentifier();
+        Boolean isValid = record.getRecordIsValid();
+        Boolean isTransformed = record.getIsTransformed();
+        
+        // Listas de reglas válidas e inválidas
+        List<String> validRulesID = new ArrayList<>();
+        List<String> invalidRulesID = new ArrayList<>();
+        
+        // Maps para occurrences (solo si detailedDiagnose está activo)
+        Map<String, List<String>> validOccurrencesByRuleID = new HashMap<>();
+        Map<String, List<String>> invalidOccurrencesByRuleID = new HashMap<>();
+        
+        // Extraer información de RuleFacts
+        if (record.getRuleFacts() != null) {
+            for (RuleFact fact : record.getRuleFacts()) {
+                String ruleID = String.valueOf(fact.getRuleId());
+                
+                if (fact.getIsValid() != null && fact.getIsValid()) {
+                    validRulesID.add(ruleID);
+                    
+                    // Agregar occurrences válidas si existen
+                    if (fact.getValidOccurrences() != null && !fact.getValidOccurrences().isEmpty()) {
+                        validOccurrencesByRuleID.put(ruleID, new ArrayList<>(fact.getValidOccurrences()));
+                    }
+                } else {
+                    invalidRulesID.add(ruleID);
+                    
+                    // Agregar occurrences inválidas si existen
+                    if (fact.getInvalidOccurrences() != null && !fact.getInvalidOccurrences().isEmpty()) {
+                        invalidOccurrencesByRuleID.put(ruleID, new ArrayList<>(fact.getInvalidOccurrences()));
+                    }
+                }
+            }
+        }
+
+        
+        // Crear observación (repositoryName e institutionName son null en nueva arquitectura)
+        return new ValidationStatObservation(
+            id, identifier, metadata.getSnapshotId(), 
+            metadata.getOrigin(), 
+            null, // repositoryName (eliminado en nueva arquitectura)
+            metadata.getMetadataPrefix(), 
+            metadata.getNetworkAcronym(), 
+            null, // institutionName (eliminado en nueva arquitectura)
+            null, // setSpec (no disponible en RecordValidation)
+            isValid, isTransformed,
+            validOccurrencesByRuleID,
+            invalidOccurrencesByRuleID,
+            validRulesID,
+            invalidRulesID
+        );
     }
 
     /**

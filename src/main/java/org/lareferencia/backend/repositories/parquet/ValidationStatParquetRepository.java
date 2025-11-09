@@ -484,58 +484,6 @@ public class ValidationStatParquetRepository {
     }
 
 
-    // /**
-    //  * Obtiene estadísticas agregadas desde metadata JSON (<1ms)
-    //  */
-    // public Map<String, Object> getAggregatedStats(Long snapshotId) throws IOException {
-    //     SnapshotMetadata metadata = metadataCache.computeIfAbsent(snapshotId, id -> {
-    //         try {
-    //             return SnapshotMetadataManager.readMetadata(basePath, id);
-    //         } catch (IOException e) {
-    //             return null;
-    //         }
-    //     });
-        
-    //     if (metadata == null) {
-    //         return Collections.emptyMap();
-    //     }
-        
-    //     Map<String, Object> stats = new HashMap<>();
-    //     stats.put("snapshotId", metadata.getSnapshotId());
-    //     stats.put("totalRecords", metadata.getTotalRecords());
-    //     stats.put("validRecords", metadata.getValidRecords());
-    //     stats.put("invalidRecords", metadata.getInvalidRecords());
-    //     return stats;
-    // }
-
-    // /**
-    //  * Paginación CORRECTA: 20 filas = 20 records (sin explosión)
-    //  */
-    // public List<ValidationStatObservation> findBySnapshotIdWithPagination(
-    //         Long snapshotId, Boolean recordIsValid, int page, int size) throws IOException {
-        
-    //     logger.debug("PAGINATION: snapshot={}, valid={}, page={}, size={}", snapshotId, recordIsValid, page, size);
-        
-    //     // TODO: Implementación completa de lectura paginada
-    //     // Por ahora retorna lista vacía para compilación
-    //     return new ArrayList<>();
-    // }
-
-    // public long countRecords(Long snapshotId) throws IOException {
-    //     SnapshotMetadata metadata = metadataCache.get(snapshotId);
-    //     if (metadata == null) {
-    //         metadata = SnapshotMetadataManager.readMetadata(basePath, snapshotId);
-    //         if (metadata != null) {
-    //             metadataCache.put(snapshotId, metadata);
-    //         }
-    //     }
-    //     return metadata != null ? metadata.getTotalRecords() : 0;
-    // }
-
-    // public boolean snapshotExists(Long snapshotId) {
-    //     return SnapshotMetadataManager.metadataExists(basePath, snapshotId);
-    // }
-
     /**
      * Deletes all data for a snapshot (metadata, records, rule facts).
      * Removes the snapshot directory and clears cache.
@@ -604,8 +552,7 @@ public class ValidationStatParquetRepository {
         logger.info("SNAPSHOT FINALIZED: {} (manager closed and data persisted)", snapshotId);
     }
     
-    /**
-     * Fuerza el flush de los buffers de escritura para un snapshot específico.
+   
     /**
      * Fuerza el flush de los buffers de escritura para un snapshot específico.
      * 
@@ -638,8 +585,8 @@ public class ValidationStatParquetRepository {
     /**
      * Obtiene las estadísticas de validación en formato interno para un snapshot.
      * 
-     * Lee las estadísticas desde el archivo JSON guardado sin conversión,
-     * retornando el objeto SnapshotValidationStats directamente.
+     * Primero intenta obtener desde caché en memoria. Si no está disponible,
+     * lee desde el archivo JSON en disco y actualiza el caché.
      * 
      * @param snapshotId el ID del snapshot
      * @return SnapshotValidationStats con las estadísticas, o null si no existen
@@ -648,15 +595,27 @@ public class ValidationStatParquetRepository {
     public SnapshotValidationStats getSnapshotValidationStats(Long snapshotId) throws IOException {
         logger.debug("GET SNAPSHOT VALIDATION STATS: snapshot={}", snapshotId);
         
-        // Leer las estadísticas directamente desde el archivo JSON
-        SnapshotValidationStats snapshotStats = SnapshotMetadataManager.readValidationStats(basePath, snapshotId);
+        // Intentar obtener desde caché primero
+        SnapshotValidationStats snapshotStats = snapshotStatsCache.get(snapshotId);
+        
+        if (snapshotStats != null) {
+            logger.debug("SNAPSHOT VALIDATION STATS FROM CACHE: snapshot={}, totalRecords={}", 
+                        snapshotId, snapshotStats.getTotalRecords());
+            return snapshotStats;
+        }
+        
+        // No está en caché, leer desde disco
+        snapshotStats = SnapshotMetadataManager.readValidationStats(basePath, snapshotId);
         
         if (snapshotStats == null) {
             logger.warn("SNAPSHOT VALIDATION STATS NOT FOUND: snapshot={}", snapshotId);
             return null;
         }
         
-        logger.debug("SNAPSHOT VALIDATION STATS LOADED: snapshot={}, totalRecords={}", 
+        // Actualizar caché para futuras consultas
+        snapshotStatsCache.put(snapshotId, snapshotStats);
+        
+        logger.debug("SNAPSHOT VALIDATION STATS LOADED FROM DISK: snapshot={}, totalRecords={}", 
                     snapshotId, snapshotStats.getTotalRecords());
         return snapshotStats;
     }
@@ -746,6 +705,95 @@ public class ValidationStatParquetRepository {
         Map<String, Map<String, Integer>> result = new HashMap<>();
         result.put("valid", validOccurrences);
         result.put("invalid", invalidOccurrences);
+        
+        return result;
+    }
+    
+    /**
+     * Consulta observaciones con paginación y filtrado.
+     * 
+     * ESTRATEGIA DE PAGINACIÓN CON STREAMING OPTIMIZADO:
+     * - Lee records de forma lazy usando ValidationRecordManager
+     * - Aplica filtros a cada record (misma lógica que buildStats)
+     * - Acumula SOLO los records filtrados que corresponden a la página
+     * - OPTIMIZACIÓN: Detiene iteración cuando completa la página (no recorre todo)
+     * 
+     * ALGORITMO:
+     * 1. Iterar sobre records del snapshot (streaming)
+     * 2. Aplicar filtros a cada record
+     * 3. Si pasa filtros: asignar índice (0-based)
+     * 4. Si índice está en rango [offset, limit): agregar a página
+     * 5. Si página completa (size records): DETENER iteración
+     * 6. Retornar página + total procesados hasta el momento
+     * 
+     * EJEMPLOS:
+     * - Página 0, size 20: offset=0, limit=20 → índices [0-19] → detiene en record filtrado #20
+     * - Página 1, size 20: offset=20, limit=40 → índices [20-39] → detiene en record filtrado #40
+     * - Página 2, size 20: offset=40, limit=60 → índices [40-59] → detiene en record filtrado #60
+     * 
+     * PERFORMANCE:
+     * - Página 0: procesa ~20 records (optimal)
+     * - Página 100: procesa ~2020 records (skip 2000 + read 20)
+     * - SIN recorrer los 13,400 records completos
+     * 
+     * @param snapshotId ID del snapshot
+     * @param fq filtros opcionales
+     * @param offset número de records filtrados a saltar (índice inicio, 0-based)
+     * @param limit número total de records filtrados para completar página (offset + pageSize)
+     * @return Map con "records" (List<RecordValidation>) y "totalFiltered" (Long = records procesados)
+     * @throws IOException si hay error
+     */
+    public Map<String, Object> queryObservationsWithPagination(Long snapshotId, List<String> fq, int offset, int limit) 
+            throws IOException {
+        logger.info("QUERY OBSERVATIONS WITH PAGINATION: snapshot={}, offset={}, limit={}, filters={}", 
+                   snapshotId, offset, limit, fq);
+        
+        // Parsear filtros UNA SOLA VEZ
+        ParsedFilters filters = parseFilters(fq != null ? fq : Collections.emptyList());
+        logger.debug("PAGINATION: Parsed filters -> isValid={}, isTransformed={}, invalidRules={}, validRules={}", 
+                    filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
+        
+        List<RecordValidation> pageRecords = new ArrayList<>();
+        long totalRecordsProcessed = 0;
+        long totalFilteredRecords = 0;
+        
+        // STREAMING: Leer records de forma lazy
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+            
+            for (RecordValidation record : reader) {
+                totalRecordsProcessed++;
+                
+                // Aplicar filtros
+                if (!matchesFilters(record, filters)) {
+                    continue; // No pasa filtros, siguiente record
+                }
+                
+                // Record filtrado - incrementar contador (índice base 0: primer record filtrado = 0)
+                long filteredIndex = totalFilteredRecords;
+                totalFilteredRecords++;
+                
+                // ¿Está en el rango de la página actual? [offset, limit)
+                // Página 0: offset=0, limit=20 → índices [0-19]
+                // Página 1: offset=20, limit=40 → índices [20-39]
+                if (filteredIndex >= offset && filteredIndex < limit) {
+                    pageRecords.add(record);
+                    
+                    // OPTIMIZACIÓN: Si ya completamos la página, podemos parar
+                    if (pageRecords.size() >= (limit - offset)) {
+                        logger.debug("PAGINATION: Page complete, stopping early at record {}", totalRecordsProcessed);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        logger.info("PAGINATION COMPLETED: processed={} records, filtered={}, returned={} for page", 
+                   totalRecordsProcessed, totalFilteredRecords, pageRecords.size());
+        
+        // Retornar resultado con página y total
+        Map<String, Object> result = new HashMap<>();
+        result.put("records", pageRecords);
+        result.put("totalFiltered", totalFilteredRecords);
         
         return result;
     }

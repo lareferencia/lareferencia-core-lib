@@ -1,5 +1,7 @@
 package org.lareferencia.backend.validation;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,6 +13,11 @@ import java.util.Objects;
  * Validation statistics observation class.
  * This class represents a validation observation that can be stored in different backends
  * (Parquet, Solr, etc.) by serializing complex structures to JSON strings.
+ * 
+ * NUEVA ARQUITECTURA PARQUET:
+ * - Campos JSON marcados con @JsonIgnore (solo para persistencia interna)
+ * - Campos Map expuestos para API REST (getValidOccurrencesByRuleID)
+ * - Campos legacy marcados @JsonIgnore para compatibilidad sin duplicación
  */
 public class ValidationStatObservation {
     
@@ -76,22 +83,30 @@ public class ValidationStatObservation {
     
     /**
      * JSON representation of valid occurrences by rule ID.
+     * INTERNAL ONLY - Use getValidOccurrencesByRuleID() for API.
      */
+    @JsonIgnore
     protected String validOccurrencesByRuleIDJson;
     
     /**
      * JSON representation of invalid occurrences by rule ID.
+     * INTERNAL ONLY - Use getInvalidOccurrencesByRuleID() for API.
      */
+    @JsonIgnore
     protected String invalidOccurrencesByRuleIDJson;
     
     /**
      * Identifiers of rules that passed validation.
+     * INTERNAL ONLY - Use getValidRulesIDList() for API.
      */
+    @JsonIgnore
     protected String validRulesID;
     
     /**
      * Identifiers of rules that failed validation.
+     * INTERNAL ONLY - Use getInvalidRulesIDList() for API.
      */
+    @JsonIgnore
     protected String invalidRulesID;
     
     /**
@@ -172,10 +187,11 @@ public class ValidationStatObservation {
     public void setIdentifier(String identifier) { this.identifier = identifier; }
     
     /**
-     * Gets the snapshot ID.
-     * 
+     * Gets the snapshot ID. Serialized as `snapshotID` (legacy external format).
+     *
      * @return the snapshot ID
      */
+    @JsonProperty("snapshotID")
     public Long getSnapshotId() { return snapshotId; }
     
     /**
@@ -187,9 +203,12 @@ public class ValidationStatObservation {
     
     /**
      * Gets the validation date.
-     * 
+     *
+     * NOTE: hidden from API responses to match the "correct" format.
+     *
      * @return the validation date
      */
+    @JsonIgnore
     public LocalDateTime getValidationDate() { return validationDate; }
     
     /**
@@ -313,71 +332,89 @@ public class ValidationStatObservation {
     
     /**
      * Gets the JSON representation of valid occurrences by rule ID.
+     * INTERNAL ONLY - Use getValidOccurrencesByRuleID() for API.
      * 
      * @return the valid occurrences JSON
      */
+    @JsonIgnore
     public String getValidOccurrencesByRuleIDJson() { return validOccurrencesByRuleIDJson; }
     
     /**
      * Sets the JSON representation of valid occurrences by rule ID.
+     * INTERNAL ONLY - Use setValidOccurrencesByRuleID(Map) for API.
      * 
      * @param validOccurrencesByRuleIDJson the valid occurrences JSON to set
      */
+    @JsonIgnore
     public void setValidOccurrencesByRuleIDJson(String validOccurrencesByRuleIDJson) { 
         this.validOccurrencesByRuleIDJson = validOccurrencesByRuleIDJson; 
     }
     
     /**
      * Gets the JSON representation of invalid occurrences by rule ID.
+     * INTERNAL ONLY - Use getInvalidOccurrencesByRuleID() for API.
      * 
      * @return the invalid occurrences JSON
      */
+    @JsonIgnore
     public String getInvalidOccurrencesByRuleIDJson() { return invalidOccurrencesByRuleIDJson; }
     
     /**
      * Sets the JSON representation of invalid occurrences by rule ID.
+     * INTERNAL ONLY - Use setInvalidOccurrencesByRuleID(Map) for API.
      * 
      * @param invalidOccurrencesByRuleIDJson the invalid occurrences JSON to set
      */
+    @JsonIgnore
     public void setInvalidOccurrencesByRuleIDJson(String invalidOccurrencesByRuleIDJson) { 
         this.invalidOccurrencesByRuleIDJson = invalidOccurrencesByRuleIDJson; 
     }
     
     /**
      * Gets the identifiers of rules that passed validation.
+     * INTERNAL ONLY - Use getValidRulesIDList() for API.
      * 
      * @return the valid rules IDs
      */
+    @JsonIgnore
     public String getValidRulesID() { return validRulesID; }
     
     /**
      * Sets the identifiers of rules that passed validation.
+     * INTERNAL ONLY - Use setValidRulesIDList() for API.
      * 
      * @param validRulesID the valid rules IDs to set
      */
+    @JsonIgnore
     public void setValidRulesID(String validRulesID) { this.validRulesID = validRulesID; }
     
     /**
      * Gets the identifiers of rules that failed validation.
+     * INTERNAL ONLY - Use getInvalidRulesIDList() for API.
      * 
      * @return the invalid rules IDs
      */
+    @JsonIgnore
     public String getInvalidRulesID() { return invalidRulesID; }
     
     /**
      * Sets the identifiers of rules that failed validation.
+     * INTERNAL ONLY - Use setInvalidRulesIDList() for API.
      * 
      * @param invalidRulesID the invalid rules IDs to set
      */
+    @JsonIgnore
     public void setInvalidRulesID(String invalidRulesID) { this.invalidRulesID = invalidRulesID; }
     
     // Métodos de utilidad
     
     /**
      * Gets the list of valid rule identifiers as a list.
+     * LEGACY COMPATIBILITY - Use getValidRulesIDList() instead.
      * 
      * @return list of valid rule IDs, or empty list if none
      */
+    @JsonIgnore
     public List<String> getValidRulesList() {
         if (validRulesID == null || validRulesID.trim().isEmpty()) {
             return List.of();
@@ -387,9 +424,11 @@ public class ValidationStatObservation {
     
     /**
      * Gets the list of invalid rule identifiers as a list.
+     * LEGACY COMPATIBILITY - Use getInvalidRulesIDList() instead.
      * 
      * @return list of invalid rule IDs, or empty list if none
      */
+    @JsonIgnore
     public List<String> getInvalidRulesList() {
         if (invalidRulesID == null || invalidRulesID.trim().isEmpty()) {
             return List.of();
@@ -499,36 +538,42 @@ public class ValidationStatObservation {
     
     /**
      * Compatibility method for legacy code that uses getSnapshotID.
+     * LEGACY - Use getSnapshotId() instead.
      * 
      * @return the snapshot ID
      */
+    @JsonIgnore
     public Long getSnapshotID() {
         return getSnapshotId();
     }
     
     /**
      * Compatibility method for legacy code that uses setSnapshotID.
+     * LEGACY - Use setSnapshotId() instead.
      * 
      * @param snapshotID the snapshot ID to set
      */
+    @JsonIgnore
     public void setSnapshotID(Long snapshotID) {
         setSnapshotId(snapshotID);
     }
     
     /**
-     * Gets the list of valid rule IDs as a list (alias for compatibility).
-     * 
+     * Gets the list of valid rule IDs as a list (serialized as `validRulesID`).
+     *
      * @return list of valid rule IDs
      */
+    @JsonProperty("validRulesID")
     public List<String> getValidRulesIDList() {
         return getValidRulesList();
     }
     
     /**
-     * Gets the list of invalid rule IDs as a list (alias for compatibility).
-     * 
+     * Gets the list of invalid rule IDs as a list (serialized as `invalidRulesID`).
+     *
      * @return list of invalid rule IDs
      */
+    @JsonProperty("invalidRulesID")
     public List<String> getInvalidRulesIDList() {
         return getInvalidRulesList();
     }
