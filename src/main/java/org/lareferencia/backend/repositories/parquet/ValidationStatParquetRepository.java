@@ -758,6 +758,8 @@ public class ValidationStatParquetRepository {
         long totalFilteredRecords = 0;
         
         // STREAMING: Leer records de forma lazy
+        // OPTIMIZACIÓN DE MEMORIA: Solo guardamos (add) los records de la página actual
+        // PERO seguimos contando TODOS los filtrados para tener totalFiltered correcto
         try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
             
             for (RecordValidation record : reader) {
@@ -772,25 +774,23 @@ public class ValidationStatParquetRepository {
                 long filteredIndex = totalFilteredRecords;
                 totalFilteredRecords++;
                 
-                // ¿Está en el rango de la página actual? [offset, limit)
+                // OPTIMIZACIÓN: Solo agregamos a la lista si está en el rango de la página actual
+                // Esto ahorra memoria al no almacenar records fuera del rango [offset, limit)
                 // Página 0: offset=0, limit=20 → índices [0-19]
                 // Página 1: offset=20, limit=40 → índices [20-39]
                 if (filteredIndex >= offset && filteredIndex < limit) {
                     pageRecords.add(record);
-                    
-                    // OPTIMIZACIÓN: Si ya completamos la página, podemos parar
-                    if (pageRecords.size() >= (limit - offset)) {
-                        logger.debug("PAGINATION: Page complete, stopping early at record {}", totalRecordsProcessed);
-                        break;
-                    }
                 }
+                // Si filteredIndex < offset → estamos ANTES de la página, solo contamos
+                // Si filteredIndex >= limit → estamos DESPUÉS de la página, solo contamos
+                // En ambos casos seguimos iterando para tener el total correcto
             }
         }
         
         logger.info("PAGINATION COMPLETED: processed={} records, filtered={}, returned={} for page", 
                    totalRecordsProcessed, totalFilteredRecords, pageRecords.size());
         
-        // Retornar resultado con página y total
+        // Retornar resultado con página y total REAL
         Map<String, Object> result = new HashMap<>();
         result.put("records", pageRecords);
         result.put("totalFiltered", totalFilteredRecords);
