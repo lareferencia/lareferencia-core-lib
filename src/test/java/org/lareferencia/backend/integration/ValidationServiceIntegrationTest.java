@@ -1,12 +1,15 @@
 package org.lareferencia.backend.integration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.lareferencia.backend.domain.Validator;
 import org.lareferencia.backend.domain.ValidatorRule;
 import org.lareferencia.backend.services.ValidationService;
+import org.lareferencia.backend.validation.validator.RegexFieldContentValidatorRule;
 import org.lareferencia.core.validation.*;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -14,10 +17,17 @@ import static org.junit.jupiter.api.Assertions.*;
 class ValidationServiceIntegrationTest {
 
     private ValidationService validationService;
+    private RuleSerializer ruleSerializer;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         validationService = new ValidationService();
+        ruleSerializer = new RuleSerializer();
+        objectMapper = new ObjectMapper();
+        
+        // Inject the serializer using reflection (simulating @Autowired)
+        ReflectionTestUtils.setField(validationService, "serializer", ruleSerializer);
     }
 
     @Test
@@ -31,7 +41,14 @@ class ValidationServiceIntegrationTest {
         rule.setName("Title Required");
         rule.setMandatory(true);
         rule.setQuantifier(QuantifierValues.ONE_ONLY);
-        rule.setJsonserialization("{\"@type\":\"MandatoryFieldContentValidationRule\",\"ruleId\":1,\"mandatory\":true,\"quantifier\":\"ONE_ONLY\",\"fieldname\":\"dc:title\"}");
+        
+        // Create a real validator rule and serialize it properly
+        RegexFieldContentValidatorRule regexRule = new RegexFieldContentValidatorRule();
+        regexRule.setFieldname("dc:title");
+        regexRule.setRegexString(".*");
+        
+        String json = objectMapper.writeValueAsString(regexRule);
+        rule.setJsonserialization(json);
         
         validatorModel.getRules().add(rule);
 
