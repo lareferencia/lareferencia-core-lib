@@ -313,19 +313,68 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     /**
-     * Query valid rule occurrences count by snapshot ID and rule ID (SIMPLIFIED)
+     * Query valid rule occurrences count by snapshot ID and rule ID.
+     * 
+     * IMPLEMENTACIÓN:
+     * - Calcula SIEMPRE desde archivos Parquet (no hay datos precomputados)
+     * - Lee todos los records del snapshot usando streaming
+     * - Agrega occurrences por valor para la regla específica
+     * - Aplica filtros opcionales si se proporcionan
+     * 
+     * @param snapshotID ID del snapshot
+     * @param ruleID ID de la regla
+     * @param fq filtros opcionales
+     * @return objeto con listas de OccurrenceCount para valid e invalid occurrences
      */
     public ValidationRuleOccurrencesCount queryValidRuleOccurrencesCountBySnapshotID(Long snapshotID, Long ruleID, List<String> fq) {
-        logger.debug("SIMPLIFIED: Query rule occurrences for snapshot={}, rule={}", snapshotID, ruleID);
+        logger.info("QUERY RULE OCCURRENCES: snapshot={}, rule={}, filters={}", snapshotID, ruleID, fq);
         
         ValidationRuleOccurrencesCount result = new ValidationRuleOccurrencesCount();
         
-        // TODO: Implementar lectura desde Layer 3 (RuleFacts) cuando sea necesario
-        // Por ahora retorna listas vacías
-        result.setValidRuleOccrs(new ArrayList<>());
-        result.setInvalidRuleOccrs(new ArrayList<>());
+        try {
+            // Calcular occurrences desde Parquet (streaming)
+            Map<String, Map<String, Integer>> occurrences = parquetRepository.calculateRuleOccurrences(
+                snapshotID, 
+                ruleID.intValue(), 
+                fq
+            );
+            
+            // Convertir Map<String, Integer> a List<OccurrenceCount> para valid occurrences
+            Map<String, Integer> validMap = occurrences.get("valid");
+            List<OccurrenceCount> validOccrs = new ArrayList<>();
+            if (validMap != null) {
+                validMap.forEach((value, count) -> {
+                    validOccrs.add(new OccurrenceCount(value, count));
+                });
+            }
+            
+            // Convertir Map<String, Integer> a List<OccurrenceCount> para invalid occurrences
+            Map<String, Integer> invalidMap = occurrences.get("invalid");
+            List<OccurrenceCount> invalidOccrs = new ArrayList<>();
+            if (invalidMap != null) {
+                invalidMap.forEach((value, count) -> {
+                    invalidOccrs.add(new OccurrenceCount(value, count));
+                });
+            }
+            
+            // Ordenar por count descendente (más frecuentes primero)
+            validOccrs.sort((a, b) -> b.getCount().compareTo(a.getCount()));
+            invalidOccrs.sort((a, b) -> b.getCount().compareTo(a.getCount()));
+            
+            result.setValidRuleOccrs(validOccrs);
+            result.setInvalidRuleOccrs(invalidOccrs);
+            
+            logger.info("RULE OCCURRENCES QUERY COMPLETED: snapshot={}, rule={}, valid={}, invalid={}", 
+                       snapshotID, ruleID, validOccrs.size(), invalidOccrs.size());
+            
+        } catch (IOException e) {
+            logger.error("Error calculating rule occurrences for snapshot={}, rule={}: {}", 
+                        snapshotID, ruleID, e.getMessage(), e);
+            // Retornar listas vacías en caso de error
+            result.setValidRuleOccrs(new ArrayList<>());
+            result.setInvalidRuleOccrs(new ArrayList<>());
+        }
         
-        logger.debug("Rule occurrences query completed (not yet implemented in new architecture)");
         return result;
     }
 

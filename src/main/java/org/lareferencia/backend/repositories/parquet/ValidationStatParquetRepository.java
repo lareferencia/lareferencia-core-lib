@@ -660,4 +660,93 @@ public class ValidationStatParquetRepository {
                     snapshotId, snapshotStats.getTotalRecords());
         return snapshotStats;
     }
+    
+    /**
+     * Calcula las ocurrencias (válidas e inválidas) para una regla específica en un snapshot.
+     * 
+     * IMPLEMENTACIÓN:
+     * - Lee TODOS los archivos batch del snapshot usando ValidationRecordManager
+     * - Filtra records que tienen la regla especificada
+     * - Agrega occurrences por valor (contando duplicados)
+     * - Aplica filtros opcionales (fq) si se proporcionan
+     * 
+     * PERFORMANCE:
+     * - Streaming: No carga todos los records en memoria
+     * - Lazy iteration: Procesa record por record
+     * - Solo lee campos necesarios: ruleFacts con occurrences
+     * 
+     * @param snapshotId ID del snapshot
+     * @param ruleId ID de la regla a analizar
+     * @param fq filtros opcionales (formato: "field@@value")
+     * @return mapa con dos entradas: "valid" y "invalid", cada una con Map<String, Integer> de valores a conteos
+     * @throws IOException si hay error leyendo los archivos Parquet
+     */
+    public Map<String, Map<String, Integer>> calculateRuleOccurrences(Long snapshotId, Integer ruleId, List<String> fq) 
+            throws IOException {
+        logger.info("CALCULATE RULE OCCURRENCES: snapshot={}, rule={}, filters={}", snapshotId, ruleId, fq);
+        
+        // Parsear filtros si existen
+        ParsedFilters filters = parseFilters(fq != null ? fq : Collections.emptyList());
+        logger.info("PARSED FILTERS: isValid={}, isTransformed={}, invalidRuleIds={}, validRuleIds={}", 
+                   filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
+        
+        // Mapas para acumular occurrences: valor -> count
+        Map<String, Integer> validOccurrences = new HashMap<>();
+        Map<String, Integer> invalidOccurrences = new HashMap<>();
+        
+        long totalRecordsProcessed = 0;
+        long recordsWithRule = 0;
+        long recordsFilteredOut = 0;
+        
+        // Leer todos los records usando ValidationRecordManager (streaming)
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+            
+            for (RecordValidation record : reader) {
+                totalRecordsProcessed++;
+                
+                // Aplicar filtros generales si existen
+                if (!matchesFilters(record, filters)) {
+                    recordsFilteredOut++;
+                    continue;
+                }
+                
+                // Buscar la regla específica en los RuleFacts del record
+                if (record.getRuleFacts() == null) {
+                    continue;
+                }
+                
+                for (RuleFact fact : record.getRuleFacts()) {
+                    if (fact.getRuleId() == null || !fact.getRuleId().equals(ruleId)) {
+                        continue;
+                    }
+                    
+                    recordsWithRule++;
+                    
+                    // Agregar valid occurrences
+                    if (fact.getValidOccurrences() != null) {
+                        for (String value : fact.getValidOccurrences()) {
+                            validOccurrences.merge(value, 1, Integer::sum);
+                        }
+                    }
+                    
+                    // Agregar invalid occurrences
+                    if (fact.getInvalidOccurrences() != null) {
+                        for (String value : fact.getInvalidOccurrences()) {
+                            invalidOccurrences.merge(value, 1, Integer::sum);
+                        }
+                    }
+                }
+            }
+        }
+        
+        logger.info("RULE OCCURRENCES CALCULATED: processed={} records, filteredOut={}, found={} with rule {}, valid occurrences={}, invalid occurrences={}", 
+                   totalRecordsProcessed, recordsFilteredOut, recordsWithRule, ruleId, validOccurrences.size(), invalidOccurrences.size());
+        
+        // Retornar resultado estructurado
+        Map<String, Map<String, Integer>> result = new HashMap<>();
+        result.put("valid", validOccurrences);
+        result.put("invalid", invalidOccurrences);
+        
+        return result;
+    }
 }
