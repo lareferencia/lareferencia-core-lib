@@ -26,7 +26,8 @@ import java.util.List;
 
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.domain.IOAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
@@ -81,7 +82,7 @@ public class RemoveDuplicateVocabularyOccrsRule extends AbstractTransformerRule 
 	 * @return true if any duplicate occurrences were removed, false otherwise
 	 */
 	@Override
-	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
 		
 		vocabularyOccurreces.clear();
 

@@ -1,5 +1,5 @@
 /*
- *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
+ *   Copyright (c) 2013-2025. LA Referencia / Red CLARA and others
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU Affero General Public License as published by
@@ -27,23 +27,23 @@ import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.Network;
-import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.backend.domain.SnapshotStatus;
 import org.lareferencia.backend.domain.Validator;
+import org.lareferencia.backend.domain.parquet.OAIRecord;
+import org.lareferencia.backend.repositories.parquet.OAIRecordParquetRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
 import org.lareferencia.core.harvester.HarvestingEvent;
 import org.lareferencia.core.harvester.IHarvester;
 import org.lareferencia.core.harvester.IHarvestingEventListener;
-import org.lareferencia.core.metadata.IMetadataRecordStoreService;
-import org.lareferencia.core.metadata.MetadataRecordStoreException;
+import org.lareferencia.core.metadata.IMetadataStore;
+import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.date.DateHelper;
 import org.lareferencia.core.validation.IValidator;
 import org.lareferencia.core.validation.ValidationException;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.worker.BaseWorker;
-import org.lareferencia.core.worker.IWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,15 +56,33 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * Worker that performs OAI-PMH harvesting operations.
- * <p>
- * Handles the complete harvesting workflow including metadata fetching,
- * validation, and storage.
- * </p>
+ * Worker de harvesting que usa almacenamiento Parquet.
+ * 
+ * ARQUITECTURA NUEVA:
+ * - ISnapshotStore: Gestiona metadata de snapshots (SQL)
+ * - OAIRecordManager: Gestiona records en Parquet (catálogo inmutable)
+ * - IMetadataStore: Gestiona XML de metadata (filesystem)
+ * 
+ * DIFERENCIAS CON HarvestingWorkerLegacy (SQL):
+ * - Usa OAIRecordManager en lugar de IMetadataRecordStoreService para records
+ * - Usa ISnapshotStore para operaciones de snapshot
+ * - Records se escriben en Parquet (OAIRecord catálogo inmutable)
+ * - Contadores de snapshot se actualizan vía ISnapshotStore
+ * 
+ * FLUJO:
+ * 1. Crear snapshot (ISnapshotStore)
+ * 2. Abrir OAIRecordManager para escritura
+ * 3. Por cada record harvested:
+ *    - Guardar XML en IMetadataStore
+ *    - Crear OAIRecord Parquet vía OAIRecordManager
+ *    - Incrementar contador en ISnapshotStore
+ * 4. Cerrar OAIRecordManager (flush final)
+ * 5. Actualizar estado de snapshot
  * 
  * @author LA Referencia Team
  */
-public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implements IWorker<NetworkRunningContext>, IHarvestingEventListener {
+public class HarvestingWorker extends BaseWorker<NetworkRunningContext> 
+                               implements IHarvestingEventListener {
 
 	private static final String DEFAULT_GRANDULARITY = "YYYY-MM-DDThh:mm:ssZ";
 
@@ -80,13 +98,25 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 	@Autowired
 	private ValidationService validationManager;
 	
+	@Autowired
+	private ISnapshotStore snapshotStore;
+	
+	@Autowired
+	private IMetadataStore metadataStore;
+	
+	@Autowired
+	private OAIRecordParquetRepository oaiRecordRepository;
+	
+	@Autowired
+	private SnapshotLogService snapshotLogService;
+	
 	/**
-	 * Validator for harvested records.
+	 * Validator para records harvested.
 	 */
 	private IValidator validator;
 
 	/**
-	 * Creates a new harvesting worker.
+	 * Crea un nuevo harvesting worker Parquet.
 	 */
 	public HarvestingWorker()  {
 		super();
@@ -95,67 +125,52 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 
 	@Override
 	public String toString() {
-		return "Harvesting";
+		return "Harvesting (Parquet)";
 	}
 
 	@Value("${harvester.max.retries}")
 	private int MAX_RETRIES;
 
-	@Autowired 
-	private IMetadataRecordStoreService metadataStoreService;
-
-	@Autowired
-	private SnapshotLogService snapshotLogService;
-
-
 	/**
-	 * The harvester instance for fetching records.
+	 * Instancia de harvester para fetch de records.
 	 */
 	private IHarvester harvester;
 
 	/**
-	 * Sets the harvester and registers this worker as event listener.
+	 * Configura el harvester y registra este worker como event listener.
 	 * 
-	 * @param harvester the harvester to use
+	 * @param harvester el harvester a usar
 	 */
 	@Autowired
 	public void setHarvester(IHarvester harvester) {
 		this.harvester = harvester;
-
-		// los eventos de harvesting serán manejados por el worker
+		// Los eventos de harvesting serán manejados por el worker
 		harvester.addEventListener(this);
 	}
 	
 	private Long snapshotId;
-
-	// this will hold the previous snapshot id when the harvesting is incremental
+	
+	// ID del snapshot anterior (para harvesting incremental)
 	private Long previousSnapshotId;
-
 
 	ValidatorResult validatorResult;
 
 	private String from = null;
 
 	private Boolean bySetHarvesting = false;
-	private  String currentSetSpec = null;
-
+	private String currentSetSpec = null;
 
 	/**
-	 * Creates a harvesting worker for a specific network.
+	 * Crea un harvesting worker para una red específica.
 	 * 
-	 * @param network the network to harvest
+	 * @param network la red a cosechar
 	 */
 	public HarvestingWorker(Network network) {
-		super( new NetworkRunningContext(network) );
-	};
-	
-	
-//	public NetworkSnapshot getSnapshot() {
-//		return snapshotId;
-//	}
+		super(new NetworkRunningContext(network));
+	}
 
 	/**
-	 * Stops the harvesting process.
+	 * Detiene el proceso de harvesting.
 	 */
 	@Override
 	public void stop() {
@@ -163,9 +178,9 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		logInfoMessage(runningContext.toString() + " Stop signal received - Harvesting is stopping");
 		harvester.stop();
 
-		metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
-		metadataStoreService.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());
-		metadataStoreService.saveSnapshot(snapshotId);
+		snapshotStore.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+		snapshotStore.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());
+		snapshotStore.saveSnapshot(snapshotId);
 
 		try {
 			Thread.sleep(1000);
@@ -175,150 +190,187 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		super.stop();		
 	}
 
-	/*
-	 * 
-	 * @throws Exception
+	/**
+	 * Ejecuta el proceso de harvesting.
 	 */
 	@Override
 	public void run() {
 
-		// create identify map for contain the information of identify request
+		// Mapa de identify para contener información del request identify
 		Map<String, String> identifyMap = null;
 
-		// date granularity
+		// Granularidad de fecha
 		String granularity = DEFAULT_GRANDULARITY;
 
-		// create a validator result for reusing the object in the loop
+		// Crear validator result para reutilizar el objeto en el loop
 		validatorResult = new ValidatorResult();
 
-		// start datestamp
-		// LocalDateTime startDatestamp = null;
+		// Timestamps
 		LocalDateTime startDateStamp = LocalDateTime.now();
-		LocalDateTime previusSnapshotStartDatestamp = null;
+		LocalDateTime previousSnapshotStartDatestamp = null;
 
-		// check if the url is valid by trying to connect to it with identify verb
+		// URL de origen
 		String originURL = runningContext.getNetwork().getOriginURL();
 
+		// Crear el snapshot
+		snapshotId = snapshotStore.createSnapshot(runningContext.getNetwork());
 
-		// create the snapshot
-		snapshotId = metadataStoreService.createSnapshot( runningContext.getNetwork() );
+		// Configurar timestamp de inicio
+		snapshotStore.updateSnapshotStartDatestamp(snapshotId, startDateStamp);
 
-		// set the snapshot start datetime
-		metadataStoreService.updateSnapshotStartDatestamp(snapshotId, startDateStamp);
+		// Inicializar repositorio Parquet para escritura
+		try {
+			oaiRecordRepository.initializeSnapshot(snapshotId);
+			logInfoMessage("PARQUET: Repository initialized for writing - snapshot " + snapshotId);
+		} catch (Exception e) {
+			logErrorMessage("PARQUET: Error initializing repository: " + e.getMessage());
+			snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+			return;
+		}
 
-		// if fetch identify is true, will try to fetch the identify information
-		//if ( runningContext.getNetwork().getBooleanPropertyValue("HARVEST_IDENTIFY_PARAMETERS") ) {
-		if ( this.fetchIdentifyParameters ) {
+		// Fetch identify parameters si está habilitado
+		if (this.fetchIdentifyParameters) {
 			logger.debug("FETCH_IDENTIFY_PARAMETERS is true, fetching identify parameters");
-			identifyMap =  harvester.identify(originURL);
-			if ( identifyMap != null && identifyMap.containsKey("granularity") && identifyMap.get("granularity") != null
-					&& !identifyMap.get("granularity").isEmpty() ) {
-
+			identifyMap = harvester.identify(originURL);
+			if (identifyMap != null && identifyMap.containsKey("granularity") && 
+			    identifyMap.get("granularity") != null && !identifyMap.get("granularity").isEmpty()) {
 				logInfoMessage("Identify Granularity found: " + identifyMap.get("granularity"));
 				granularity = identifyMap.get("granularity");
 			} else {
 				logInfoMessage("Identify Granularity not found, using default granularity: " + granularity);
 			}
-		} else { // if fetch identify is false, will use the default granularity
+		} else {
 			logInfoMessage("Using default granularity: " + granularity);
 		}
-
 
 		if (runningContext.getNetwork() != null) {
 			
 			Validator validatorModel = runningContext.getNetwork().getPrevalidator();
 				
-		    if ( validatorModel  != null ) {
+		    if (validatorModel != null) {
 		    	
 				try {
-					validator = validationManager.createValidatorFromModel( validatorModel );
-					logInfoMessage(runningContext.toString() + " Prevalidator found and loaded: " + validatorModel.getName() + " - Harvested records will be filtered, and only valid ones will be counted and stored");
+					validator = validationManager.createValidatorFromModel(validatorModel);
+					logInfoMessage(runningContext.toString() + " Prevalidator found and loaded: " + 
+					             validatorModel.getName() + " - Harvested records will be filtered");
 					
 				} catch (ValidationException e) {
-					logErrorMessage(runningContext.toString() + " Prevalidator found - error loading: " + validatorModel.getName());
+					logErrorMessage(runningContext.toString() + " Prevalidator found - error loading: " + 
+					              validatorModel.getName());
 				}
 					
 		    } 
 		    
-			// caso de harvesting incremental
+			// Caso de harvesting incremental
 			
-			// forces full harvesting
-			if ( runningContext.getNetwork().getBooleanPropertyValue("FORCE_FULL_HARVESTING") ) {
+			// Forzar full harvesting si está configurado
+			if (runningContext.getNetwork().getBooleanPropertyValue("FORCE_FULL_HARVESTING")) {
 				logger.debug("Forcing full harvesting");
 				this.setIncremental(false);			
 			}
 
-			logger.debug("Is incremental harvesting?: " + this.isIncremental() );
+			logger.debug("Is incremental harvesting?: " + this.isIncremental());
 	
-			if ( isIncremental() ) {
+			if (isIncremental()) {
 				
-				// get the last good known snapshot if exists (the last one that finished with status VALID)
-				previousSnapshotId = metadataStoreService.findLastGoodKnownSnapshot( runningContext.getNetwork() );
+				// Obtener el último snapshot válido
+				previousSnapshotId = snapshotStore.findLastGoodKnownSnapshot(runningContext.getNetwork());
 					
-				if ( previousSnapshotId == null ) {
-					logInfoMessage(runningContext.toString() + " There isn't any previous snapshot. Launching full harvesting instead ...");
+				if (previousSnapshotId == null) {
+					logInfoMessage(runningContext.toString() + 
+					             " There isn't any previous snapshot. Launching full harvesting instead ...");
 					this.setIncremental(false);
 				} 
-				else { 	// if there is a previous snapshot, get the last incremental datestamp
+				else {
+					previousSnapshotStartDatestamp = snapshotStore.getSnapshotStartDatestamp(previousSnapshotId);
 
-					previusSnapshotStartDatestamp = metadataStoreService.getSnapshotStartDatestamp(previousSnapshotId);
+					// Configurar fecha from para el harvester
+					from = DateHelper.getDateTimeFormattedStringFromGranularity(
+					    previousSnapshotStartDatestamp, granularity);
 
-					// set the from date for the harvester
-					from =  DateHelper.getDateTimeFormattedStringFromGranularity(previusSnapshotStartDatestamp,granularity); //DateHelper.getDateTimeMachineString(startDatestamp);
-
-					logInfoMessage(runningContext.toString() + " Setting up incremental harvesting from date: " + from + " based on snapshot: " + previousSnapshotId);
+					logInfoMessage(runningContext.toString() + 
+					             " Setting up incremental harvesting from date: " + from + 
+					             " based on snapshot: " + previousSnapshotId);
 				}			
 			}
 
 		} else {
-			logErrorMessage("Network does't exists("+ runningContext.toString()+"), cannot continue. Breaking ...");
+			logErrorMessage("Network doesn't exists(" + runningContext.toString() + 
+			              "), cannot continue. Breaking ...");
 			return;
 		}
 
-		logInfoMessage("Harvesting is starting for "+ runningContext.toString()+"...");
+		logInfoMessage("Harvesting is starting for " + runningContext.toString() + "...");
 				
-		metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING);
-		metadataStoreService.saveSnapshot(snapshotId);
+		snapshotStore.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING);
+		snapshotStore.saveSnapshot(snapshotId);
 
-		// inicialización del harvester
+		// Inicialización del harvester
 		harvester.reset();
 		runOAIPMHHarvesting();
 		
-		// when the harvesting is finished, check if there are errors
+		// Cuando el harvesting termina, verificar si hay errores
 
-		// if the size of the snapshot is 0 and is not incremental, then there are no records harvested and the status should be HARVESTING_FINISHED_ERROR
-		if ( metadataStoreService.getSnapshotSize(snapshotId) < 1 && ! isIncremental() ) {
-			logErrorMessage( runningContext.toString() + " :: No records found !!");
-			metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+		// Si el tamaño del snapshot es 0 y no es incremental, no hay records
+		if (snapshotStore.getSnapshotSize(snapshotId) < 1 && !isIncremental()) {
+			logErrorMessage(runningContext.toString() + " :: No records found !!");
+			snapshotStore.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
 		}
 		
-		// if the snapshot status is not HARVESTING_FINISHED_ERROR, then the harvesting finished successfully
-		if (metadataStoreService.getSnapshotStatus(snapshotId) != SnapshotStatus.HARVESTING_FINISHED_ERROR) {
+		// Si el status no es error, el harvesting terminó exitosamente
+		if (snapshotStore.getSnapshotStatus(snapshotId) != SnapshotStatus.HARVESTING_FINISHED_ERROR) {
 
-			if ( isIncremental() && previousSnapshotId != null  ) {
-				// copy the previous snapshot records to the current snapshot avoiding duplicates and deleted records
-				logInfoMessage(runningContext.toString() + " :: getting records from previous snapshot: " + previousSnapshotId);
-				metadataStoreService.updateSnapshotLastIncrementalDatestamp(snapshotId, previusSnapshotStartDatestamp);
-				metadataStoreService.setPreviousSnapshotId(snapshotId, previousSnapshotId);
-				metadataStoreService.copyNotDeletedRecordsFromSnapshot(previousSnapshotId, snapshotId);
+			if (isIncremental() && previousSnapshotId != null) {
+				// TODO: Copiar records del snapshot anterior (requiere implementación en RecordStore)
+				logInfoMessage(runningContext.toString() + 
+				             " :: getting records from previous snapshot: " + previousSnapshotId);
+				snapshotStore.updateSnapshotLastIncrementalDatestamp(snapshotId, previousSnapshotStartDatestamp);
+				snapshotStore.setPreviousSnapshotId(snapshotId, previousSnapshotId);
+				
+				// TODO: Implementar copyNotDeletedRecordsFromSnapshot para Parquet
+				// metadataStoreService.copyNotDeletedRecordsFromSnapshot(previousSnapshotId, snapshotId);
 			}
 
-			logInfoMessage( runningContext.toString() + " :: Harvesting ended successfully.");
+			logInfoMessage(runningContext.toString() + " :: Harvesting ended successfully.");
 
-			metadataStoreService.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
-			metadataStoreService.updateSnapshotStartDatestamp(snapshotId, startDateStamp);						
-			metadataStoreService.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());	
-			metadataStoreService.saveSnapshot(snapshotId);
+			snapshotStore.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+			snapshotStore.updateSnapshotStartDatestamp(snapshotId, startDateStamp);						
+			snapshotStore.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());	
+			snapshotStore.saveSnapshot(snapshotId);
 
 		} else {
-			logErrorMessage (runningContext.toString() + " :: Harvesting ended with errors !!!");
+			logErrorMessage(runningContext.toString() + " :: Harvesting ended with errors !!!");
+			snapshotStore.saveSnapshot(snapshotId);
 		}
+		
+		// Cerrar repositorio Parquet (flush final) - SE CIERRA SIEMPRE al final
+		closeOAIRecordRepository();
 
-	} // end of run method
+	}
 	
+	/**
+	 * Cierra el repositorio Parquet de forma segura.
+	 */
+	private void closeOAIRecordRepository() {
+		if (oaiRecordRepository != null && oaiRecordRepository.hasActiveManager(snapshotId)) {
+			try {
+				Map<String, Object> info = oaiRecordRepository.getManagerInfo(snapshotId);
+				oaiRecordRepository.finalizeSnapshot(snapshotId);
+				logInfoMessage("PARQUET: Repository closed - " + 
+				             info.get("recordsWritten") + " records written in " + 
+				             info.get("batchCount") + " batch files");
+			} catch (Exception e) {
+				logErrorMessage("PARQUET: Error closing repository: " + e.getMessage());
+			}
+		}
+	}
+	
+	/**
+	 * Verifica si el metadata pasa la prevalidación.
+	 */
 	private Boolean metadataPassPrevalidation(OAIRecordMetadata metadata) throws ValidationException {
 		
-		if ( validator == null )
+		if (validator == null)
 			return true;
 		else {
 			validatorResult = validator.validate(metadata, validatorResult);
@@ -327,46 +379,51 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		
 	}
 
-
-	/*************************************************************/
-
+	/**
+	 * Ejecuta el harvesting OAI-PMH.
+	 */
 	private void runOAIPMHHarvesting() {
 
 		String originURL = runningContext.getNetwork().getOriginURL();
 		String metadataPrefix = runningContext.getNetwork().getMetadataPrefix();
 		String metadataStoreSchema = runningContext.getNetwork().getMetadataStoreSchema();
 
-		//String until = "2022-01-01";
 		String until = null;
 
 		List<String> sets = runningContext.getNetwork().getSets();
 		
-		if ( originURL != null ) {
+		if (originURL != null) {
 		
-			// si tiene sets declarados solo va a cosechar
+			// Si tiene sets declarados solo cosecha esos
 			if (sets != null && sets.size() > 0) {
 
 				bySetHarvesting = true;
 
-				logInfoMessage("There are defined sets. Harvesting configured sets for "+ runningContext.toString());
-				logInfoMessage("Please note that sets may not be disjoint, so the same record may be harvested more than once");
+				logInfoMessage("There are defined sets. Harvesting configured sets for " + 
+				             runningContext.toString());
+				logInfoMessage("Please note that sets may not be disjoint, " + 
+				             "so the same record may be harvested more than once");
 
 				for (String set : sets) {
-					logInfoMessage("Harvesting set: " + set + " for "+ runningContext.toString());
+					logInfoMessage("Harvesting set: " + set + " for " + runningContext.toString());
 					currentSetSpec = set;
-					harvester.harvest(originURL, set, metadataPrefix, metadataStoreSchema, from, until,  null, MAX_RETRIES);
+					harvester.harvest(originURL, set, metadataPrefix, metadataStoreSchema, 
+					                from, until, null, MAX_RETRIES);
 				}
 			}
-			// si no hay set declarado cosecha todo
+			// Si no hay set declarado cosecha todo
 			else {
-
-				logInfoMessage("There aren't defined sets. Harvesting the entire collection for " + runningContext.toString());
-				harvester.harvest(originURL, null, metadataPrefix, metadataStoreSchema, from, until, null, MAX_RETRIES);
+				logInfoMessage("There aren't defined sets. Harvesting the entire collection for " + 
+				             runningContext.toString());
+				harvester.harvest(originURL, null, metadataPrefix, metadataStoreSchema, 
+				                from, until, null, MAX_RETRIES);
 			}
 		}
 	}
 
-
+	/**
+	 * Maneja eventos de harvesting.
+	 */
 	@Override
 	public void harvestingEventOccurred(HarvestingEvent event) {
 		
@@ -375,95 +432,100 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		
 		TransactionStatus transactionStatus = transactionManager.getTransaction(transactionDefinition);
 
-		logger.debug(runningContext.getNetwork().getName() + "  HarvestingEvent received: " + event.getStatus());
+		logger.debug(runningContext.getNetwork().getName() + "  HarvestingEvent received: " + 
+		           event.getStatus());
 
 		switch (event.getStatus()) {
 
 		case OK:
 
-			// if some record is missing, log the error
-			if ( event.isRecordMissing() ) {
-				logErrorMessage("Some record metadata is missing RT:" + event.getResumptionToken() + " identifiers: " + event.getMissingRecordsIdentifiers() );
+			// Si algún record está missing, loguear el error
+			if (event.isRecordMissing()) {
+				logErrorMessage("Some record metadata is missing RT:" + event.getResumptionToken() + 
+				              " identifiers: " + event.getMissingRecordsIdentifiers());
 			}
 			
-			// if is an incremental harvesting, then get the deleted records
-			if ( isIncremental() ) {
+			// Si es harvesting incremental, procesar deleted records
+			if (isIncremental()) {
 
 				try {
 
-					OAIRecord record = null;
+					// Procesar deleted records
+					for (String deletedRecordIdentifier : event.getDeletedRecordsIdentifiers()) {
+						createDeletedRecord(deletedRecordIdentifier, LocalDateTime.now());
+					}
 
-					// process the deleted records
-					for (String deletedRecordIdentifier : event.getDeletedRecordsIdentifiers())
-						record = metadataStoreService.createDeletedRecord(snapshotId, deletedRecordIdentifier, LocalDateTime.now());
+					// Loguear deleted records
+					if (!event.getDeletedRecordsIdentifiers().isEmpty()) {
+						logger.debug("Stored as deleted:" + event.getDeletedRecordsIdentifiers() + 
+						           " for " + runningContext.toString());
+					}
 
-					// log the deleted records
-					if (!event.getDeletedRecordsIdentifiers().isEmpty())
-						logger.debug("Stored as deleted:" + event.getDeletedRecordsIdentifiers() + " for " + runningContext.toString());
-
-				} catch (MetadataRecordStoreException e) {
-					logErrorMessage("Error storing deleted records for " + runningContext.toString() + " : " + e.getMessage());
 				} catch (Exception e) {
-					logErrorMessage("Unknown error storing deleted records for " + runningContext.toString() + " : " + e.getMessage());
+					logErrorMessage("Error storing deleted records for " + runningContext.toString() + 
+					              " : " + e.getMessage());
 				}
 
 			}
 			
-			
-			// add non delted records to the snapshot
+			// Agregar records no eliminados al snapshot
 			for (OAIRecordMetadata metadata : event.getRecords()) {
 
 				try {
 
-					OAIRecord record = null;
+					// Si el metadata pasa la prevalidación, almacenarlo
+					if (metadataPassPrevalidation(metadata)) {
+						createRecord(metadata);
+					}
 
-					// if the metadata pass the prevalidation, then store it
-					if (metadataPassPrevalidation(metadata))
-						record = metadataStoreService.createRecord(snapshotId, metadata);
-
-				} catch (MetadataRecordStoreException e) {
-					logErrorMessage("Error storing record " + metadata.getIdentifier() + " for " + runningContext.toString() + " : " + e.getMessage());
 				} catch (ValidationException e) {
-					logErrorMessage("Error prevalidating record " + metadata.getIdentifier() + " for " + runningContext.toString() + " : " + e.getMessage());
+					logErrorMessage("Error prevalidating record " + metadata.getIdentifier() + 
+					              " for " + runningContext.toString() + " : " + e.getMessage());
 				} catch (Exception e) {
 					logErrorMessage("Unknown record store error :: " + e.getMessage());
 				}
 			}
 			
-		
-			// FIXME: this is a workaround for the resumption token length problem
-			String resumptionToken = event.getResumptionToken();
-			if (resumptionToken != null && resumptionToken.length() > 255)
-				resumptionToken = resumptionToken.substring(0, 255);
+			// Flush periódico del repositorio Parquet (cada 10k records)
+			try {
+				Map<String, Object> info = oaiRecordRepository.getManagerInfo(snapshotId);
+				if (info != null) {
+					long recordsWritten = (long) info.get("recordsWritten");
+					if (recordsWritten % 10000 == 0 && recordsWritten > 0) {
+						oaiRecordRepository.flush(snapshotId);
+						logInfoMessage("PARQUET: Flushed " + recordsWritten + " records");
+					}
+				}
+			} catch (Exception e) {
+				logErrorMessage("PARQUET: Error flushing records: " + e.getMessage());
+			}
 
-			//snapshotId.setResumptionToken(resumptionToken);
-
-			// stores the status of the snapshot
-			metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING);
-			metadataStoreService.saveSnapshot(snapshotId);
+			// Actualizar estado del snapshot
+			snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING);
+			snapshotStore.saveSnapshot(snapshotId);
 
 			break;
 			
 		case NO_MATCHING_QUERY:
 
-			// if NO_MATCHING_QUERY is received, then
-			if ( ! bySetHarvesting ) { // if is not by set harvesting, then the harvesting is finished with error
+			// Si NO_MATCHING_QUERY, entonces
+			if (!bySetHarvesting) {
 
-				if ( isIncremental() ) { // if is incremental, then the harvesting is marked as valid
-					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
-					logInfoMessage("No records found in incremental harvesting" + runningContext.toString());
-
-					//metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.EMPTY_INCREMENTAL);
-				} else { // if is not incremental, then the harvesting is finished with error
-					metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+				if (isIncremental()) {
+					snapshotStore.updateSnapshotStatus(snapshotId, 
+					                                  SnapshotStatus.HARVESTING_FINISHED_VALID);
+					logInfoMessage("No records found in incremental harvesting" + 
+					             runningContext.toString());
+				} else {
+					snapshotStore.updateSnapshotStatus(snapshotId, 
+					                                  SnapshotStatus.HARVESTING_FINISHED_ERROR);
 					logInfoMessage("No records found!!! at " + runningContext.toString());
-
 				}
 
-			}
-			else { // if is by set harvesting, then the harvesting can be susscessful even when no records are found in this set
-				metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
-				logInfoMessage("No records found for the set: " + currentSetSpec + " at " + runningContext.toString());
+			} else {
+				snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+				logInfoMessage("No records found for the set: " + currentSetSpec + " at " + 
+				             runningContext.toString());
 			}
 
 			break;
@@ -471,49 +533,103 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext> implemen
 		case ERROR_RETRY:
 
 			logErrorMessage("Retry:" + event.getMessage());
-			metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.RETRYING);
+			snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.RETRYING);
 			break;
 
 		case ERROR_FATAL:
 
 			logErrorMessage("Fatal Error:" + event.getMessage());
-			metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+			snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
 			break;
 
 		case STOP_SIGNAL_RECEIVED:
 
 			logErrorMessage("Stop signal received:" + event.getMessage());
-			if ( metadataStoreService.getSnapshotSize(snapshotId) > 0 )
-				metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+			if (snapshotStore.getSnapshotSize(snapshotId) > 0)
+				snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
 			else
-				metadataStoreService.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+				snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+			
+			// Cerrar repositorio Parquet cuando se detiene el harvesting
+			closeOAIRecordRepository();
 			break;
 
 		default:
-			// TODO: decide what to do in this case
+			// TODO: decidir qué hacer en este caso
 			break;
 		}
 		
-		metadataStoreService.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());	
-		metadataStoreService.saveSnapshot(snapshotId);
+		snapshotStore.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());	
+		snapshotStore.saveSnapshot(snapshotId);
 		transactionManager.commit(transactionStatus);
 
 	}
 	
-	private void logErrorMessage(String message) {
+	/**
+	 * Crea un record en Parquet a partir de metadata OAI.
+	 * 
+	 * @param metadata el metadata OAI a almacenar
+	 * @throws Exception si falla la creación
+	 */
+	private void createRecord(OAIRecordMetadata metadata) throws Exception {
 		
-		logger.error(message);
-		snapshotLogService.addEntry(snapshotId, "ERROR: " + message);		
-
+		// 1. Guardar XML en IMetadataStore y obtener hash
+		String metadataStr = metadata.toString();
+		String hash = metadataStore.storeAndReturnHash(metadataStr);
+		
+		// 2. Crear OAIRecord Parquet
+		OAIRecord record = OAIRecord.create(
+			metadata.getIdentifier(),
+			metadata.getDatestamp(),
+			hash,
+			false // no deleted
+		);
+		
+		// 3. Escribir a Parquet vía repositorio
+		oaiRecordRepository.saveRecord(snapshotId, record);
+		
+		// 4. Incrementar contador en snapshot
+		snapshotStore.incrementSnapshotSize(snapshotId);
+		
+		logger.trace("PARQUET: Created record " + metadata.getIdentifier());
 	}
 	
-	private void logInfoMessage(String message) {
+	/**
+	 * Crea un deleted record marker en Parquet.
+	 * 
+	 * @param identifier el identificador OAI del record eliminado
+	 * @param dateStamp el timestamp de eliminación
+	 * @throws Exception si falla la creación
+	 */
+	private void createDeletedRecord(String identifier, LocalDateTime dateStamp) throws Exception {
 		
+		// Crear OAIRecord con flag deleted=true
+		OAIRecord record = OAIRecord.create(
+			identifier,
+			dateStamp,
+			null,  // sin hash (no hay metadata)
+			true   // deleted
+		);
+		
+		// Escribir a Parquet vía repositorio
+		oaiRecordRepository.saveRecord(snapshotId, record);
+		
+		logger.trace("PARQUET: Created deleted record marker " + identifier);
+	}
+	
+	/**
+	 * Loguea un mensaje de error.
+	 */
+	private void logErrorMessage(String message) {
+		logger.error(message);
+		snapshotLogService.addEntry(snapshotId, "ERROR: " + message);		
+	}
+	
+	/**
+	 * Loguea un mensaje informativo.
+	 */
+	private void logInfoMessage(String message) {
 		logger.info(message);
 		snapshotLogService.addEntry(snapshotId, "INFO: " + message);		
-
 	}
-
-
-
 }

@@ -1,12 +1,11 @@
 package org.lareferencia.backend.validation;
 
+import org.lareferencia.backend.domain.IOAIRecord;
 import org.lareferencia.backend.domain.NetworkSnapshot;
-import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.springframework.data.domain.Pageable;
 
-import com.codahale.metrics.Snapshot;
 
 import java.util.List;
 
@@ -89,11 +88,7 @@ public interface IValidationStatisticsService {
 
     void setDetailedDiagnose(Boolean booleanPropertyValue);
 
-    Boolean copyValidationStatsObservationsFromTo(Long previousSnapshotId, Long snapshotId);
-
-    void deleteValidationStatsObservationByRecordAndSnapshotID(Long snapshotId, OAIRecord record);
-
-    void addObservation(Long snapshotId, OAIRecord record, ValidatorResult reusableValidationResult);
+    void addObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult reusableValidationResult);
 
     void finalizeValidationForSnapshot(Long snapshotId);
 }

@@ -21,10 +21,7 @@
 package org.lareferencia.core.validation;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 
@@ -40,6 +37,8 @@ import lombok.Setter;
 public class ValidatorResult {
 
 	private boolean valid;
+	private boolean transformed;
+	private String metadataHash;
 	private List<ValidatorRuleResult> rulesResults = new ArrayList<ValidatorRuleResult>();
 
 	/**
@@ -97,7 +96,8 @@ public class ValidatorResult {
 		}
 		return toStr;
 	}
-	
+
+    
 	
 
 }

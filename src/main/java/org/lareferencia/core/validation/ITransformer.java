@@ -22,8 +22,9 @@ package org.lareferencia.core.validation;
 
 import java.util.List;
 
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.domain.IOAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
+import org.lareferencia.core.worker.NetworkRunningContext;
 
 /**
  * Interface for metadata transformers.
@@ -58,5 +59,5 @@ public interface ITransformer {
 	 * @return true if any transformation was applied, false otherwise
 	 * @throws ValidationException if transformation fails
 	 */
-	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
+	public boolean transform(NetworkRunningContext networkContext, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 }

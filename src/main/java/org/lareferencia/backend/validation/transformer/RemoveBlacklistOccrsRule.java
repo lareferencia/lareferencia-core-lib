@@ -23,7 +23,8 @@ package org.lareferencia.backend.validation.transformer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.domain.IOAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
@@ -69,7 +70,7 @@ public class RemoveBlacklistOccrsRule extends AbstractTransformerRule {
 
 
 	@Override
-	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
 		
 		removeList.clear();
 

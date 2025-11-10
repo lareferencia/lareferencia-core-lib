@@ -22,45 +22,52 @@ package org.lareferencia.backend.workers.validator;
 
 import java.text.NumberFormat;
 
+import org.apache.hadoop.thirdparty.org.checkerframework.checker.units.qual.s;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.SnapshotStatus;
+import org.lareferencia.backend.domain.parquet.OAIRecord;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
 import org.lareferencia.backend.validation.IValidationStatisticsService;
 import org.lareferencia.backend.validation.ValidationStatisticsException;
-import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.core.metadata.IMetadataRecordStoreService;
+import org.lareferencia.core.metadata.IMetadataStore;
+import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.MetadataRecordStoreException;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
 import org.lareferencia.core.metadata.RecordStatus;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.validation.ITransformer;
 import org.lareferencia.core.validation.IValidator;
 import org.lareferencia.core.validation.ValidationException;
 import org.lareferencia.core.validation.ValidatorResult;
-import org.lareferencia.core.worker.BaseBatchWorker;
-import org.lareferencia.core.worker.IPaginator;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.worker.OAIRecordParquetWorker;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
 
 /**
- * Worker that performs validation and transformation of harvested OAI records.
+ * Worker that performs validation and transformation of harvested OAI records using Parquet storage.
  * <p>
- * This worker processes batches of {@link OAIRecord} instances from a network snapshot,
+ * This is the NEW Parquet-based implementation that uses:
+ * - {@link org.lareferencia.backend.repositories.parquet.OAIRecordParquetRepository} for OAI records (Parquet)
+ * - {@link ISnapshotStore} for snapshot metadata (SQL)
+ * <p>
+ * For the legacy SQL-based implementation, see {@link ValidationWorkerLegacy}.
+ * <p>
+ * This worker processes OAI records from Parquet storage in a network snapshot,
  * applying validation rules and metadata transformations. It supports both full and
  * incremental validation modes.
  * <p>
  * The worker performs the following operations:
  * </p>
  * <ul>
+ *   <li>Reads OAI records from Parquet storage (streaming)</li>
  *   <li>Validates metadata records against configured validation rules</li>
  *   <li>Applies primary and secondary transformations to valid records</li>
  *   <li>Tracks validation statistics and observations</li>
- *   <li>Updates record status based on validation results</li>
- *   <li>Stores processed metadata in the metadata store</li>
+ *   <li>Updates record status (stored in Parquet)</li>
+ *   <li>Writes validated/transformed records back to Parquet</li>
  * </ul>
  * <p>
  * In incremental mode, only new (UNTESTED) records are processed. In full mode,
@@ -73,8 +80,9 @@ import org.springframework.data.domain.Page;
  * @see IValidator
  * @see ITransformer
  * @see ValidationService
+ * @see OAIRecordParquetWorker
  */
-public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningContext> {
+public class ValidationWorker extends OAIRecordParquetWorker {
 	
 	private static Logger logger = LogManager.getLogger(ValidationWorker.class);
 
@@ -87,19 +95,23 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	@Autowired
 	private SnapshotLogService snapshotLogService;
 	
-	@Autowired 
-	private IMetadataRecordStoreService metadataStoreService;
+	@Autowired
+	private ISnapshotStore snapshotStore;
+
+	@Autowired
+	private IMetadataStore metadataStoreService;
 	
 	
 	private ITransformer transformer;
 	private ITransformer secondaryTransformer;
-		
 	private IValidator validator;
 
 	@Autowired
 	private ValidationService validationManager;
 
 	private Long snapshotId;
+	private SnapshotMetadata snapshotMetadata;
+	private Long processedRecordsCount;
 	
 
 	//private ArrayList<ValidationStatObservation> validationStatsObservations = new ArrayList<ValidationStatObservation>();
@@ -123,6 +135,8 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	@Override
 	public void preRun() {
 
+		processedRecordsCount = 0L;
+
 		// check if validation statistics service is available
 		if ( ! validationStatisticsService.isServiceAvailable() ) {
 			logError("Validation Statistics Service is not available, can't run validation");
@@ -134,55 +148,25 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 		reusableValidationResult = new ValidatorResult();
 		
 		// trata de conseguir la ultima cosecha válida o el revalida el lgk 
-		this.snapshotId = metadataStoreService.findLastHarvestingSnapshot( runningContext.getNetwork() );
+		this.snapshotId = snapshotStore.findLastHarvestingSnapshot( runningContext.getNetwork() );
+
 
 		if ( snapshotId != null ) {
 
-			Long previousSnapshotId = metadataStoreService.getPreviousSnapshotId(snapshotId);
+		
+			snapshotMetadata = snapshotStore.getSnapshotMetadata( snapshotId );
 
-			logInfo("Starting Validation/Tranformation " + runningContext.toString() + "  -  snapshot: " + snapshotId + (isIncremental() ? " (incremental)" : " (full)"));
-			
-			/***
-			 * Si es una validación incremental se crea un paginado que solo considera los untested, 
-			 * para la validacion full se considera los no deleted, eso asegura que se vuelvan a evaluar los valid e invalid
-			 * si las reglas cambiaron pueden cambiar su status
-			 */
-
-			if (isIncremental() && previousSnapshotId != null) {
-
-				// if is the first incremental validation, copy the results from the previous snapshot
-				if (metadataStoreService.getSnapshotStatus(snapshotId) == SnapshotStatus.HARVESTING_FINISHED_VALID) {
-
-					try {
-						this.copyAndUpdatePreviousValidationResults(previousSnapshotId, snapshotId);
-					} catch (ValidationStatisticsException e) {
-						logError("Error copying previous validation results from: " + previousSnapshotId + " to: " + snapshotId + " :: " + e.getMessage());
-						this.stop();
-					}
-
-				}
-
-				// set the paginator to the untested records, this means that already valid and invalid records will not be revalidated
-				this.setPaginator(metadataStoreService.getUntestedRecordsPaginator(snapshotId));
-
-			} else { /// si es full validation entonces trabajo sobre los no deleted
-
-			   // delete previous validation results if any (BEFORE initializing)
-				try {
-					validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
-				} catch (ValidationStatisticsException e) {
-					logError("Error deleting previous validation results: " + e.getMessage());
-					this.stop();
-				}
-
-				// set the paginator to the not deleted records, this means that all records will be revalidated
-				this.setPaginator(metadataStoreService.getNotDeletedRecordsPaginator(snapshotId));
+			try {
+				validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
+			} catch (ValidationStatisticsException e) {
+				logError("Error deleting previous validation results: " + e.getMessage());
+				this.stop();
 			}
 
 			
 			// INITIALIZE: Create fresh writers AFTER cleanup
 			logInfo("Initializing validation statistics for snapshot: " + snapshotId);
-			validationStatisticsService.initializeValidationForSnapshot( metadataStoreService.getSnapshotMetadata(snapshotId)  );
+			validationStatisticsService.initializeValidationForSnapshot( snapshotStore.getSnapshotMetadata(snapshotId)  );
 
 		
 			logger.debug("Detailed diagnose: " + runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
@@ -208,69 +192,23 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 				if ( transformer == null || secondaryTransformer == null )
 					logInfo("No transformers for "+  runningContext.toString() +"!!!");
 				
-				if (! isIncremental() ) { // si es validacion full hace un reset de los indicadores
-					metadataStoreService.resetSnapshotValidationCounts(snapshotId);
-				}
-				
 	
-			} catch (ValidationException | MetadataRecordStoreException e) {
+			} catch (ValidationException  e) {
 				logError(runningContext.toString() + ": " + e.getMessage());
 				this.stop();
 				return;
 			}
-			
-			logger.debug("Starting - total pages: " + this.getTotalPages() );
-			
+						
 		
 		} else {
 			logger.error("There is not a suitable snapshot for validation");
-			this.setPaginator( null );
 			this.stop();
 		}
 		
 	}
 
 
-	private void copyAndUpdatePreviousValidationResults(Long previousSnapshotId, Long snapshotId) throws ValidationStatisticsException {
-		// copia los resultados de validación del snapshot anterior
-		validationStatisticsService.copyValidationStatsObservationsFromTo(previousSnapshotId, snapshotId);
 
-		// obtain paginator for deleted records
-		IPaginator<OAIRecord> paginator = metadataStoreService.getDeletedRecordsPaginator(snapshotId);
-
-		// if paginator is not null
-		if (paginator != null) {
-
-			int totalPages = paginator.getTotalPages();
-
-			for (int actualPage = paginator.getStartingPage(); actualPage <= totalPages; actualPage++) {
-
-				try {
-
-					Page<OAIRecord> page = paginator.nextPage();
-
-					// use record ids from page and call validation services delete
-					page.getContent().stream().forEach(record -> {
-						validationStatisticsService.deleteValidationStatsObservationByRecordAndSnapshotID(snapshotId, record);
-						logger.debug("Deleting validation results for record: " + record.getId() + " :: Snapshot: " + snapshotId);
-					});
-
-				} catch (Exception e) {
-					throw new ValidationStatisticsException("Error cleaning deleted record validation" + e.getMessage(), e);
-				}
-			}
-
-		} else {
-		    logError("No deleted records paginator was found for snapshot: " + snapshotId);
-			this.stop();
-		}
-	}
-	
-	@Override
-	public void prePage() {
-		
-		// validationStatsObservations.clear();
-	}
 	
 	@Override
 	public void processItem(OAIRecord record) {
@@ -280,20 +218,15 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 		    // reset validation result
             reusableValidationResult.reset();
 
-		
-			// if is full revalidation set record as untested and not transformed
-			if ( ! isIncremental() ) {
-				record.setStatus(RecordStatus.UNTESTED);
-				record.setTransformed(false);
-			}
 			
 			logger.debug( "Validating record: " + record.getId() + " :: "+ record.getIdentifier() );
-			logger.debug("Initial status: "  + record.getId() + " :: "+ record.getIdentifier() + "::" + record.getStatus() );
+			logger.debug("Initial status: "  + record.getId() + " :: "+ record.getIdentifier() + "::" );
 			wasTransformed = false;
 			
 			// carga la metadata original sin transformar
 			logger.debug("Load metadata: "  + record.getId() + " :: "+ record.getIdentifier() );
-			OAIRecordMetadata metadata = metadataStoreService.getOriginalMetadata(record);
+			String metadataStr = metadataStoreService.getMetadata( record.getOriginalMetadataHash() );
+			OAIRecordMetadata metadata = new OAIRecordMetadata( metadataStr );
 
 			
 			// si corresponde lo transforma
@@ -304,18 +237,15 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			
 			if ( transformer != null ) {
 				logger.debug("Primary transformer: "  + record.getId() + " :: "+ record.getIdentifier() );
-				wasTransformed |= transformer.transform(record, metadata);
+				wasTransformed |= transformer.transform(this.runningContext, record, metadata);
 			}
 			
 			if ( secondaryTransformer != null ) {
 				logger.debug("Secondary transformer: "  + record.getId() + " :: "+ record.getIdentifier() );
-				wasTransformed |= secondaryTransformer.transform(record, metadata);
+				wasTransformed |= secondaryTransformer.transform(this.runningContext, record, metadata);
 			}
 				
 			logger.debug( record.getId() + " :: "+ record.getIdentifier() + "  Transformed: " + wasTransformed);
-
-
-			
 			
 			// if validator is defined
 			if ( validator != null ) {
@@ -324,9 +254,10 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 				
 				// validación
 				reusableValidationResult = validator.validate(metadata, reusableValidationResult);
+				reusableValidationResult.setTransformed(wasTransformed);
 				
 				// update record validation status
-				metadataStoreService.updateRecordStatus(record, reusableValidationResult.isValid() ? RecordStatus.VALID : RecordStatus.INVALID, wasTransformed);
+				//metadataStoreService.updateRecordStatus(record, reusableValidationResult.isValid() ? RecordStatus.VALID : RecordStatus.INVALID, wasTransformed);
 					
 				
 			}
@@ -335,57 +266,56 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 			    reusableValidationResult.setValid(true);
 
 	            // update record validation status
-				metadataStoreService.updateRecordStatus(record, RecordStatus.VALID, wasTransformed);
+				//metadataStoreService.updateRecordStatus(record, RecordStatus.VALID, wasTransformed);
 
 			}
 			
+			
+			logger.debug( record.getId() + " :: "+ record.getIdentifier() + " final status: " );
+
+			// store metadata if needed and set publishedMetadataHash
+			String publishedMetadataHash = record.getOriginalMetadataHash();
+			// Store metadata if transformed
+			if ( wasTransformed ) {
+				publishedMetadataHash = metadataStoreService.storeAndReturnHash(metadata.toString());
+			}
+			// store publishedMetadataHash in validation result
+			reusableValidationResult.setMetadataHash( publishedMetadataHash );
+
 			// Se almacenan las estadísticas de cosecha
             logger.debug("Storing diagnose "  + record.getId() + " :: "+ record.getIdentifier() );
             // validationStatsObservations.add( validationStatisticsService.buildObservation(record, reusableValidationResult) );
-			validationStatisticsService.addObservation(snapshotId, record, reusableValidationResult);
+			validationStatisticsService.addObservation(snapshotMetadata, record, reusableValidationResult);
 
-			logger.debug( record.getId() + " :: "+ record.getIdentifier() + " final status: " + record.getStatus() );
 
-			
-			metadataStoreService.updatePublishedMetadata(record, metadata);
 
 			
 		} catch (OAIRecordMetadataParseException e) {
 		
 			logError("Metadata parsing record ID: " + record.getId() + " oai_id: " + record.getIdentifier() + " :: "  +  e.getMessage() );
 			//logger.debug( record.getOriginalXML());
-			
 			setSnapshotStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
 			this.stop();
 			
 		} catch (ValidationException e) {
 			logError("Validation error:" + runningContext.toString() + ": " + e.getMessage() );
-			
 			setSnapshotStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
 			this.stop();
 		
 		} catch (Exception e) {
 			logError("Unknown validation error:" + runningContext.toString() + ": " + e.getMessage());
-		
-						
 			setSnapshotStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
 			this.stop();
+		}
+
+		processedRecordsCount++;
+		// log info every 1000 records
+		if ( processedRecordsCount % 1000 == 0 ) {
+			snapshotStore.saveSnapshot(snapshotId);
 		}
 		
 	}
 
-
-	@Override
-	public void postPage() {
-		
-		// if ( validationStatisticsService.isServiceAvailable() ) {
-		// 	validationStatisticsService.registerObservations(validationStatsObservations);
-		// } 
-		
-		metadataStoreService.saveSnapshot(snapshotId);
-
-		
-	}
 
 	@Override
 	public void postRun() {
@@ -408,8 +338,8 @@ public class ValidationWorker extends BaseBatchWorker<OAIRecord, NetworkRunningC
 	
 	private void setSnapshotStatus(SnapshotStatus status) {
 		// metodo auxiliar para centralizar la forma de actualizar status
-		metadataStoreService.updateSnapshotStatus(snapshotId, status);
-		metadataStoreService.saveSnapshot(snapshotId);
+		snapshotStore.updateSnapshotStatus(snapshotId, status);
+		snapshotStore.saveSnapshot(snapshotId);
 
 	}
 	

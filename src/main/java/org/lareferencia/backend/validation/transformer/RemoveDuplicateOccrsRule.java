@@ -25,7 +25,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.domain.IOAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
@@ -85,7 +86,7 @@ public class RemoveDuplicateOccrsRule extends AbstractTransformerRule {
 	 * @return true if any duplicates were removed, false otherwise
 	 */
 	@Override
-	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		boolean wasTransformed = false;
 		

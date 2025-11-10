@@ -27,7 +27,8 @@ import lombok.Setter;
 import java.util.Map;
 
 import org.lareferencia.backend.domain.Network;
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.domain.IOAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.lareferencia.core.validation.ValidationException;
@@ -161,18 +162,17 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 	}
 
 	@Override
-	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
-
+	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
 
 		// LAReferenciaNetworkAttributes attributes = (LAReferenciaNetworkAttributes)
-		// record.getSnapshot().getNetwork().getAttributes();
-
+		// context.getNetwork().getAttributes();
+		
 		metadata.removeFieldOcurrence(repoNameField);
 		metadata.removeFieldOcurrence(contactEmailField);
 		metadata.removeFieldOcurrence(oaiIdentifierField);
 
 		try {
-			Network network = record.getSnapshot().getNetwork();
+			Network network = context.getNetwork();
 			// AbstractNetworkAttributes attributes = network.getAttributes();
 			Map<String, Object> attributes = network.getAttributes();
 
@@ -200,9 +200,10 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 
 			metadata.addFieldOcurrence(repoIdField, idWithPrefix);
 			metadata.addFieldOcurrence(harvestDateField, record.getDatestamp().toString());
-			metadata.addFieldOcurrence(repoNameField, "" + record.getSnapshot().getNetwork().getName() + " - "
-					+ record.getSnapshot().getNetwork().getInstitutionName());
-			metadata.addFieldOcurrence(statusField, "" + record.getTransformed());
+			metadata.addFieldOcurrence(repoNameField, "" + context.getNetwork().getName() + " - "
+				+ context.getNetwork().getInstitutionName());
+			// TODO: transformed status not available in IOAIRecord - need to get from validation stats
+			// metadata.addFieldOcurrence(statusField, "" + record.getTransformed());
 		} catch (Exception e) {
 			throw new ValidationException("An exception occured during AddProvenaceMedatada Transformation:" + e.getMessage());
 		}

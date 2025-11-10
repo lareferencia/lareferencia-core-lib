@@ -31,7 +31,8 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.domain.IOAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
@@ -102,7 +103,7 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	String replace = null;
 
 	@Override
-	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
 		
 		
 		// setup existing values

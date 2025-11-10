@@ -62,11 +62,12 @@ import lombok.Setter;
  * @see NetworkSnapshot
  * @see RecordStatus
  * @see OAIMetadata
+ * @see IOAIRecord
  */
 @Getter
 @Entity
 @JsonIgnoreProperties({ "originalXML","publishedXML", "snapshot", "datestamp" })
-public class OAIRecord  {
+public class OAIRecord implements IOAIRecord {
 	
 	private static Logger logger = LogManager.getLogger(OAIRecord.class);
 	
@@ -133,6 +134,34 @@ public class OAIRecord  {
 		super();
 		this.snapshot = snapshot;
 		this.status = RecordStatus.UNTESTED;
+	}
+	
+	// Métodos para IOAIRecord interface
+	
+	/**
+	 * Obtiene el ID como String para compatibilidad con IOAIRecord.
+	 * 
+	 * @return ID convertido a String
+	 */
+	public String getId() {
+		return id != null ? id.toString() : null;
+	}
+	
+	/**
+	 * Obtiene el ID como Long (método interno para uso JPA).
+	 * 
+	 * @return ID como Long
+	 */
+	public Long getIdAsLong() {
+		return id;
+	}
+	
+	public String getIdentifier() {
+		return identifier;
+	}
+	
+	public LocalDateTime getDatestamp() {
+		return datestamp;
 	}
 
 	@Override

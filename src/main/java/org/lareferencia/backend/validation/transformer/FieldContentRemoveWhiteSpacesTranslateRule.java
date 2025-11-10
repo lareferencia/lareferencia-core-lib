@@ -24,7 +24,8 @@ package org.lareferencia.backend.validation.transformer;
 import lombok.Getter;
 import lombok.Setter;
 
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.domain.IOAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
@@ -65,7 +66,7 @@ public class FieldContentRemoveWhiteSpacesTranslateRule extends AbstractTransfor
     String replace = null;
 
     @Override
-    public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
+    public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
 
         boolean wasTransformed = false;
 

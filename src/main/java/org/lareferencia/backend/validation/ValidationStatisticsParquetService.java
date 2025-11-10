@@ -20,8 +20,10 @@
 
 package org.lareferencia.backend.validation;
 
+import org.apache.hadoop.thirdparty.org.checkerframework.checker.units.qual.s;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.lareferencia.backend.domain.IOAIRecord;
 import org.lareferencia.backend.domain.NetworkSnapshot;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.backend.domain.parquet.RecordValidation;
@@ -140,17 +142,17 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      * @param validationResult the validation result to build observation from
      * @return the validation statistics observation
      */
-    public ValidationStatObservation buildObservation(OAIRecord record, ValidatorResult validationResult) {
+    public ValidationStatObservation buildObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult validationResult) {
 
         logger.debug("Building validation result record ID: {}", record.getId().toString());
 
-        String id = fingerprintHelper.getStatsIDfromRecord(record);
+        String id = fingerprintHelper.getStatsIDfromRecord(record, snapshotMetadata);
         String identifier = record.getIdentifier();
-        Long snapshotID = record.getSnapshot().getId();
-        String origin = record.getSnapshot().getNetwork().getOriginURL();
-        String metadataPrefix = record.getSnapshot().getNetwork().getMetadataPrefix();
-        String networkAcronym = record.getSnapshot().getNetwork().getAcronym();
-        Boolean isTransformed = record.getTransformed();
+        Long snapshotID = snapshotMetadata.getSnapshotId();
+        String origin = snapshotMetadata.getOrigin();
+        String metadataPrefix = snapshotMetadata.getMetadataPrefix();
+        String networkAcronym = snapshotMetadata.getNetworkAcronym();
+        Boolean isTransformed = validationResult.isTransformed();
         Boolean isValid = validationResult.isValid();
 
         // Maps for occurrences
@@ -194,10 +196,11 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         );
     }
 
-    public void addObservation(Long snapshotId, OAIRecord record, ValidatorResult validationResult) {
+    public void addObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult validationResult) {
                 
-        String id = fingerprintHelper.getStatsIDfromRecord(record);
-        String networkAcronym = record.getSnapshot().getNetwork().getAcronym();
+        String id = fingerprintHelper.getStatsIDfromRecord(record, snapshotMetadata);
+        Long snapshotId = snapshotMetadata.getSnapshotId();
+        String networkAcronym = snapshotMetadata.getNetworkAcronym();
         logger.debug("Adding observation for record ID: {} in snapshot {} network: {}", id, snapshotId, networkAcronym);
 
         // Create RecordValidation object
@@ -205,7 +208,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         recordValidation.setId(id);
         recordValidation.setIdentifier(record.getIdentifier());
         recordValidation.setRecordIsValid(validationResult.isValid());
-        recordValidation.setIsTransformed(record.getTransformed());
+        recordValidation.setIsTransformed(validationResult.isTransformed());
 
         // Create and add RuleFact objects directly to RecordValidation
         for (ValidatorRuleResult ruleResult : validationResult.getRulesResults()) {
@@ -553,22 +556,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         return filters;
     }
 
-    /**
-     * Deletes validation observation by record (SIMPLIFIED - NOT IMPLEMENTED)
-     */
-    public void deleteValidationStatsObservationByRecordAndSnapshotID(Long snapshotID, OAIRecord record)  {
-        // TODO: Implementar eliminación individual cuando sea necesario
-        logger.warn("Individual record deletion not yet implemented in new architecture");
-    }
 
-    /**
-     * Copies validation observations from one snapshot to another (SIMPLIFIED - NOT IMPLEMENTED)
-     */
-    public Boolean copyValidationStatsObservationsFromTo(Long originalSnapshotId, Long newSnapshotId)  {
-        // TODO: Implementar copia cuando sea necesario
-        logger.warn("Snapshot copy not yet implemented in new architecture");
-        return false;
-    }
 
     /**
      * Deletes validation statistics by snapshot ID (SIMPLIFIED)
@@ -650,11 +638,13 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         logger.info("Validation finalized for snapshot {} - all data persisted", snapshotId);
     }
 
+   
+
+    
  
 
  
     
-  
-    
+ 
 
 }

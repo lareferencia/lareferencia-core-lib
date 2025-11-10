@@ -29,7 +29,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 import org.lareferencia.backend.validation.validator.FieldExpressionEvaluator;
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.backend.domain.IOAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.AbstractTransformerRule;
 import org.lareferencia.core.validation.QuantifierValues;
@@ -104,7 +105,7 @@ public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule 
 	 * @return true if the field was added, false otherwise
 	 */
 	@Override
-	public boolean transform(OAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		boolean isExpressionValid = evaluator.evaluate(conditionalExpression, metadata);		
 		boolean wasTransformed = false;

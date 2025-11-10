@@ -953,7 +953,7 @@ public class MetadataRecordStoreServiceImpl implements IMetadataRecordStoreServi
 		public Page<OAIRecord> nextPage() {
 			Page<OAIRecord> page = obtainPage();
 			List<OAIRecord> records = page.getContent();
-			lastRecordID = records.get(records.size() - 1).getId();
+			lastRecordID = Long.valueOf(records.get(records.size() - 1).getId());
 			return page;
 
 		}
