@@ -23,11 +23,13 @@ package org.lareferencia.backend.repositories.parquet;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.PathUtils;
 import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
+import org.lareferencia.backend.domain.Network;
 
 import java.io.File;
 import java.io.IOException;
@@ -52,13 +54,41 @@ import java.nio.file.Paths;
 public final class SnapshotMetadataManager {
     
     private static final Logger logger = LogManager.getLogger(SnapshotMetadataManager.class);
-    private static final ObjectMapper mapper = new ObjectMapper()
-            .enable(SerializationFeature.INDENT_OUTPUT)
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private static final ObjectMapper mapper = createMapper();
     
     private static final String VALIDATION_SUBDIR = "validation";
     private static final String METADATA_FILENAME = "metadata.json";
     private static final String VALIDATION_STATS_FILENAME = "validation-stats.json";
+    
+    /**
+     * Mixin para serialización de Network: ignora relaciones JPA lazy
+     */
+    @JsonIgnoreProperties(value = {
+        "snapshots", 
+        "prevalidator", 
+        "validator", 
+        "transformer", 
+        "secondaryTransformer"
+    }, ignoreUnknown = true)
+    private abstract static class NetworkSerializationMixin {
+    }
+    
+    /**
+     * Crea ObjectMapper configurado para serialización de metadata con Network
+     */
+    private static ObjectMapper createMapper() {
+        ObjectMapper mapper = new ObjectMapper()
+                .enable(SerializationFeature.INDENT_OUTPUT)
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                .configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+                // Permitir deserialización sin setters (Lombok @Getter sin @Setter)
+                .configure(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES, false);
+        
+        // Configurar mixin para ignorar relaciones lazy de Network
+        mapper.addMixIn(Network.class, NetworkSerializationMixin.class);
+        
+        return mapper;
+    }
     
     /**
      * Escribe metadata de snapshot en JSON

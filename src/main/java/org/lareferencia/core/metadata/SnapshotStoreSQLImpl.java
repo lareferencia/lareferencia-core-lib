@@ -281,6 +281,8 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 				metadata.setOrigin(snapshot.getNetwork().getOriginURL());
 				metadata.setNetworkAcronym(snapshot.getNetwork().getAcronym());
 				metadata.setMetadataPrefix(snapshot.getNetwork().getMetadataPrefix());
+
+				metadata.setNetwork(snapshot.getNetwork());
 			}
 			
 		    // Populate rule definitions from the associated validator

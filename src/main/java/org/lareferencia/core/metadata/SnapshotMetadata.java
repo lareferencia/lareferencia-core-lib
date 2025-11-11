@@ -22,6 +22,8 @@ package org.lareferencia.core.metadata;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.lareferencia.backend.domain.Network;
+
 import java.util.*;
 
 /**
@@ -43,6 +45,9 @@ public class SnapshotMetadata {
     private String setSpec;
     private String metadataPrefix;
     private String networkAcronym;
+    
+    // Network reference
+    private Network network;
     
     // Rule definitions: ruleID -> rule information
     private Map<Long, RuleDefinition> ruleDefinitions = new LinkedHashMap<>();
