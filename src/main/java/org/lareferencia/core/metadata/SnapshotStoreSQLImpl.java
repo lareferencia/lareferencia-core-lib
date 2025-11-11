@@ -282,10 +282,22 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			if (snapshot.getNetwork() != null) {
 				metadata.setOrigin(snapshot.getNetwork().getOriginURL());
 				metadata.setNetworkAcronym(snapshot.getNetwork().getAcronym());
+				metadata.setMetadataPrefix(snapshot.getNetwork().getMetadataPrefix());
 			}
 			
-			// Definiciones de reglas del validador
-			// TODO: Implementar cuando Validator tenga método buildRuleDefinitionsMap()
+		    // Populate rule definitions from the associated validator
+			if (snapshot.getNetwork().getValidator() != null) {
+				snapshot.getNetwork().getValidator().getRules().forEach(rule -> {
+					SnapshotMetadata.RuleDefinition ruleDef = new SnapshotMetadata.RuleDefinition(
+							rule.getId(),
+							rule.getName(),
+							rule.getDescription(),
+							rule.getQuantifier().name(),
+							rule.getMandatory()
+					);
+					metadata.getRuleDefinitions().put(rule.getId(), ruleDef);
+				});
+			}
 			
 			return metadata;
 			

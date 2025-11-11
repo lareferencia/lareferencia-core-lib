@@ -66,7 +66,6 @@ import jakarta.annotation.PostConstruct;
  * - Compression: ~70-80% space savings with gzip
  * - Direct lookup by hash (no scanning needed)
  */
-@Component("metadataStoreFS")
 public class MetadataStoreFSImpl implements IMetadataStore {
 
     private static final Logger logger = LogManager.getLogger(MetadataStoreFSImpl.class);

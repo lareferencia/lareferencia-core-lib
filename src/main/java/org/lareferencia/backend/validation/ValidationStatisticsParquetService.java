@@ -201,11 +201,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         logger.debug("Adding observation for record identifier: {} in snapshot {} network: {}", 
                     record.getIdentifier(), snapshotId, networkAcronym);
 
-        // Create RecordValidation object (recordId se calcula automáticamente desde identifier)
-        RecordValidation recordValidation = new RecordValidation();
-        recordValidation.setIdentifier(record.getIdentifier());
-        recordValidation.setRecordIsValid(validationResult.isValid());
-        recordValidation.setIsTransformed(validationResult.isTransformed());
+        // Create RecordValidation object usando constructor que calcula recordId automáticamente
+        RecordValidation recordValidation = new RecordValidation(
+            record.getIdentifier(),
+            validationResult.isValid(),
+            validationResult.isTransformed()
+        );
 
         // Create and add RuleFact objects directly to RecordValidation
         for (ValidatorRuleResult ruleResult : validationResult.getRulesResults()) {

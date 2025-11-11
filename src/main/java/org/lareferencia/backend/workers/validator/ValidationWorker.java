@@ -22,7 +22,6 @@ package org.lareferencia.backend.workers.validator;
 
 import java.text.NumberFormat;
 
-import org.apache.hadoop.thirdparty.org.checkerframework.checker.units.qual.s;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.SnapshotStatus;
@@ -34,10 +33,8 @@ import org.lareferencia.backend.validation.IValidationStatisticsService;
 import org.lareferencia.backend.validation.ValidationStatisticsException;
 import org.lareferencia.core.metadata.IMetadataStore;
 import org.lareferencia.core.metadata.ISnapshotStore;
-import org.lareferencia.core.metadata.MetadataRecordStoreException;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
-import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.validation.ITransformer;
 import org.lareferencia.core.validation.IValidator;
@@ -109,7 +106,6 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 	@Autowired
 	private ValidationService validationManager;
 
-	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
 	private Long processedRecordsCount;
 	
