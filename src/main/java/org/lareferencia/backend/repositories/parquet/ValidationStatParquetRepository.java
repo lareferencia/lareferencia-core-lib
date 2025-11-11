@@ -81,7 +81,7 @@ public class ValidationStatParquetRepository {
 
     private static final Logger logger = LogManager.getLogger(ValidationStatParquetRepository.class);
 
-    @Value("${validation.stats.parquet.path:/tmp/validation-stats-parquet}")
+    @Value("${store.basepath:/tmp/data/parquet}")
     private String basePath;
 
     private Configuration hadoopConf;
@@ -486,33 +486,37 @@ public class ValidationStatParquetRepository {
 
 
     /**
-     * Deletes all data for a snapshot (metadata, records, rule facts).
-     * Removes the snapshot directory and clears cache.
+     * Deletes validation data for a snapshot (metadata, records, rule facts).
+     * ONLY removes the validation/ subdirectory, preserves catalog/ data.
      *
-     * @param snapshotId the snapshot ID to delete
+     * @param snapshotId the snapshot ID to delete validation data for
      * @throws IOException if deletion fails
      */
     public void deleteSnapshot(Long snapshotId) throws IOException {
-        logger.info("DELETE SNAPSHOT: {}", snapshotId);
+        logger.info("DELETE VALIDATION DATA: snapshot={}", snapshotId);
 
         // Finalize snapshot to close writers and persist metadata
         finalizeSnapshot(snapshotId);
 
-        // Delete snapshot directory (removes metadata.json, records, rule facts)
-        String snapshotDir = String.format("%s/snapshot_%d", basePath, snapshotId);
-        if (Files.exists(Paths.get(snapshotDir))) {
-            Files.walk(Paths.get(snapshotDir))
+        // Delete ONLY validation directory (preserves catalog/ subdirectory)
+        String validationDir = String.format("%s/snapshot_%d/validation", basePath, snapshotId);
+        if (Files.exists(Paths.get(validationDir))) {
+            Files.walk(Paths.get(validationDir))
                     .sorted(Comparator.reverseOrder())
                     .forEach(path -> {
                         try {
                             Files.delete(path);
+                            logger.debug("Deleted validation file: {}", path);
                         } catch (IOException e) {
                             logger.error("Failed to delete {}", path, e);
                         }
                     });
+            logger.info("VALIDATION DATA DELETED: snapshot={}, path={}", snapshotId, validationDir);
+        } else {
+            logger.warn("VALIDATION DATA NOT FOUND: snapshot={}, path={}", snapshotId, validationDir);
         }
+        
         snapshotStatsCache.remove(snapshotId);
-        logger.info("SNAPSHOT DELETED: {}", snapshotId);
     }
     
     /**

@@ -91,14 +91,14 @@ public class OAIRecordParquetRepository {
 
     private static final Logger logger = LogManager.getLogger(OAIRecordParquetRepository.class);
 
-    @Value("${backend.parquet.basePath:/tmp/data/parquet}")
+    @Value("${store.basepath:/tmp/data/parquet}")
     private String basePath;
+
+    @Value("${parquet.catalog.records-per-file:10000}")
+    private int recordsPerFile;
 
     @Value("${parquet.compression:SNAPPY}")
     private String compressionCodec;
-
-    @Value("${parquet.block.size:134217728}") // 128 MB
-    private int blockSize;
 
     @Value("${parquet.page.size:1048576}") // 1 MB
     private int pageSize;
@@ -118,14 +118,13 @@ public class OAIRecordParquetRepository {
         
         // Aplicar configuración desde properties
         hadoopConf.set("parquet.compression", compressionCodec);
-        hadoopConf.set("parquet.block.size", String.valueOf(blockSize));
         hadoopConf.set("parquet.page.size", String.valueOf(pageSize));
         hadoopConf.set("parquet.enable.dictionary", String.valueOf(enableDictionary));
         
         try {
             Files.createDirectories(Paths.get(basePath));
-            logger.info("OAI RECORD REPOSITORY INITIALIZED: basePath={}, compression={}, blockSize={}, pageSize={}", 
-                       basePath, compressionCodec, blockSize, pageSize);
+            logger.info("OAI RECORD REPOSITORY INITIALIZED: basePath={}, compression={}, pageSize={}", 
+                       basePath, compressionCodec, pageSize);
         } catch (IOException e) {
             logger.error("Failed to create base path: {}", basePath, e);
         }
@@ -168,11 +167,15 @@ public class OAIRecordParquetRepository {
             String snapshotDir = String.format("%s/snapshot_%d", basePath, snapshotId);
             Files.createDirectories(Paths.get(snapshotDir));
             
-            // Crear manager para escritura
-            OAIRecordManager manager = OAIRecordManager.forWriting(basePath, snapshotId, hadoopConf);
+            // Determinar flush threshold basado en configuración
+            int flushThreshold = determineFlushThreshold(snapshotId);
+            
+            // Crear manager para escritura con threshold configurado
+            OAIRecordManager manager = OAIRecordManager.forWriting(basePath, snapshotId, hadoopConf, flushThreshold);
             recordManagers.put(snapshotId, manager);
             
-            logger.info("SNAPSHOT INITIALIZED: snapshot={}, path={}", snapshotId, snapshotDir);
+            logger.info("SNAPSHOT INITIALIZED: snapshot={}, path={}, flushThreshold={}", 
+                       snapshotId, snapshotDir, flushThreshold);
             
         } catch (IOException e) {
             logger.error("INITIALIZATION FAILED: snapshot={}, error={}", snapshotId, e.getMessage());
@@ -417,5 +420,16 @@ public class OAIRecordParquetRepository {
      */
     public String getBasePath() {
         return basePath;
+    }
+    
+    /**
+     * Retorna el flush threshold configurado.
+     * 
+     * @param snapshotId ID del snapshot (no usado, se mantiene por compatibilidad)
+     * @return threshold de flush a usar
+     */
+    private int determineFlushThreshold(Long snapshotId) {
+        logger.debug("Using configured flush threshold: {}", recordsPerFile);
+        return recordsPerFile;
     }
 }

@@ -58,6 +58,11 @@ import java.util.NoSuchElementException;
  * - LECTURA: Streaming sobre múltiples archivos batch con iterator lazy
  * - SCHEMA: Unificado con RuleFacts anidados
  * 
+ * ESTRUCTURA DE ARCHIVOS:
+ * {basePath}/snapshot_{id}/validation/records_batch_*.parquet
+ * {basePath}/snapshot_{id}/validation/validation_index.parquet
+ * {basePath}/snapshot_{id}/validation/validation-stats.json
+ * 
  * THREAD SAFETY:
  * - ParquetWriter/Reader NO son thread-safe
  * - Usar synchronized en operaciones de escritura
@@ -122,6 +127,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     
     // Constantes de nombres de archivos
     private static final String SNAPSHOT_DIR_PREFIX = "snapshot_";
+    private static final String VALIDATION_SUBDIR = "validation";
     private static final String BATCH_FILE_PREFIX = "records_batch_";
     private static final String BATCH_FILE_SUFFIX = ".parquet";
     private static final String INDEX_FILE_NAME = "validation_index.parquet";
@@ -313,7 +319,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         }
         
         batchNumber++;
-        String batchPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + BATCH_FILE_PREFIX + batchNumber + BATCH_FILE_SUFFIX;
+        String batchPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + VALIDATION_SUBDIR + "/" + BATCH_FILE_PREFIX + batchNumber + BATCH_FILE_SUFFIX;
         Path path = new Path(batchPath);
         
         logger.info("RECORDS MANAGER: Creating batch file #{} at {}", batchNumber, batchPath);
@@ -465,10 +471,10 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Escribe el archivo del índice ligero (RecordValidation sin id/ruleFacts).
      * Se sobrescribe completamente en cada flush (archivo único).
      * 
-     * Ruta: /snapshot_{id}/validation_index.parquet
+     * Ruta: /snapshot_{id}/validation/validation_index.parquet
      */
     private void writeIndexFile() throws IOException {
-        String indexPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + INDEX_FILE_NAME;
+        String indexPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + VALIDATION_SUBDIR + "/" + INDEX_FILE_NAME;
         Path path = new Path(indexPath);
         
         logger.info("RECORDS MANAGER: Writing lightweight index with {} records to {}", 
@@ -513,7 +519,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Inicializa el lector buscando todos los archivos batch del snapshot.
      */
     private void initializeReader() throws IOException {
-        String snapshotDir = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId;
+        String snapshotDir = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + VALIDATION_SUBDIR;
         Path snapshotPath = new Path(snapshotDir);
         
         FileSystem fs = FileSystem.get(hadoopConf);

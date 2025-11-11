@@ -58,6 +58,9 @@ import java.util.NoSuchElementException;
  * - SIN ESTADO DE VALIDACIÓN: Solo datos del harvesting (validación está en RecordValidation)
  * - ORGANIZADO POR SNAPSHOT: Cada snapshot tiene su directorio independiente
  * 
+ * ESTRUCTURA DE ARCHIVOS:
+ * {basePath}/snapshot_{id}/catalog/oai_records_batch_*.parquet
+ * 
  * FUNCIONALIDADES:
  * - ESCRITURA: Buffer interno inteligente con auto-flush
  * - LECTURA: Streaming sobre múltiples archivos batch con iterator lazy
@@ -80,11 +83,6 @@ import java.util.NoSuchElementException;
  * - Transparente: El caller no sabe que hay múltiples archivos
  * - Streaming: Lee un archivo a la vez (no carga todo en memoria)
  * - Iterator: Soporta iteración lazy sin cargar todo el dataset
- * 
- * ESTRUCTURA DE ARCHIVOS:
- * /data/parquet/snapshot_{id}/catalog/oai_records_batch_1.parquet
- * /data/parquet/snapshot_{id}/catalog/oai_records_batch_2.parquet
- * ...
  * 
  * EJEMPLOS DE USO:
  * 
@@ -130,8 +128,8 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
     
     private static final Logger logger = LogManager.getLogger(OAIRecordManager.class);
     
-    // Umbrales para flush automático (escritura)
-    private static final int FLUSH_THRESHOLD_RECORDS = 10000;  // Flush cada 10k records
+    // Umbrales para flush automático (escritura) - valor por defecto
+    private static final int DEFAULT_FLUSH_THRESHOLD_RECORDS = 10000;
     
     // Subdirectorio para catálogo de registros OAI
     private static final String CATALOG_SUBDIR = "catalog";
@@ -165,6 +163,7 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
     private final String basePath;
     private final Long snapshotId;
     private final Configuration hadoopConf;
+    private final int flushThreshold;  // Configurable flush threshold
     
     // Estado de ESCRITURA
     private ParquetWriter<Group> currentWriter;
@@ -181,10 +180,11 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
     private List<OAIRecord> currentBatchRecords = null;
     private int currentRecordIndex = 0;
     
-    private OAIRecordManager(String basePath, Long snapshotId, Configuration hadoopConf) {
+    private OAIRecordManager(String basePath, Long snapshotId, Configuration hadoopConf, int flushThreshold) {
         this.basePath = basePath;
         this.snapshotId = snapshotId;
         this.hadoopConf = hadoopConf;
+        this.flushThreshold = flushThreshold;
         this.currentWriter = null;
         this.batchFiles = null;
         this.currentBatchRecords = null;
@@ -206,8 +206,23 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      */
     public static OAIRecordManager forWriting(String basePath, Long snapshotId, Configuration hadoopConf) 
             throws IOException {
-        logger.info("OAI RECORD MANAGER: Creating writer for snapshot {}", snapshotId);
-        return new OAIRecordManager(basePath, snapshotId, hadoopConf);
+        return forWriting(basePath, snapshotId, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
+    }
+    
+    /**
+     * Crea un manager para ESCRITURA con flush threshold personalizado.
+     * 
+     * @param basePath ruta base (ej: /data/parquet)
+     * @param snapshotId ID del snapshot
+     * @param hadoopConf configuración Hadoop
+     * @param flushThreshold número de registros antes de hacer flush automático
+     * @return manager listo para escritura
+     * @throws IOException si falla
+     */
+    public static OAIRecordManager forWriting(String basePath, Long snapshotId, Configuration hadoopConf, int flushThreshold) 
+            throws IOException {
+        logger.info("OAI RECORD MANAGER: Creating writer for snapshot {} (flushThreshold={})", snapshotId, flushThreshold);
+        return new OAIRecordManager(basePath, snapshotId, hadoopConf, flushThreshold);
     }
     
     /**
@@ -228,7 +243,7 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      */
     public static OAIRecordManager forReading(String basePath, Long snapshotId, Configuration hadoopConf) 
             throws IOException {
-        OAIRecordManager manager = new OAIRecordManager(basePath, snapshotId, hadoopConf);
+        OAIRecordManager manager = new OAIRecordManager(basePath, snapshotId, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
         manager.initializeReader();
         return manager;
     }
@@ -318,8 +333,9 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
         // Crear primer writer o verificar si necesita flush automático
         if (currentWriter == null) {
             createNewBatchWriter();
-        } else if (recordsInCurrentBatch >= FLUSH_THRESHOLD_RECORDS) {
-            logger.info("OAI RECORD MANAGER: Auto-flush triggered at {} records", recordsInCurrentBatch);
+        } else if (recordsInCurrentBatch >= flushThreshold) {
+            logger.info("OAI RECORD MANAGER: Auto-flush triggered at {} records (threshold={})", 
+                       recordsInCurrentBatch, flushThreshold);
             flush();
             // Crear nuevo writer inmediatamente después del auto-flush
             createNewBatchWriter();

@@ -222,7 +222,7 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 			// carga la metadata original sin transformar
 			logger.debug("Load metadata: "  + record.getId() + " :: "+ record.getIdentifier() );
 			String metadataStr = metadataStoreService.getMetadata( record.getOriginalMetadataHash() );
-			OAIRecordMetadata metadata = new OAIRecordMetadata( metadataStr );
+			OAIRecordMetadata metadata = new OAIRecordMetadata(record.getIdentifier(), metadataStr );
 
 			
 			// si corresponde lo transforma

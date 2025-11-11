@@ -55,6 +55,7 @@ public final class SnapshotMetadataManager {
             .enable(SerializationFeature.INDENT_OUTPUT)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     
+    private static final String VALIDATION_SUBDIR = "validation";
     private static final String METADATA_FILENAME = "metadata.json";
     private static final String VALIDATION_STATS_FILENAME = "validation-stats.json";
     
@@ -166,17 +167,17 @@ public final class SnapshotMetadataManager {
         }
         
         Long snapshotId = validationStats.getSnapshotMetadata().getSnapshotId();
-        String snapshotDir = String.format("%s/snapshot_%d", baseDir, snapshotId);
-        Path dirPath = Paths.get(snapshotDir);
+        String validationDir = String.format("%s/snapshot_%d/%s", baseDir, snapshotId, VALIDATION_SUBDIR);
+        Path dirPath = Paths.get(validationDir);
         
         // Crear directorio si no existe
         if (!Files.exists(dirPath)) {
             Files.createDirectories(dirPath);
-            logger.debug("Created snapshot directory: {}", snapshotDir);
+            logger.debug("Created validation directory: {}", validationDir);
         }
         
         // Escribir JSON
-        String validationStatsPath = String.format("%s/%s", snapshotDir, VALIDATION_STATS_FILENAME);
+        String validationStatsPath = String.format("%s/%s", validationDir, VALIDATION_STATS_FILENAME);
         mapper.writeValue(new File(validationStatsPath), validationStats);
         
         logger.info("VALIDATION STATS WRITTEN: snapshot={}, path={}", snapshotId, validationStatsPath);
@@ -195,7 +196,7 @@ public final class SnapshotMetadataManager {
             throw new IllegalArgumentException("snapshotId no puede ser null");
         }
         
-        String validationStatsPath = String.format("%s/snapshot_%d/%s", baseDir, snapshotId, VALIDATION_STATS_FILENAME);
+        String validationStatsPath = String.format("%s/snapshot_%d/%s/%s", baseDir, snapshotId, VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
         File file = new File(validationStatsPath);
         
         if (!file.exists()) {
@@ -220,7 +221,7 @@ public final class SnapshotMetadataManager {
             return false;
         }
         
-        String validationStatsPath = String.format("%s/snapshot_%d/%s", baseDir, snapshotId, VALIDATION_STATS_FILENAME);
+        String validationStatsPath = String.format("%s/snapshot_%d/%s/%s", baseDir, snapshotId, VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
         return new File(validationStatsPath).exists();
     }
     
@@ -236,7 +237,7 @@ public final class SnapshotMetadataManager {
             return false;
         }
         
-        String validationStatsPath = String.format("%s/snapshot_%d/%s", baseDir, snapshotId, VALIDATION_STATS_FILENAME);
+        String validationStatsPath = String.format("%s/snapshot_%d/%s/%s", baseDir, snapshotId, VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
         File file = new File(validationStatsPath);
         
         if (file.exists() && file.delete()) {
