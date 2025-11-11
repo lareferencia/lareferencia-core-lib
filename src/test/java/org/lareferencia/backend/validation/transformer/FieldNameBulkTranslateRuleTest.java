@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.Translation;
 import org.mockito.Mock;
@@ -25,6 +26,9 @@ import static org.mockito.Mockito.*;
 @DisplayName("FieldNameBulkTranslateRule Tests")
 class FieldNameBulkTranslateRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -57,7 +61,7 @@ class FieldNameBulkTranslateRuleTest {
         Node node = createMockNode("John Doe");
         when(metadata.getFieldNodes("dc.creator")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.author", "John Doe");
@@ -78,7 +82,7 @@ class FieldNameBulkTranslateRuleTest {
         when(metadata.getFieldNodes("dc.creator")).thenReturn(Collections.singletonList(creatorNode));
         when(metadata.getFieldNodes("dc.date")).thenReturn(Collections.singletonList(dateNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.author", "Jane Smith");
@@ -99,7 +103,7 @@ class FieldNameBulkTranslateRuleTest {
         Node node2 = createMockNode("Artificial Intelligence");
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.keyword", "Computer Science");
@@ -113,7 +117,7 @@ class FieldNameBulkTranslateRuleTest {
     void testEmptyTranslationArray() {
         rule.setTranslationArray(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -130,7 +134,7 @@ class FieldNameBulkTranslateRuleTest {
 
         when(metadata.getFieldNodes("dc.nonexistent")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -147,7 +151,7 @@ class FieldNameBulkTranslateRuleTest {
         Node node = createMockNode("Título en español con acentos");
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.titulo", "Título en español con acentos");
@@ -164,7 +168,7 @@ class FieldNameBulkTranslateRuleTest {
         Node node = createMockNode("Complex Author");
         when(metadata.getFieldNodes("dc.contributor.author")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.creator.person", "Complex Author");
@@ -189,7 +193,7 @@ class FieldNameBulkTranslateRuleTest {
         when(metadata.getFieldNodes("field2")).thenReturn(Collections.singletonList(node2));
         when(metadata.getFieldNodes("field3")).thenReturn(Collections.singletonList(node3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("newfield1", "value1");
@@ -208,7 +212,7 @@ class FieldNameBulkTranslateRuleTest {
         Node node = createMockNode("");
         when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.abstract", "");
@@ -238,7 +242,7 @@ class FieldNameBulkTranslateRuleTest {
         Node node = createMockNode("  Title with spaces  ");
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.maintitle", "  Title with spaces  ");
@@ -257,7 +261,7 @@ class FieldNameBulkTranslateRuleTest {
         when(metadata.getFieldNodes("existing.field")).thenReturn(Collections.singletonList(node));
         when(metadata.getFieldNodes("nonexistent.field")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(1)).addFieldOcurrence(anyString(), anyString());

@@ -20,12 +20,10 @@
 
 package org.lareferencia.backend.validation;
 
-import org.apache.hadoop.thirdparty.org.checkerframework.checker.units.qual.s;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.IOAIRecord;
 import org.lareferencia.backend.domain.NetworkSnapshot;
-import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.backend.domain.parquet.RecordValidation;
 import org.lareferencia.backend.domain.parquet.RuleFact;
 import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
@@ -197,15 +195,14 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
 
     public void addObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult validationResult) {
-                
-        String id = fingerprintHelper.getStatsIDfromRecord(record, snapshotMetadata);
+        
         Long snapshotId = snapshotMetadata.getSnapshotId();
         String networkAcronym = snapshotMetadata.getNetworkAcronym();
-        logger.debug("Adding observation for record ID: {} in snapshot {} network: {}", id, snapshotId, networkAcronym);
+        logger.debug("Adding observation for record identifier: {} in snapshot {} network: {}", 
+                    record.getIdentifier(), snapshotId, networkAcronym);
 
-        // Create RecordValidation object
+        // Create RecordValidation object (recordId se calcula automáticamente desde identifier)
         RecordValidation recordValidation = new RecordValidation();
-        recordValidation.setId(id);
         recordValidation.setIdentifier(record.getIdentifier());
         recordValidation.setRecordIsValid(validationResult.isValid());
         recordValidation.setIsTransformed(validationResult.isTransformed());
@@ -242,12 +239,13 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         try {
             parquetRepository.saveRecordAndFacts(snapshotId, networkAcronym, recordValidation);
 
-            logger.debug("Successfully added observation for record ID: {} in snapshot {}", id, snapshotId);
+            logger.debug("Successfully added observation for record identifier: {} in snapshot {}", 
+                        record.getIdentifier(), snapshotId);
         } catch (IOException e) {
-            logger.error("Error adding observation for record ID: {} in snapshot {}: {}", id, snapshotId, e.getMessage(), e);
+            logger.error("Error adding observation for record identifier: {} in snapshot {}: {}", 
+                        record.getIdentifier(), snapshotId, e.getMessage(), e);
             throw new RuntimeException("Failed to add validation observation", e);
         }
-       
         
     }
 
@@ -452,8 +450,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
      */
     private ValidationStatObservation convertRecordToObservation(RecordValidation record, SnapshotMetadata metadata) {
         
-        // Campos básicos
-        String id = record.getId();
+        // Campos básicos (recordId es la PK única)
+        String recordId = record.getRecordId();
         String identifier = record.getIdentifier();
         Boolean isValid = record.getRecordIsValid();
         Boolean isTransformed = record.getIsTransformed();
@@ -492,7 +490,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         
         // Crear observación (repositoryName e institutionName son null en nueva arquitectura)
         return new ValidationStatObservation(
-            id, identifier, metadata.getSnapshotId(), 
+            recordId, identifier, metadata.getSnapshotId(), 
             metadata.getOrigin(), 
             null, // repositoryName (eliminado en nueva arquitectura)
             metadata.getMetadataPrefix(), 

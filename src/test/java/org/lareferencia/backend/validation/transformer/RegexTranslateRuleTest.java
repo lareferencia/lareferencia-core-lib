@@ -23,8 +23,14 @@ package org.lareferencia.backend.validation.transformer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.w3c.dom.Node;
 
 import java.util.Arrays;
@@ -33,9 +39,13 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("RegexTranslateRule Tests")
 class RegexTranslateRuleTest {
 
+    @Mock
+    private NetworkRunningContext context;
     private RegexTranslateRule rule;
     private OAIRecord record;
     private OAIRecordMetadata metadata;
@@ -66,7 +76,7 @@ class RegexTranslateRuleTest {
         Node node = createMockNode("http://example.com");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Arrays.asList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.identifier", "https://example.com");
@@ -85,7 +95,7 @@ class RegexTranslateRuleTest {
         Node node2 = createMockNode("Data Science");
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         // Should transform both nodes
         assertTrue(result);
@@ -107,7 +117,7 @@ class RegexTranslateRuleTest {
         Node node = createMockNode("article");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(node));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).removeNode(node);
         verify(metadata).addFieldOcurrence("dc.type", "Article");
@@ -125,7 +135,7 @@ class RegexTranslateRuleTest {
         Node node = createMockNode("article");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(node));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata, never()).removeNode(node);
     }
@@ -141,7 +151,7 @@ class RegexTranslateRuleTest {
         Node node = createMockNode("2023-10-27");
         when(metadata.getFieldNodes("dc.date")).thenReturn(Arrays.asList(node));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).addFieldOcurrence("dc.year", "2023");
     }
@@ -156,7 +166,7 @@ class RegexTranslateRuleTest {
         
         when(metadata.getFieldNodes("dc.nonexistent")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -174,7 +184,7 @@ class RegexTranslateRuleTest {
         Node node2 = createMockNode("DOI:10.5678/def");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Arrays.asList(node1, node2));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).addFieldOcurrence("dc.identifier", "doi:10.1234/abc");
         verify(metadata).addFieldOcurrence("dc.identifier", "doi:10.5678/def");
@@ -191,7 +201,7 @@ class RegexTranslateRuleTest {
         Node node = createMockNode("https://www.example.com/article");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Arrays.asList(node));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).addFieldOcurrence("dc.clean_id", "example.com/article");
     }
@@ -207,7 +217,7 @@ class RegexTranslateRuleTest {
         Node node = createMockNode("test test test");
         when(metadata.getFieldNodes("dc.text")).thenReturn(Arrays.asList(node));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).addFieldOcurrence("dc.text", "TEST test test");
     }

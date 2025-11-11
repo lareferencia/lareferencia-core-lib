@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -23,6 +24,9 @@ import static org.mockito.Mockito.*;
 @DisplayName("RemoveEmptyOccrsRule Tests")
 class RemoveEmptyOccrsRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -53,7 +57,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(emptyNode, validNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(emptyNode);
@@ -68,7 +72,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(whitespaceNode, validNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(whitespaceNode);
@@ -84,7 +88,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(tabNode, newlineNode, validNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(tabNode);
@@ -100,7 +104,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -111,7 +115,7 @@ class RemoveEmptyOccrsRuleTest {
     void testEmptyFieldList() {
         when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -126,7 +130,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(empty1, empty2, empty3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(empty1);
@@ -144,7 +148,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(empty, valid1, whitespace, valid2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(empty);
@@ -160,7 +164,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -180,7 +184,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(emptyNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(emptyNode);
@@ -193,7 +197,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(mixedNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(mixedNode);
@@ -206,7 +210,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -219,7 +223,7 @@ class RemoveEmptyOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result); // Zero-width space is not considered whitespace by trim()
     }

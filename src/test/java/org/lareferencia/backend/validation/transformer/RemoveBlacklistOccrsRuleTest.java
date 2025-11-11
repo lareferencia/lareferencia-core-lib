@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -24,6 +25,9 @@ import static org.mockito.Mockito.*;
 @DisplayName("RemoveBlacklistOccrsRule Tests")
 class RemoveBlacklistOccrsRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -58,7 +62,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(validNode, blacklistedNode1, blacklistedNode2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(validNode);
@@ -77,7 +81,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -91,7 +95,7 @@ class RemoveBlacklistOccrsRuleTest {
         Node node = createMockNode("Some Subject");
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -105,7 +109,7 @@ class RemoveBlacklistOccrsRuleTest {
 
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -122,7 +126,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node1);
@@ -141,7 +145,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node1);
@@ -161,7 +165,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, validNode, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node1);
@@ -197,7 +201,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node1);
@@ -215,7 +219,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node1);
@@ -233,7 +237,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node1);
@@ -252,7 +256,7 @@ class RemoveBlacklistOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, validNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node1);

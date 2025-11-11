@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.validation.IValidatorFieldContentRule;
@@ -26,6 +27,9 @@ import static org.mockito.Mockito.*;
 @DisplayName("FieldContentNormalizeRule Tests")
 class FieldContentNormalizeRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -64,7 +68,7 @@ class FieldContentNormalizeRuleTest {
         when(validationRule.validate("Valid Subject")).thenReturn(new ContentValidatorResult(true, "Valid"));
         when(validationRule.validate("Invalid")).thenReturn(new ContentValidatorResult(false, "Too short"));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(1)).removeNode(invalidNode);
@@ -82,7 +86,7 @@ class FieldContentNormalizeRuleTest {
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
         when(validationRule.validate(anyString())).thenReturn(new ContentValidatorResult(true, "Valid"));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -99,7 +103,7 @@ class FieldContentNormalizeRuleTest {
 
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(1)).removeNode(node2);
@@ -121,7 +125,7 @@ class FieldContentNormalizeRuleTest {
         when(validationRule.validate("Valid Subject")).thenReturn(new ContentValidatorResult(true, "Valid"));
         when(validationRule.validate("Invalid")).thenReturn(new ContentValidatorResult(false, "Too short"));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(1)).removeNode(node2);
@@ -136,7 +140,7 @@ class FieldContentNormalizeRuleTest {
 
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -151,7 +155,7 @@ class FieldContentNormalizeRuleTest {
         Node node = createMockNode("Some Subject");
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -168,7 +172,7 @@ class FieldContentNormalizeRuleTest {
 
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -185,7 +189,7 @@ class FieldContentNormalizeRuleTest {
 
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(1)).removeNode(node2);
@@ -218,7 +222,7 @@ class FieldContentNormalizeRuleTest {
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.singletonList(node));
         when(validationRule.validate("Unique Subject")).thenReturn(new ContentValidatorResult(true, "Valid"));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());

@@ -69,7 +69,7 @@ public class MetadataTransformersUnitTests {
     	trfTranslate.setTestFieldName("dc.rights.*");
     	trfTranslate.setWriteFieldName("dc.rights.none");
     	
-    	trfTranslate.transform(null, metadata);
+    	trfTranslate.transform(null, null, metadata);
     	
     	System.out.println(  metadata.getFieldOcurrences("dc.rights.*") );
     	assertTrue( metadata.getFieldOcurrences("dc.rights.*").contains("openAccess") );
@@ -95,7 +95,7 @@ public class MetadataTransformersUnitTests {
     	trfTranslate.setTestFieldName("dc.rights.*");
     	trfTranslate.setWriteFieldName("dc.rights.none");
     	
-    	trfTranslate.transform(null, metadata);
+    	trfTranslate.transform(null, null, metadata);
     	
     	System.out.println(  metadata.getFieldOcurrences("dc.rights.*") );
     	assertTrue( metadata.getFieldOcurrences("dc.rights.*").contains("openAccess") );

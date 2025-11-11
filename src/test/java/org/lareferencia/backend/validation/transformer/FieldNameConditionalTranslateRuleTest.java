@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -26,6 +27,9 @@ import static org.mockito.Mockito.*;
 @DisplayName("FieldNameConditionalTranslateRule Tests")
 class FieldNameConditionalTranslateRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -57,7 +61,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//dc:creator[@role='author']"))
             .thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.contributor", "John Doe");
@@ -74,7 +78,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//dc:creator"))
             .thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.contributor", "Author 1");
@@ -91,7 +95,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//dc:nonexistent"))
             .thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -116,7 +120,7 @@ class FieldNameConditionalTranslateRuleTest {
         
         when(metadata.getFieldNodesByXPath("//dc:subject")).thenReturn(nodes);
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         // Should process MAX_NODE_COUNT + 1 nodes (101 total)
@@ -133,7 +137,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//dc:creator"))
             .thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.contributor", "José García");
@@ -148,7 +152,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//metadata/dc:creator[@type='personal' and @role='author']"))
             .thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.contributor", "Complex Author");
@@ -178,7 +182,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//dc:description"))
             .thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.contributor", "");
@@ -193,7 +197,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//dc:identifier"))
             .thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.contributor", "http://example.org/resource/123");
@@ -208,7 +212,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//dc:title"))
             .thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.contributor", "  Title with spaces  ");
@@ -226,7 +230,7 @@ class FieldNameConditionalTranslateRuleTest {
         
         when(metadata.getFieldNodesByXPath("//dc:subject")).thenReturn(nodes);
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(100)).addFieldOcurrence(anyString(), anyString());
@@ -243,7 +247,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//dc:creator"))
             .thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.author", "Jane Smith");
@@ -258,7 +262,7 @@ class FieldNameConditionalTranslateRuleTest {
         when(metadata.getFieldNodesByXPath("//oai_dc:dc/dc:creator"))
             .thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.contributor", "Namespace Author");

@@ -7,9 +7,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.Network;
 import org.lareferencia.backend.domain.NetworkSnapshot;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,9 +24,13 @@ import static org.mockito.Mockito.*;
  * Unit tests for AddProvenanceMetadataRule
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("AddProvenanceMetadataRule Tests")
 class AddProvenanceMetadataRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -44,6 +51,7 @@ class AddProvenanceMetadataRuleTest {
         rule = new AddProvenanceMetadataRule();
         attributes = new HashMap<>();
         
+        lenient().when(context.getNetwork()).thenReturn(network);
         lenient().when(record.getSnapshot()).thenReturn(snapshot);
         lenient().when(snapshot.getNetwork()).thenReturn(network);
         lenient().when(network.getAttributes()).thenReturn(attributes);
@@ -57,7 +65,7 @@ class AddProvenanceMetadataRuleTest {
         attributes.put("source_url", "http://repository.edu");
         attributes.put("institution_type", "University");
         
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(3)).removeFieldOcurrence(anyString());
@@ -67,7 +75,7 @@ class AddProvenanceMetadataRuleTest {
     @Test
     @DisplayName("Should handle empty attributes")
     void testEmptyAttributes() throws Exception {
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, atLeastOnce()).removeFieldOcurrence(anyString());
@@ -79,7 +87,7 @@ class AddProvenanceMetadataRuleTest {
         attributes.put("source_type", null);
         attributes.put("source_url", null);
         
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, atLeastOnce()).addFieldOcurrence(anyString(), eq(""));
@@ -90,7 +98,7 @@ class AddProvenanceMetadataRuleTest {
     void testRemoveExistingFields() throws Exception {
         attributes.put("source_type", "Repository");
         
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeFieldOcurrence(AddProvenanceMetadataRule.getRepoNameField());
@@ -107,7 +115,7 @@ class AddProvenanceMetadataRuleTest {
         attributes.put("institution_url", "http://university.edu");
         attributes.put("oai_base_url", "http://repo.edu/oai");
         
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, atLeastOnce()).addFieldOcurrence(anyString(), anyString());
@@ -154,7 +162,7 @@ class AddProvenanceMetadataRuleTest {
         attributes.put("source_type", "Repositório Institucional");
         attributes.put("institution_type", "Universität");
         
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, atLeastOnce()).addFieldOcurrence(anyString(), anyString());
@@ -166,7 +174,7 @@ class AddProvenanceMetadataRuleTest {
         attributes.put("source_url", "http://repository.edu/oai?verb=ListRecords");
         attributes.put("contact_email", "admin@repository.edu");
         
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, atLeastOnce()).addFieldOcurrence(anyString(), anyString());
@@ -175,7 +183,7 @@ class AddProvenanceMetadataRuleTest {
     @Test
     @DisplayName("Should always return true")
     void testAlwaysReturnsTrue() throws Exception {
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
     }
@@ -186,7 +194,7 @@ class AddProvenanceMetadataRuleTest {
         String largeValue = "a".repeat(1000);
         attributes.put("source_type", largeValue);
         
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
     }
@@ -197,7 +205,7 @@ class AddProvenanceMetadataRuleTest {
         attributes.put("source_type", "  Institutional Repository  ");
         attributes.put("institution_type", "\tUniversity\n");
         
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, atLeastOnce()).addFieldOcurrence(anyString(), anyString());

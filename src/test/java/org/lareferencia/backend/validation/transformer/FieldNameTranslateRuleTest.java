@@ -23,8 +23,14 @@ package org.lareferencia.backend.validation.transformer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.w3c.dom.Node;
 
 import java.util.Arrays;
@@ -33,9 +39,14 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("FieldNameTranslateRule Tests")
 class FieldNameTranslateRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     private FieldNameTranslateRule rule;
     private OAIRecord record;
     private OAIRecordMetadata metadata;
@@ -68,7 +79,7 @@ class FieldNameTranslateRuleTest {
         rule.setTargetFieldName("dc.creator");
         when(metadata.getFieldNodes("dc.contributor")).thenReturn(Arrays.asList(mockNode1));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.creator", "value1");
@@ -82,7 +93,7 @@ class FieldNameTranslateRuleTest {
         rule.setTargetFieldName("dc.topic");
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(mockNode1, mockNode2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.topic", "value1");
@@ -98,7 +109,7 @@ class FieldNameTranslateRuleTest {
         rule.setTargetFieldName("dc.target");
         when(metadata.getFieldNodes("dc.nonexistent")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -113,7 +124,7 @@ class FieldNameTranslateRuleTest {
         when(mockChildNode1.getNodeValue()).thenReturn("Important Data");
         when(metadata.getFieldNodes("old.field")).thenReturn(Arrays.asList(mockNode1));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).addFieldOcurrence("new.field", "Important Data");
     }
@@ -126,7 +137,7 @@ class FieldNameTranslateRuleTest {
         when(mockChildNode1.getNodeValue()).thenReturn("");
         when(metadata.getFieldNodes("dc.empty")).thenReturn(Arrays.asList(mockNode1));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.target", "");
@@ -140,7 +151,7 @@ class FieldNameTranslateRuleTest {
         when(mockChildNode1.getNodeValue()).thenReturn("Educación en España");
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(mockNode1));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).addFieldOcurrence("dc.titulo", "Educación en España");
     }
@@ -153,7 +164,7 @@ class FieldNameTranslateRuleTest {
         when(mockChildNode1.getNodeValue()).thenReturn("CC-BY-NC-SA 4.0 <https://creativecommons.org>");
         when(metadata.getFieldNodes("dc.rights")).thenReturn(Arrays.asList(mockNode1));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).addFieldOcurrence("dc.license", "CC-BY-NC-SA 4.0 <https://creativecommons.org>");
     }
@@ -166,7 +177,7 @@ class FieldNameTranslateRuleTest {
         when(mockChildNode1.getNodeValue()).thenReturn("  Text with spaces  ");
         when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(mockNode1));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).addFieldOcurrence("dc.abstract", "  Text with spaces  ");
     }
@@ -189,7 +200,7 @@ class FieldNameTranslateRuleTest {
         
         when(metadata.getFieldNodes("dc.many")).thenReturn(Arrays.asList(manyNodes));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         // Should process at most 101 nodes (i from 0 to 100, then breaks at i=101)
         verify(metadata, atMost(101)).addFieldOcurrence(eq("dc.target"), anyString());
@@ -202,7 +213,7 @@ class FieldNameTranslateRuleTest {
         rule.setTargetFieldName("author");
         when(metadata.getFieldNodes("oai_dc:dc/dc:creator")).thenReturn(Arrays.asList(mockNode1));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("author", "value1");
@@ -231,7 +242,7 @@ class FieldNameTranslateRuleTest {
         when(metadata.getFieldNodes("dc.null")).thenReturn(Arrays.asList(mockNode1));
 
         // Should not throw exception
-        assertDoesNotThrow(() -> rule.transform(record, metadata));
+        assertDoesNotThrow(() -> rule.transform(context, record, metadata));
     }
 
     @Test
@@ -241,7 +252,7 @@ class FieldNameTranslateRuleTest {
         rule.setTargetFieldName("new");
         when(metadata.getFieldNodes("old")).thenReturn(Arrays.asList(mockNode1, mockNode2));
 
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         verify(metadata).removeNode(mockNode1);
         verify(metadata).removeNode(mockNode2);
@@ -255,7 +266,7 @@ class FieldNameTranslateRuleTest {
         when(metadata.getFieldNodes("source")).thenReturn(Arrays.asList(mockNode1));
 
         var inOrder = inOrder(metadata);
-        rule.transform(record, metadata);
+        rule.transform(context, record, metadata);
 
         inOrder.verify(metadata).addFieldOcurrence("target", "value1");
         inOrder.verify(metadata).removeNode(mockNode1);

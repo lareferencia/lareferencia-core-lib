@@ -157,18 +157,20 @@ class IndexerWorkerTest {
         assertTrue(worker.isIncremental());
     }
 
-    @Test
-    @DisplayName("Should extend BaseBatchWorker")
-    void testInheritance() {
-        assertTrue(worker instanceof org.lareferencia.core.worker.BaseBatchWorker);
-    }
+    // DISABLED: IndexerWorker now extends BaseWorker instead of BaseBatchWorker
+    // @Test
+    // @DisplayName("Should extend BaseBatchWorker")
+    // void testInheritance() {
+    //     assertTrue(worker instanceof org.lareferencia.core.worker.BaseBatchWorker);
+    // }
 
-    @Test
-    @DisplayName("Should set page size")
-    void testPageSize() {
-        worker.setPageSize(200);
-        assertEquals(200, worker.getPageSize());
-    }
+    // DISABLED: PageSize methods no longer exist in IndexerWorker
+    // @Test
+    // @DisplayName("Should set page size")
+    // void testPageSize() {
+    //     worker.setPageSize(200);
+    //     assertEquals(200, worker.getPageSize());
+    // }
 
     @Test
     @DisplayName("Should handle multiple schema types")

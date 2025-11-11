@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -19,6 +20,9 @@ import static org.mockito.Mockito.*;
 @DisplayName("FieldAddRule Tests")
 class FieldAddRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -38,7 +42,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.publisher");
         rule.setValue("Test Publisher");
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(1)).addFieldOcurrence("dc.publisher", "Test Publisher");
@@ -50,7 +54,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.title");
         rule.setValue("Título en español");
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.title", "Título en español");
@@ -62,7 +66,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.description");
         rule.setValue("");
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.description", "");
@@ -74,7 +78,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.year");
         rule.setValue("2023");
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.year", "2023");
@@ -86,7 +90,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.identifier");
         rule.setValue("https://doi.org/10.1234/test-123");
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.identifier", "https://doi.org/10.1234/test-123");
@@ -98,7 +102,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.subject");
         rule.setValue("  Computer Science  ");
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.subject", "  Computer Science  ");
@@ -110,7 +114,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.description");
         rule.setValue("Line 1\nLine 2\nLine 3");
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.description", "Line 1\nLine 2\nLine 3");
@@ -122,7 +126,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.test");
         rule.setValue("test value");
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
     }
@@ -133,7 +137,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.test");
         rule.setValue(null);
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.test", null);
@@ -146,7 +150,7 @@ class FieldAddRuleTest {
         rule.setTargetFieldName("dc.description");
         rule.setValue(longValue);
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.description", longValue);

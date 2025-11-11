@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -26,6 +27,9 @@ import static org.mockito.Mockito.*;
 @DisplayName("FieldContentConditionalAddOccrRule Tests")
 class FieldContentConditionalAddOccrRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -59,7 +63,7 @@ class FieldContentConditionalAddOccrRuleTest {
         when(metadata.getFieldNodes("dc.publisher")).thenReturn(Collections.singletonList(publisherNode));
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "article");
@@ -72,7 +76,7 @@ class FieldContentConditionalAddOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.nonexistent")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -92,7 +96,7 @@ class FieldContentConditionalAddOccrRuleTest {
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(titleNode));
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(typeNode1, typeNode2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "article");
@@ -113,7 +117,7 @@ class FieldContentConditionalAddOccrRuleTest {
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(titleNode));
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(typeNode1, typeNode2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "article");
@@ -134,7 +138,7 @@ class FieldContentConditionalAddOccrRuleTest {
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(titleNode));
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(typeNode1, typeNode2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "article");
@@ -151,7 +155,7 @@ class FieldContentConditionalAddOccrRuleTest {
         when(metadata.getFieldOcurrences("dc.title")).thenReturn(Collections.singletonList("Test"));
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(titleNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "artículo científico");
@@ -198,7 +202,7 @@ class FieldContentConditionalAddOccrRuleTest {
         when(metadata.getFieldOcurrences("dc.title")).thenReturn(Collections.singletonList("Test"));
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(titleNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "");
@@ -219,7 +223,7 @@ class FieldContentConditionalAddOccrRuleTest {
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(titleNode));
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(typeNode1, typeNode2, typeNode3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "article");
@@ -238,7 +242,7 @@ class FieldContentConditionalAddOccrRuleTest {
         when(metadata.getFieldOcurrences("dc.title")).thenReturn(Collections.singletonList("Test"));
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(titleNode));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "http://purl.org/dc/dcmitype/Text");

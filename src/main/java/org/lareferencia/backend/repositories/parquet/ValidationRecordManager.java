@@ -40,7 +40,7 @@ import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Types;
 import org.lareferencia.backend.domain.parquet.RecordValidation;
 import org.lareferencia.backend.domain.parquet.RuleFact;
-import org.lareferencia.backend.domain.parquet.ValidationIndex;
+import org.lareferencia.core.metadata.RecordStatus;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -120,19 +120,24 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     
     private static final Logger logger = LogManager.getLogger(ValidationRecordManager.class);
     
+    // Constantes de nombres de archivos
+    private static final String SNAPSHOT_DIR_PREFIX = "snapshot_";
+    private static final String BATCH_FILE_PREFIX = "records_batch_";
+    private static final String BATCH_FILE_SUFFIX = ".parquet";
+    private static final String INDEX_FILE_NAME = "validation_index.parquet";
+    
     // Umbrales para flush automático (escritura)
     private static final int FLUSH_THRESHOLD_RECORDS = 10000;  // Flush cada 10k records
     
     /**
-     * ESQUEMA CON RULE FACTS ANIDADOS Y CAMPOS NUEVOS:
-     * - Campos básicos del record (id, identifier, record_id, record_is_valid, is_transformed)
+     * ESQUEMA CON RULE FACTS ANIDADOS:
+     * - Campos básicos del record (identifier, record_id, record_is_valid, is_transformed)
      * - published_metadata_hash: Hash del XML a indexar
      * - Lista de rule_facts (opcional) con estructura anidada
+     * 
+     * NOTA: No se persiste campo "id" separado - recordId es la PK única
      */
     private static final MessageType SCHEMA = Types.buildMessage()
-        .required(PrimitiveType.PrimitiveTypeName.BINARY)
-            .as(LogicalTypeAnnotation.stringType())
-            .named("id")
         .required(PrimitiveType.PrimitiveTypeName.BINARY)
             .as(LogicalTypeAnnotation.stringType())
             .named("identifier")
@@ -166,17 +171,19 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         .named("RecordValidation");
     
     /**
-     * SCHEMA LIGHTWEIGHT INDEX: Solo campos esenciales para carga en memoria.
+     * SCHEMA LIGHTWEIGHT INDEX: Proyección ligera de RecordValidation para índice en memoria.
      * 
-     * Este schema se usa para persistir ValidationIndex en paralelo.
+     * Este schema se usa para persistir índice ligero en paralelo.
      * Archivo único: validation_index.parquet (no batches)
      * 
-     * Campos (solo 5 esenciales):
-     * - record_id: Hash MD5 que referencia a OAIRecord
+     * Campos (solo 5 esenciales - sin rule_facts):
+     * - record_id: Hash MD5 que referencia a OAIRecord (PK)
      * - identifier: Identificador OAI (denormalizado)
      * - record_is_valid: Boolean validación
      * - is_transformed: Boolean transformación
      * - published_metadata_hash: Hash XML a indexar (opcional)
+     * 
+     * NOTA: Este schema es compatible con RecordValidation usando proyección de columnas.
      */
     private static final MessageType INDEX_SCHEMA = Types.buildMessage()
         .required(PrimitiveType.PrimitiveTypeName.BINARY)
@@ -192,7 +199,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         .optional(PrimitiveType.PrimitiveTypeName.BINARY)
             .as(LogicalTypeAnnotation.stringType())
             .named("published_metadata_hash")
-        .named("ValidationIndex");
+        .named("RecordValidation");
     
     private final String basePath;
     private final Long snapshotId;
@@ -204,8 +211,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     private long totalRecordsWritten = 0;
     private int batchNumber = 0;
     
-    // Buffer para escritura del índice ligero en paralelo
-    private List<ValidationIndex> indexBuffer;
+    // Buffer para escritura del índice ligero en paralelo (RecordValidation sin id/ruleFacts)
+    private List<RecordValidation> indexBuffer;
     
     // Estado de LECTURA (SIN CACHE - readers se crean/cierran on-demand)
     private List<Path> batchFiles;
@@ -306,7 +313,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         }
         
         batchNumber++;
-        String batchPath = basePath + "/snapshot_" + snapshotId + "/records_batch_" + batchNumber + ".parquet";
+        String batchPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + BATCH_FILE_PREFIX + batchNumber + BATCH_FILE_SUFFIX;
         Path path = new Path(batchPath);
         
         logger.info("RECORDS MANAGER: Creating batch file #{} at {}", batchNumber, batchPath);
@@ -341,8 +348,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             return;
         }
         
-        // Validar campos requeridos
-        if (record.getId() == null || record.getIdentifier() == null || 
+        // Validar campos requeridos (recordId es la PK única)
+        if (record.getIdentifier() == null || 
             record.getRecordIsValid() == null || record.getIsTransformed() == null ||
             record.getRecordId() == null) {
             logger.error("RECORDS MANAGER: Invalid record (missing required fields), skipping");
@@ -361,8 +368,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         
         Group group = new SimpleGroup(SCHEMA);
         
-        // Campos requeridos
-        group.append("id", record.getId().trim());
+        // Campos requeridos (sin id - recordId es la PK)
         group.append("identifier", record.getIdentifier().trim());
         group.append("record_id", record.getRecordId().trim());
         group.append("record_is_valid", record.getRecordIsValid());
@@ -415,8 +421,16 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         recordsInCurrentBatch++;
         totalRecordsWritten++;
         
-        // Agregar al buffer del índice ligero en paralelo
-        indexBuffer.add(ValidationIndex.fromRecordValidation(record));
+        // Agregar al buffer del índice ligero en paralelo (solo campos esenciales, sin ruleFacts)
+        RecordValidation lightRecord = new RecordValidation(
+            record.getIdentifier(),
+            record.getRecordId(),
+            record.getRecordIsValid(),
+            record.getIsTransformed(),
+            record.getPublishedMetadataHash(),
+            null // ruleFacts = null para índice ligero
+        );
+        indexBuffer.add(lightRecord);
         
         if (totalRecordsWritten % 10000 == 0) {
             logger.debug("RECORDS MANAGER: Written {} records total ({} in current batch)", 
@@ -448,13 +462,13 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     }
     
     /**
-     * Escribe el archivo del índice ligero.
+     * Escribe el archivo del índice ligero (RecordValidation sin id/ruleFacts).
      * Se sobrescribe completamente en cada flush (archivo único).
      * 
      * Ruta: /snapshot_{id}/validation_index.parquet
      */
     private void writeIndexFile() throws IOException {
-        String indexPath = basePath + "/snapshot_" + snapshotId + "/validation_index.parquet";
+        String indexPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + INDEX_FILE_NAME;
         Path path = new Path(indexPath);
         
         logger.info("RECORDS MANAGER: Writing lightweight index with {} records to {}", 
@@ -472,7 +486,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
                 .withRowGroupSize(128L << 20)
                 .build()) {
             
-            for (ValidationIndex indexRecord : indexBuffer) {
+            for (RecordValidation indexRecord : indexBuffer) {
                 Group group = new SimpleGroup(INDEX_SCHEMA);
                 
                 group.append("record_id", indexRecord.getRecordId().trim());
@@ -499,14 +513,14 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Inicializa el lector buscando todos los archivos batch del snapshot.
      */
     private void initializeReader() throws IOException {
-        String snapshotDir = basePath + "/snapshot_" + snapshotId;
+        String snapshotDir = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId;
         Path snapshotPath = new Path(snapshotDir);
         
         FileSystem fs = FileSystem.get(hadoopConf);
         
         // Buscar todos los archivos records_batch_*.parquet
-        PathFilter batchFilter = path -> path.getName().startsWith("records_batch_") 
-                                       && path.getName().endsWith(".parquet");
+        PathFilter batchFilter = path -> path.getName().startsWith(BATCH_FILE_PREFIX) 
+                                       && path.getName().endsWith(BATCH_FILE_SUFFIX);
         
         FileStatus[] batchStatuses = fs.listStatus(snapshotPath, batchFilter);
         
@@ -728,8 +742,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     private RecordValidation convertGroupToRecord(Group group) {
         RecordValidation record = new RecordValidation();
         
-        // Campos requeridos
-        record.setId(group.getString("id", 0));
+        // Campos requeridos (sin id - recordId es la PK)
         record.setIdentifier(group.getString("identifier", 0));
         record.setRecordId(group.getString("record_id", 0));
         record.setRecordIsValid(group.getBoolean("record_is_valid", 0));
@@ -790,7 +803,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             }
         } catch (Exception e) {
             // Si hay error leyendo rule facts, solo log y continuar con el record
-            logger.warn("Error reading rule facts for record {}: {}", record.getId(), e.getMessage());
+            logger.warn("Error reading rule facts for record {}: {}", record.getRecordId(), e.getMessage());
         }
         
         return record;
@@ -802,6 +815,11 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     
     /**
      * Carga el índice ligero completo en memoria (ON-DEMAND).
+     * 
+     * ARQUITECTURA:
+     * - Retorna RecordValidation con solo campos esenciales (sin id, sin ruleFacts)
+     * - Usa proyección de columnas Parquet para eficiencia
+     * - No hay caché interno - se carga cuando se necesita
      * 
      * USO EN WORKERS:
      * - Solo se carga cuando se necesita (no hay caché interno)
@@ -816,30 +834,31 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Ejemplo de uso:
      * <pre>
      * // Cargar índice cuando se necesita
-     * List<ValidationIndex> index = manager.loadLightweightIndex();
+     * List<RecordValidation> index = manager.loadLightweightIndex();
      * 
      * // Queries rápidas
      * long validCount = index.stream()
-     *     .filter(ValidationIndex::getRecordIsValid)
+     *     .filter(RecordValidation::getRecordIsValid)
      *     .count();
      * 
      * // Búsqueda por identifier
-     * ValidationIndex record = index.stream()
+     * RecordValidation record = index.stream()
      *     .filter(r -> r.getIdentifier().equals(targetId))
      *     .findFirst()
      *     .orElse(null);
      * </pre>
      * 
-     * @return lista completa de ValidationIndex
+     * @param status Filtro por estado (VALID, INVALID, UNTESTED=all)
+     * @return lista completa de RecordValidation ligeros (sin id, sin ruleFacts)
      * @throws IOException si falla la lectura
      */
-    public List<ValidationIndex> loadLightweightIndex() throws IOException {
-        String indexPath = basePath + "/snapshot_" + snapshotId + "/validation_index.parquet";
+    public List<RecordValidation> loadLightweightIndex(RecordStatus status) throws IOException {
+        String indexPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + INDEX_FILE_NAME;
         Path path = new Path(indexPath);
         
         logger.info("RECORDS MANAGER: Loading lightweight index from {}", indexPath);
         
-        List<ValidationIndex> indexRecords = new ArrayList<>();
+        List<RecordValidation> indexRecords = new ArrayList<>();
         
         Configuration conf = new Configuration(hadoopConf);
         
@@ -849,8 +868,18 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             
             Group group;
             while ((group = reader.read()) != null) {
-                ValidationIndex indexRecord = new ValidationIndex();
+
+                boolean isValid = group.getBoolean("record_is_valid", 0);
+
+                if ( status == null || status == RecordStatus.UNTESTED ||  
+                    (status == RecordStatus.VALID && !isValid) ||
+                    (status == RecordStatus.INVALID && isValid)) {
+                    continue; // Filtrar según estado solicitado
+                }
                 
+                RecordValidation indexRecord = new RecordValidation();
+                
+                // Solo campos del índice ligero (sin id, sin ruleFacts)
                 indexRecord.setRecordId(group.getString("record_id", 0));
                 indexRecord.setIdentifier(group.getString("identifier", 0));
                 indexRecord.setRecordIsValid(group.getBoolean("record_is_valid", 0));

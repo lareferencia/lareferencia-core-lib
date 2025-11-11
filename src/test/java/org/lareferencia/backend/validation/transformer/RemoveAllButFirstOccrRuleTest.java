@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -23,6 +24,9 @@ import static org.mockito.Mockito.*;
 @DisplayName("RemoveAllButFirstOccrRule Tests")
 class RemoveAllButFirstOccrRuleTest {
 
+
+    @Mock
+    private NetworkRunningContext context;
     @Mock
     private OAIRecord record;
 
@@ -54,7 +58,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -68,7 +72,7 @@ class RemoveAllButFirstOccrRuleTest {
         Node node = createMockNode("Only Title");
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -79,7 +83,7 @@ class RemoveAllButFirstOccrRuleTest {
     void testEmptyFieldList() {
         when(metadata.getFieldNodes("dc.title")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -93,7 +97,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -111,7 +115,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2, node3, node4, node5));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -129,7 +133,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -144,7 +148,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -168,7 +172,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.creator")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -184,7 +188,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -200,7 +204,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -215,7 +219,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -231,7 +235,7 @@ class RemoveAllButFirstOccrRuleTest {
         
         when(metadata.getFieldNodes("dc.title")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(record, metadata);
+        boolean result = rule.transform(context, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);

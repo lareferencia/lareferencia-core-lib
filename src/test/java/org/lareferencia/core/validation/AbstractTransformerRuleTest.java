@@ -23,8 +23,10 @@ package org.lareferencia.core.validation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.lareferencia.backend.domain.IOAIRecord;
 import org.lareferencia.backend.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
+import org.lareferencia.core.worker.NetworkRunningContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -39,7 +41,7 @@ class AbstractTransformerRuleTest {
         private boolean shouldReturnTrue = false;
 
         @Override
-        public boolean transform(OAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
+        public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
             transformCalled = true;
             return shouldReturnTrue;
         }
@@ -99,7 +101,7 @@ class AbstractTransformerRuleTest {
         }
 
         transformerRule.setShouldReturnTrue(false);
-        boolean result = transformerRule.transform(mockRecord, mockMetadata);
+        boolean result = transformerRule.transform(null, mockRecord, mockMetadata);
 
         assertFalse(result);
         assertTrue(transformerRule.isTransformCalled());
@@ -117,7 +119,7 @@ class AbstractTransformerRuleTest {
         }
 
         transformerRule.setShouldReturnTrue(true);
-        boolean result = transformerRule.transform(mockRecord, mockMetadata);
+        boolean result = transformerRule.transform(null, mockRecord, mockMetadata);
 
         assertTrue(result);
         assertTrue(transformerRule.isTransformCalled());
@@ -132,7 +134,7 @@ class AbstractTransformerRuleTest {
         } catch (Exception e) {
             fail("Failed to create OAIRecordMetadata: " + e.getMessage());
         }
-        boolean result = transformerRule.transform(null, mockMetadata);
+        boolean result = transformerRule.transform(null, null, mockMetadata);
         assertFalse(result);
         assertTrue(transformerRule.isTransformCalled());
     }
@@ -140,7 +142,7 @@ class AbstractTransformerRuleTest {
     @Test
     @DisplayName("Should handle null metadata in transform")
     void testTransformWithNullMetadata() throws ValidationException {
-        boolean result = transformerRule.transform(new OAIRecord(), null);
+        boolean result = transformerRule.transform(null, new OAIRecord(), null);
         assertFalse(result);
         assertTrue(transformerRule.isTransformCalled());
     }
@@ -148,7 +150,7 @@ class AbstractTransformerRuleTest {
     @Test
     @DisplayName("Should handle null record and metadata in transform")
     void testTransformWithNullRecordAndMetadata() throws ValidationException {
-        boolean result = transformerRule.transform(null, null);
+        boolean result = transformerRule.transform(null, null, null);
         assertFalse(result);
         assertTrue(transformerRule.isTransformCalled());
     }
@@ -161,7 +163,7 @@ class AbstractTransformerRuleTest {
 
         try {
             OAIRecordMetadata mockMetadata = new OAIRecordMetadata("test:identifier");
-            transformerRule.transform(new OAIRecord(), mockMetadata);
+            transformerRule.transform(null, new OAIRecord(), mockMetadata);
         } catch (Exception e) {
             fail("Failed to create OAIRecordMetadata: " + e.getMessage());
         }

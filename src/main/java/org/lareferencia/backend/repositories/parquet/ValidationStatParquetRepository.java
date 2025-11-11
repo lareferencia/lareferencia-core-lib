@@ -39,6 +39,7 @@ import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.parquet.RecordValidation;
 import org.lareferencia.backend.domain.parquet.RuleFact;
 import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
+import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
@@ -707,6 +708,36 @@ public class ValidationStatParquetRepository {
         result.put("invalid", invalidOccurrences);
         
         return result;
+    }
+    
+    /**
+     * Carga el índice ligero completo de un snapshot en memoria.
+     * 
+     * ÍNDICE LIGERO:
+     * - RecordValidation sin ruleFacts (solo campos esenciales)
+     * - ~35 bytes/record comprimido
+     * - Carga rápida desde archivo validation_index.parquet
+     * - Filtrado opcional por RecordStatus
+     * 
+     * USO RECOMENDADO:
+     * - Queries rápidas en memoria
+     * - Filtrados por identifier, recordId, isValid, isTransformed
+     * - Estadísticas sin necesidad de cargar ruleFacts completos
+     * 
+     * @param snapshotId ID del snapshot
+     * @param status Filtro por estado (VALID, INVALID, UNTESTED=todos, DELETED ignorado)
+     * @return lista de RecordValidation ligeros filtrados
+     * @throws IOException si hay error leyendo el índice
+     */
+    public List<RecordValidation> getRecordValidationListBySnapshotAndStatus(Long snapshotId, RecordStatus status) throws IOException {
+        logger.info("GET RECORD VALIDATION LIST: snapshot={}, status={}", snapshotId, status);
+        
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+            List<RecordValidation> indexRecords = reader.loadLightweightIndex(status);
+            logger.info("RECORD VALIDATION LIST LOADED: {} records for snapshot {} with status {}", 
+                       indexRecords.size(), snapshotId, status);
+            return indexRecords;
+        }
     }
     
     /**

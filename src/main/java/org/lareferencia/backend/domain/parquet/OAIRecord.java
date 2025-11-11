@@ -56,7 +56,7 @@ import org.lareferencia.backend.domain.IOAIRecord;
  * USO:
  * - Harvesting: Escribir nuevos registros al cosechar (ID se calcula automáticamente)
  * - Validation: Leer registros para procesar (solo lectura)
- * - Indexing: Leer catálogo combinado con ValidationIndex
+ * - Indexing: Leer catálogo combinado con RecordValidation ligero (índice)
  */
 public class OAIRecord implements IOAIRecord {
 

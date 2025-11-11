@@ -38,22 +38,29 @@ import java.util.Objects;
  * - publishedMetadataHash: Hash del XML a indexar (resultado de validación/transformación)
  *
  * ESQUEMA PARQUET:
- * - id: STRING (required) - ID único del record de validación
  * - identifier: STRING (required) - Identificador OAI del record (denormalizado para búsquedas)
- * - record_id: STRING (required) - Hash MD5 que referencia al OAIRecord en catálogo
+ * - record_id: STRING (required) - Hash MD5 que referencia al OAIRecord en catálogo (PK única)
  * - record_is_valid: BOOLEAN (required) - Si el record es válido
  * - is_transformed: BOOLEAN (required) - Si el record fue transformado
  * - published_metadata_hash: STRING (optional) - Hash MD5 del XML a indexar
- * - rule_facts: LIST<RuleFact> (optional) - Detalles de todas las reglas aplicadas
+ * - rule_facts: LIST<RuleFact> (optional) - Detalles de todas las reglas aplicadas (null en índice ligero)
  * 
  * LÓGICA DE publishedMetadataHash:
  * - Si isTransformed = true: hash del XML transformado
  * - Si isTransformed = false && recordIsValid = true: copia del originalMetadataHash
  * - Si recordIsValid = false: null (no hay XML a publicar)
+ * 
+ * USO COMO ÍNDICE LIGERO:
+ * - Para índice ligero: ruleFacts = null o lista vacía
+ * - Proyección Parquet: Leer solo [recordId, identifier, recordIsValid, isTransformed, publishedMetadataHash]
+ * - Tamaño en memoria: ~30 bytes/record comprimido
+ * - 10M records = ~300 MB en memoria (viable para carga completa)
+ * 
+ * IDENTIFICACIÓN:
+ * - recordId sirve como PRIMARY KEY única (no se necesita campo id separado)
  */
 public class RecordValidation {
 
-    private String id;
     private String identifier;
     
     /**
@@ -85,9 +92,8 @@ public class RecordValidation {
         this.ruleFacts = new ArrayList<>();
     }
 
-    public RecordValidation(String id, String identifier, 
+    public RecordValidation(String identifier, 
                            Boolean recordIsValid, Boolean isTransformed) {
-        this.id = id;
         this.identifier = identifier;
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
@@ -96,9 +102,8 @@ public class RecordValidation {
         this.recordId = org.lareferencia.backend.domain.parquet.OAIRecord.generateIdFromIdentifier(identifier);
     }
     
-    public RecordValidation(String id, String identifier, 
+    public RecordValidation(String identifier, 
                            Boolean recordIsValid, Boolean isTransformed, List<RuleFact> ruleFacts) {
-        this.id = id;
         this.identifier = identifier;
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
@@ -110,26 +115,19 @@ public class RecordValidation {
     /**
      * Constructor completo con todos los campos.
      */
-    public RecordValidation(String id, String identifier, String recordId,
+    public RecordValidation(String identifier, String recordId,
                            Boolean recordIsValid, Boolean isTransformed,
                            String publishedMetadataHash,
                            List<RuleFact> ruleFacts) {
-        this.id = id;
         this.identifier = identifier;
         this.recordId = recordId != null ? recordId : org.lareferencia.backend.domain.parquet.OAIRecord.generateIdFromIdentifier(identifier);
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
         this.publishedMetadataHash = publishedMetadataHash;
         this.ruleFacts = ruleFacts != null ? ruleFacts : new ArrayList<>();
-    }    // Getters y Setters
-    
-    public String getId() {
-        return id;
     }
     
-    public void setId(String id) {
-        this.id = id;
-    }
+    // Getters y Setters
     
     public String getIdentifier() {
         return identifier;
@@ -189,9 +187,8 @@ public class RecordValidation {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RecordValidation that = (RecordValidation) o;
-        return Objects.equals(id, that.id) &&
+        return Objects.equals(recordId, that.recordId) &&
                Objects.equals(identifier, that.identifier) &&
-               Objects.equals(recordId, that.recordId) &&
                Objects.equals(recordIsValid, that.recordIsValid) &&
                Objects.equals(isTransformed, that.isTransformed) &&
                Objects.equals(publishedMetadataHash, that.publishedMetadataHash) &&
@@ -200,16 +197,15 @@ public class RecordValidation {
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, identifier, recordId, recordIsValid, isTransformed, 
+        return Objects.hash(recordId, identifier, recordIsValid, isTransformed, 
                           publishedMetadataHash, ruleFacts);
     }
 
     @Override
     public String toString() {
         return "RecordValidation{" +
-                "id='" + id + '\'' +
+                "recordId='" + recordId + '\'' +
                 ", identifier='" + identifier + '\'' +
-                ", recordId='" + recordId + '\'' +
                 ", recordIsValid=" + recordIsValid +
                 ", isTransformed=" + isTransformed +
                 ", publishedMetadataHash='" + publishedMetadataHash + '\'' +
