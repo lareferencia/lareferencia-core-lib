@@ -52,9 +52,9 @@ class SnapshotValidationStatsTest {
 
         // Create validation stats
         SnapshotValidationStats stats = new SnapshotValidationStats(metadata);
-        stats.setTotalRecords(100L);
-        stats.setTransformedRecords(10L);
-        stats.setValidRecords(90L);
+        stats.setTotalRecords(100);
+        stats.setTransformedRecords(10);
+        stats.setValidRecords(90);
 
         // Update rule stats (rule was already registered in constructor from metadata)
         stats.incrementRuleValid(1L);

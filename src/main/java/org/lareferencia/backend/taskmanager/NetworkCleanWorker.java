@@ -27,7 +27,7 @@ import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.repositories.jpa.OAIBitstreamRepository;
 import org.lareferencia.backend.validation.IValidationStatisticsService;
 import org.lareferencia.backend.validation.ValidationStatisticsException;
-import org.lareferencia.core.metadata.IMetadataRecordStoreService;
+import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,7 +57,7 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	private IValidationStatisticsService validationStatisticsService;
 		
 	@Autowired
-	private IMetadataRecordStoreService metadataStoreService;
+	private ISnapshotStore snapshotStore;
 	
 	@Autowired
 	private OAIBitstreamRepository bitstreamRepository;
@@ -94,17 +94,17 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 			
 			logger.info("Running Network/Repository cleanning process: " + network.getAcronym());
 			
-			Long lgkSnapshotID = metadataStoreService.findLastGoodKnownSnapshot(network);
-			Long lhSnapshotID = metadataStoreService.findLastHarvestingSnapshot(network);
+			Long lgkSnapshotID = snapshotStore.findLastGoodKnownSnapshot(network);
+			Long lhSnapshotID = snapshotStore.findLastHarvestingSnapshot(network);
 			
 			// clean all snapshot data except last harvested and last good known snapshots
-			for (Long snapshotId : metadataStoreService.listSnapshotsIds(network.getId(), false) ) {
+			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), false) ) {
 				// si no es el lgk ni lh
 				if ( !snapshotId.equals(lgkSnapshotID) && !snapshotId.equals(lhSnapshotID) ) {
 					
 					try {
 						cleanSnapshotStatsData(snapshotId);
-						metadataStoreService.cleanSnapshotData(snapshotId);
+						snapshotStore.cleanSnapshotData(snapshotId);
 
 					} catch (ValidationStatisticsException e) {
 						logger.error("Error cleanning snapshot" + e.getMessage());
@@ -118,11 +118,11 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 			logger.info("Deleting the entire network/repository: " + network.getAcronym());
 			
 			// limpia todos los snapshots 
-			for (Long snapshotId : metadataStoreService.listSnapshotsIds(network.getId(), true) ) {
+			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), true) ) {
 				try {
 					cleanSnapshotStatsData(snapshotId);
-					metadataStoreService.cleanSnapshotData(snapshotId);
-					metadataStoreService.deleteSnapshot(snapshotId);
+					snapshotStore.cleanSnapshotData(snapshotId);
+					snapshotStore.deleteSnapshot(snapshotId);
 
 				} catch (ValidationStatisticsException e) {
 					logger.error("Error cleanning snapshot" + e.getMessage());

@@ -38,9 +38,9 @@ public class SnapshotValidationStats {
     private SnapshotMetadata snapshotMetadata;
     
     // Record counts
-    private Long totalRecords = 0L;
-    private Long transformedRecords = 0L;
-    private Long validRecords = 0L;
+    private Integer totalRecords = 0;
+    private Integer transformedRecords = 0;
+    private Integer validRecords = 0;
     
     // Rule statistics: ruleID -> counters
     private Map<Long, RuleStats> ruleStats = new LinkedHashMap<>();
@@ -77,8 +77,8 @@ public class SnapshotValidationStats {
     public void incrementValidRecords() { this.validRecords++; }
     
     // Calculated invalid records
-    public Long getInvalidRecords() {
-        return (totalRecords != null && validRecords != null) ? totalRecords - validRecords : 0L;
+    public Integer getInvalidRecords() {
+        return (totalRecords != null && validRecords != null) ? totalRecords - validRecords : 0;
     }
     
     public void incrementRuleValid(Long ruleID) {

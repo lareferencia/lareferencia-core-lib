@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.util.PathUtils;
 import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
 
 import java.io.File;
@@ -42,8 +43,8 @@ import java.nio.file.Paths;
  * - Formato JSON legible y fácil de inspeccionar
  * - Consultas ultra-rápidas (<1ms) para estadísticas agregadas
  * 
- * UBICACIÓN:
- * - {baseDir}/snapshot_{snapshotId}/metadata.json
+ * UBICACIÓN (NUEVA ESTRUCTURA):
+ * - {baseDir}/{NETWORK}/snapshots/snapshot_{snapshotId}/metadata.json
  * 
  * CONTENIDO:
  * - snapshot_id, network, total_records, valid_records, invalid_records, created_at
@@ -70,8 +71,8 @@ public final class SnapshotMetadataManager {
         if (metadata == null || metadata.getSnapshotId() == null) {
             throw new IllegalArgumentException("Metadata y snapshotId no pueden ser null");
         }
-        
-        String snapshotDir = String.format("%s/snapshot_%d", baseDir, metadata.getSnapshotId());
+
+        String snapshotDir = PathUtils.getSnapshotPath(baseDir, metadata);
         Path dirPath = Paths.get(snapshotDir);
         
         // Crear directorio si no existe
@@ -84,48 +85,50 @@ public final class SnapshotMetadataManager {
         String metadataPath = String.format("%s/%s", snapshotDir, METADATA_FILENAME);
         mapper.writeValue(new File(metadataPath), metadata);
         
-        logger.info("METADATA WRITTEN: snapshot={}, path={}", metadata.getSnapshotId(), metadataPath);
+        logger.info("METADATA WRITTEN: snapshot={}, network={}, path={}", 
+            metadata.getSnapshotId(), metadata.getNetworkAcronym(), metadataPath);
     }
     
     /**
      * Lee metadata de snapshot desde JSON
      * 
      * @param baseDir directorio base de almacenamiento
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y networkAcronym)
      * @return metadata del snapshot o null si no existe
      * @throws IOException si falla la lectura
      */
-    public static SnapshotMetadata readMetadata(String baseDir, Long snapshotId) throws IOException {
-        if (snapshotId == null) {
-            throw new IllegalArgumentException("snapshotId no puede ser null");
+    public static SnapshotMetadata readMetadata(String baseDir, SnapshotMetadata snapshotMetadata) throws IOException {
+        if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
+            throw new IllegalArgumentException("snapshotMetadata y snapshotId no pueden ser null");
         }
         
-        String metadataPath = String.format("%s/snapshot_%d/%s", baseDir, snapshotId, METADATA_FILENAME);
+        String metadataPath = String.format("%s/%s", 
+            PathUtils.getSnapshotPath(baseDir, snapshotMetadata), METADATA_FILENAME);
         File file = new File(metadataPath);
         
         if (!file.exists()) {
-            logger.warn("METADATA NOT FOUND: snapshot={}, path={}", snapshotId, metadataPath);
+            logger.warn("Metadata file not found: {}", metadataPath);
             return null;
         }
         
-    SnapshotMetadata metadata = mapper.readValue(file, SnapshotMetadata.class);
-    logger.debug("METADATA READ: snapshot={}, records={}", snapshotId, metadata.getSize());
-    return metadata;
-    }
-    
-    /**
+        SnapshotMetadata metadata = mapper.readValue(file, SnapshotMetadata.class);
+        logger.debug("METADATA READ: snapshot={}, network={}, records={}", 
+            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym(), metadata.getSize());
+        return metadata;
+    }    /**
      * Verifica si existe metadata para un snapshot
      * 
      * @param baseDir directorio base
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y networkAcronym)
      * @return true si existe el archivo metadata.json
      */
-    public static boolean metadataExists(String baseDir, Long snapshotId) {
-        if (snapshotId == null) {
+    public static boolean metadataExists(String baseDir, SnapshotMetadata snapshotMetadata) {
+        if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
             return false;
         }
         
-        String metadataPath = String.format("%s/snapshot_%d/%s", baseDir, snapshotId, METADATA_FILENAME);
+        String metadataPath = String.format("%s/%s", 
+            PathUtils.getSnapshotPath(baseDir, snapshotMetadata), METADATA_FILENAME);
         return new File(metadataPath).exists();
     }
     
@@ -135,19 +138,21 @@ public final class SnapshotMetadataManager {
      * Elimina metadata de un snapshot
      * 
      * @param baseDir directorio base
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y networkAcronym)
      * @return true si se eliminó correctamente
      */
-    public static boolean deleteMetadata(String baseDir, Long snapshotId) {
-        if (snapshotId == null) {
+    public static boolean deleteMetadata(String baseDir, SnapshotMetadata snapshotMetadata) {
+        if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
             return false;
         }
         
-        String metadataPath = String.format("%s/snapshot_%d/%s", baseDir, snapshotId, METADATA_FILENAME);
+        String metadataPath = String.format("%s/%s", 
+            PathUtils.getSnapshotPath(baseDir, snapshotMetadata), METADATA_FILENAME);
         File file = new File(metadataPath);
         
         if (file.exists() && file.delete()) {
-            logger.info("METADATA DELETED: snapshot={}", snapshotId);
+            logger.info("METADATA DELETED: snapshot={}, network={}", 
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
             return true;
         }
         
@@ -163,11 +168,13 @@ public final class SnapshotMetadataManager {
      */
     public static void writeValidationStats(String baseDir, SnapshotValidationStats validationStats) throws IOException {
         if (validationStats == null || validationStats.getSnapshotMetadata() == null || validationStats.getSnapshotMetadata().getSnapshotId() == null) {
-            throw new IllegalArgumentException("ValidationStats, SnapshotMetadata y snapshotId no pueden ser null");
+            throw new IllegalArgumentException("validationStats, snapshotMetadata y snapshotId no pueden ser null");
         }
         
-        Long snapshotId = validationStats.getSnapshotMetadata().getSnapshotId();
-        String validationDir = String.format("%s/snapshot_%d/%s", baseDir, snapshotId, VALIDATION_SUBDIR);
+        SnapshotMetadata metadata = validationStats.getSnapshotMetadata();
+        
+        String validationDir = String.format("%s/%s", 
+            PathUtils.getSnapshotPath(baseDir, metadata), VALIDATION_SUBDIR);
         Path dirPath = Paths.get(validationDir);
         
         // Crear directorio si no existe
@@ -180,32 +187,37 @@ public final class SnapshotMetadataManager {
         String validationStatsPath = String.format("%s/%s", validationDir, VALIDATION_STATS_FILENAME);
         mapper.writeValue(new File(validationStatsPath), validationStats);
         
-        logger.info("VALIDATION STATS WRITTEN: snapshot={}, path={}", snapshotId, validationStatsPath);
+        logger.info("VALIDATION STATS WRITTEN: snapshot={}, network={}, path={}", 
+            metadata.getSnapshotId(), metadata.getNetworkAcronym(), validationStatsPath);
     }
     
     /**
      * Lee estadísticas de validación de snapshot desde JSON
      * 
      * @param baseDir directorio base de almacenamiento
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y networkAcronym)
      * @return estadísticas de validación del snapshot o null si no existe
      * @throws IOException si falla la lectura
      */
-    public static SnapshotValidationStats readValidationStats(String baseDir, Long snapshotId) throws IOException {
-        if (snapshotId == null) {
-            throw new IllegalArgumentException("snapshotId no puede ser null");
+    public static SnapshotValidationStats readValidationStats(String baseDir, SnapshotMetadata snapshotMetadata) throws IOException {
+        if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
+            throw new IllegalArgumentException("snapshotMetadata y snapshotId no pueden ser null");
         }
         
-        String validationStatsPath = String.format("%s/snapshot_%d/%s/%s", baseDir, snapshotId, VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
+        String validationStatsPath = String.format("%s/%s/%s", 
+            PathUtils.getSnapshotPath(baseDir, snapshotMetadata), 
+            VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
         File file = new File(validationStatsPath);
         
         if (!file.exists()) {
-            logger.warn("VALIDATION STATS NOT FOUND: snapshot={}, path={}", snapshotId, validationStatsPath);
+            logger.warn("VALIDATION STATS NOT FOUND: snapshot={}, network={}, path={}", 
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym(), validationStatsPath);
             return null;
         }
         
         SnapshotValidationStats validationStats = mapper.readValue(file, SnapshotValidationStats.class);
-        logger.debug("VALIDATION STATS READ: snapshot={}, totalRecords={}", snapshotId, validationStats.getTotalRecords());
+        logger.debug("VALIDATION STATS READ: snapshot={}, network={}, totalRecords={}", 
+            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym(), validationStats.getTotalRecords());
         return validationStats;
     }
     
@@ -213,15 +225,17 @@ public final class SnapshotMetadataManager {
      * Verifica si existen estadísticas de validación para un snapshot
      * 
      * @param baseDir directorio base
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y networkAcronym)
      * @return true si existe el archivo validation-stats.json
      */
-    public static boolean validationStatsExists(String baseDir, Long snapshotId) {
-        if (snapshotId == null) {
+    public static boolean validationStatsExists(String baseDir, SnapshotMetadata snapshotMetadata) {
+        if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
             return false;
         }
         
-        String validationStatsPath = String.format("%s/snapshot_%d/%s/%s", baseDir, snapshotId, VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
+        String validationStatsPath = String.format("%s/%s/%s", 
+            PathUtils.getSnapshotPath(baseDir, snapshotMetadata), 
+            VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
         return new File(validationStatsPath).exists();
     }
     
@@ -229,19 +243,22 @@ public final class SnapshotMetadataManager {
      * Elimina estadísticas de validación de un snapshot
      * 
      * @param baseDir directorio base
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y networkAcronym)
      * @return true si se eliminó correctamente
      */
-    public static boolean deleteValidationStats(String baseDir, Long snapshotId) {
-        if (snapshotId == null) {
+    public static boolean deleteValidationStats(String baseDir, SnapshotMetadata snapshotMetadata) {
+        if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
             return false;
         }
         
-        String validationStatsPath = String.format("%s/snapshot_%d/%s/%s", baseDir, snapshotId, VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
+        String validationStatsPath = String.format("%s/%s/%s", 
+            PathUtils.getSnapshotPath(baseDir, snapshotMetadata), 
+            VALIDATION_SUBDIR, VALIDATION_STATS_FILENAME);
         File file = new File(validationStatsPath);
         
         if (file.exists() && file.delete()) {
-            logger.info("VALIDATION STATS DELETED: snapshot={}", snapshotId);
+            logger.info("VALIDATION STATS DELETED: snapshot={}, network={}", 
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
             return true;
         }
         

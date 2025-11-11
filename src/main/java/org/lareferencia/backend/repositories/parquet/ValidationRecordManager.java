@@ -41,6 +41,8 @@ import org.apache.parquet.schema.Types;
 import org.lareferencia.backend.domain.parquet.RecordValidation;
 import org.lareferencia.backend.domain.parquet.RuleFact;
 import org.lareferencia.core.metadata.RecordStatus;
+import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.util.PathUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -58,10 +60,10 @@ import java.util.NoSuchElementException;
  * - LECTURA: Streaming sobre múltiples archivos batch con iterator lazy
  * - SCHEMA: Unificado con RuleFacts anidados
  * 
- * ESTRUCTURA DE ARCHIVOS:
- * {basePath}/snapshot_{id}/validation/records_batch_*.parquet
- * {basePath}/snapshot_{id}/validation/validation_index.parquet
- * {basePath}/snapshot_{id}/validation/validation-stats.json
+ * ESTRUCTURA DE ARCHIVOS (NUEVA):
+ * {basePath}/{NETWORK}/snapshots/snapshot_{id}/validation/records_batch_*.parquet
+ * {basePath}/{NETWORK}/snapshots/snapshot_{id}/validation/validation_index.parquet
+ * {basePath}/{NETWORK}/snapshots/snapshot_{id}/validation/validation-stats.json
  * 
  * THREAD SAFETY:
  * - ParquetWriter/Reader NO son thread-safe
@@ -137,7 +139,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     
     /**
      * ESQUEMA CON RULE FACTS ANIDADOS:
-     * - Campos básicos del record (identifier, record_id, record_is_valid, is_transformed)
+     * - Campos básicos del record (identifier, record_id, datestamp, record_is_valid, is_transformed)
      * - published_metadata_hash: Hash del XML a indexar
      * - Lista de rule_facts (opcional) con estructura anidada
      * 
@@ -150,6 +152,9 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         .required(PrimitiveType.PrimitiveTypeName.BINARY)
             .as(LogicalTypeAnnotation.stringType())
             .named("record_id")
+        .optional(PrimitiveType.PrimitiveTypeName.INT64)
+            .as(LogicalTypeAnnotation.timestampType(true, LogicalTypeAnnotation.TimeUnit.MILLIS))
+            .named("datestamp")
         .required(PrimitiveType.PrimitiveTypeName.BOOLEAN)
             .named("record_is_valid")
         .required(PrimitiveType.PrimitiveTypeName.BOOLEAN)
@@ -182,9 +187,10 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Este schema se usa para persistir índice ligero en paralelo.
      * Archivo único: validation_index.parquet (no batches)
      * 
-     * Campos (solo 5 esenciales - sin rule_facts):
+     * Campos (solo 6 esenciales - sin rule_facts):
      * - record_id: Hash MD5 que referencia a OAIRecord (PK)
      * - identifier: Identificador OAI (denormalizado)
+     * - datestamp: Fecha de última modificación (denormalizado)
      * - record_is_valid: Boolean validación
      * - is_transformed: Boolean transformación
      * - published_metadata_hash: Hash XML a indexar (opcional)
@@ -198,6 +204,9 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         .required(PrimitiveType.PrimitiveTypeName.BINARY)
             .as(LogicalTypeAnnotation.stringType())
             .named("identifier")
+        .optional(PrimitiveType.PrimitiveTypeName.INT64)
+            .as(LogicalTypeAnnotation.timestampType(true, LogicalTypeAnnotation.TimeUnit.MILLIS))
+            .named("datestamp")
         .required(PrimitiveType.PrimitiveTypeName.BOOLEAN)
             .named("record_is_valid")
         .required(PrimitiveType.PrimitiveTypeName.BOOLEAN)
@@ -209,6 +218,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     
     private final String basePath;
     private final Long snapshotId;
+    private final SnapshotMetadata snapshotMetadata;
     private final Configuration hadoopConf;
     
     // Estado de ESCRITURA
@@ -229,9 +239,14 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     private List<RecordValidation> currentBatchRecords = null;
     private int currentRecordIndex = 0;
     
-    private ValidationRecordManager(String basePath, Long snapshotId, Configuration hadoopConf) {
+    private ValidationRecordManager(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) {
+        if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
+            throw new IllegalArgumentException("SnapshotMetadata and snapshotId cannot be null");
+        }
+        
         this.basePath = basePath;
-        this.snapshotId = snapshotId;
+        this.snapshotMetadata = snapshotMetadata;
+        this.snapshotId = snapshotMetadata.getSnapshotId();
         this.hadoopConf = hadoopConf;
         this.currentWriter = null;
         this.batchFiles = null;
@@ -248,15 +263,16 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Gestiona automáticamente múltiples archivos batch según performance.
      * 
      * @param basePath ruta base (ej: /data/validation-stats)
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
      * @param hadoopConf configuración Hadoop
      * @return manager listo para escritura
      * @throws IOException si falla
      */
-    public static ValidationRecordManager forWriting(String basePath, Long snapshotId, Configuration hadoopConf) 
+    public static ValidationRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
             throws IOException {
-        logger.info("RECORDS MANAGER: Creating writer for snapshot {}", snapshotId);
-        return new ValidationRecordManager(basePath, snapshotId, hadoopConf);
+        logger.info("RECORDS MANAGER: Creating writer for snapshot {} (network: {})", 
+            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+        return new ValidationRecordManager(basePath, snapshotMetadata, hadoopConf);
     }
     
     /**
@@ -270,14 +286,14 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * - processRecords(): Procesa con Consumer (streaming funcional)
      * 
      * @param basePath ruta base (ej: /data/validation-stats)
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
      * @param hadoopConf configuración Hadoop
      * @return manager listo para lectura
      * @throws IOException si falla
      */
-    public static ValidationRecordManager forReading(String basePath, Long snapshotId, Configuration hadoopConf) 
+    public static ValidationRecordManager forReading(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
             throws IOException {
-        ValidationRecordManager manager = new ValidationRecordManager(basePath, snapshotId, hadoopConf);
+        ValidationRecordManager manager = new ValidationRecordManager(basePath, snapshotMetadata, hadoopConf);
         manager.initializeReader();
         return manager;
     }
@@ -288,21 +304,21 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * 
      * Ejemplo de uso:
      * <pre>
-     * for (RecordValidation record : ValidationRecordManager.iterate(basePath, snapshotId, hadoopConf)) {
+     * for (RecordValidation record : ValidationRecordManager.iterate(basePath, snapshotMetadata, hadoopConf)) {
      *     // Procesar record sin cargar todo en memoria
      *     processRecord(record);
      * }
      * </pre>
      * 
      * @param basePath ruta base
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot
      * @param hadoopConf configuración Hadoop
      * @return iterable lazy sobre todos los records
      * @throws IOException si falla
      */
-    public static Iterable<RecordValidation> iterate(String basePath, Long snapshotId, Configuration hadoopConf) 
+    public static Iterable<RecordValidation> iterate(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
             throws IOException {
-        return forReading(basePath, snapshotId, hadoopConf);
+        return forReading(basePath, snapshotMetadata, hadoopConf);
     }
     
     // ============================================================================
@@ -319,7 +335,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         }
         
         batchNumber++;
-        String batchPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + VALIDATION_SUBDIR + "/" + BATCH_FILE_PREFIX + batchNumber + BATCH_FILE_SUFFIX;
+        String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        String batchPath = snapshotPath + "/" + VALIDATION_SUBDIR + "/" + BATCH_FILE_PREFIX + batchNumber + BATCH_FILE_SUFFIX;
         Path path = new Path(batchPath);
         
         logger.info("RECORDS MANAGER: Creating batch file #{} at {}", batchNumber, batchPath);
@@ -377,6 +394,16 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         // Campos requeridos (sin id - recordId es la PK)
         group.append("identifier", record.getIdentifier().trim());
         group.append("record_id", record.getRecordId().trim());
+        
+        // datestamp (opcional pero recomendado)
+        if (record.getDatestamp() != null) {
+            long epochMillis = record.getDatestamp()
+                .atZone(java.time.ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli();
+            group.append("datestamp", epochMillis);
+        }
+        
         group.append("record_is_valid", record.getRecordIsValid());
         group.append("is_transformed", record.getIsTransformed());
         
@@ -431,6 +458,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         RecordValidation lightRecord = new RecordValidation(
             record.getIdentifier(),
             record.getRecordId(),
+            record.getDatestamp(),
             record.getRecordIsValid(),
             record.getIsTransformed(),
             record.getPublishedMetadataHash(),
@@ -471,10 +499,11 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Escribe el archivo del índice ligero (RecordValidation sin id/ruleFacts).
      * Se sobrescribe completamente en cada flush (archivo único).
      * 
-     * Ruta: /snapshot_{id}/validation/validation_index.parquet
+     * Ruta: /{NETWORK}/snapshots/snapshot_{id}/validation/validation_index.parquet
      */
     private void writeIndexFile() throws IOException {
-        String indexPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + VALIDATION_SUBDIR + "/" + INDEX_FILE_NAME;
+        String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        String indexPath = snapshotPath + "/" + VALIDATION_SUBDIR + "/" + INDEX_FILE_NAME;
         Path path = new Path(indexPath);
         
         logger.info("RECORDS MANAGER: Writing lightweight index with {} records to {}", 
@@ -497,6 +526,16 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
                 
                 group.append("record_id", indexRecord.getRecordId().trim());
                 group.append("identifier", indexRecord.getIdentifier().trim());
+                
+                // datestamp (opcional)
+                if (indexRecord.getDatestamp() != null) {
+                    long epochMillis = indexRecord.getDatestamp()
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toInstant()
+                        .toEpochMilli();
+                    group.append("datestamp", epochMillis);
+                }
+                
                 group.append("record_is_valid", indexRecord.getRecordIsValid());
                 group.append("is_transformed", indexRecord.getIsTransformed());
                 
@@ -519,8 +558,9 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Inicializa el lector buscando todos los archivos batch del snapshot.
      */
     private void initializeReader() throws IOException {
-        String snapshotDir = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + VALIDATION_SUBDIR;
-        Path snapshotPath = new Path(snapshotDir);
+        String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        String snapshotDir = snapshotPath + "/" + VALIDATION_SUBDIR;
+        Path snapshotDirPath = new Path(snapshotDir);
         
         FileSystem fs = FileSystem.get(hadoopConf);
         
@@ -528,7 +568,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         PathFilter batchFilter = path -> path.getName().startsWith(BATCH_FILE_PREFIX) 
                                        && path.getName().endsWith(BATCH_FILE_SUFFIX);
         
-        FileStatus[] batchStatuses = fs.listStatus(snapshotPath, batchFilter);
+        FileStatus[] batchStatuses = fs.listStatus(snapshotDirPath, batchFilter);
         
         if (batchStatuses == null || batchStatuses.length == 0) {
             logger.warn("RECORDS MANAGER: No batch files found for snapshot {}", snapshotId);
@@ -751,6 +791,23 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         // Campos requeridos (sin id - recordId es la PK)
         record.setIdentifier(group.getString("identifier", 0));
         record.setRecordId(group.getString("record_id", 0));
+        
+        // datestamp (opcional)
+        try {
+            int datestampIndex = group.getType().getFieldIndex("datestamp");
+            if (datestampIndex >= 0 && group.getFieldRepetitionCount(datestampIndex) > 0) {
+                long epochMillis = group.getLong("datestamp", 0);
+                record.setDatestamp(
+                    java.time.LocalDateTime.ofInstant(
+                        java.time.Instant.ofEpochMilli(epochMillis),
+                        java.time.ZoneId.systemDefault()
+                    )
+                );
+            }
+        } catch (Exception e) {
+            // Campo opcional, ignorar si no existe
+        }
+        
         record.setRecordIsValid(group.getBoolean("record_is_valid", 0));
         record.setIsTransformed(group.getBoolean("is_transformed", 0));
         
@@ -859,7 +916,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * @throws IOException si falla la lectura
      */
     public List<RecordValidation> loadLightweightIndex(RecordStatus status) throws IOException {
-        String indexPath = basePath + "/" + SNAPSHOT_DIR_PREFIX + snapshotId + "/" + INDEX_FILE_NAME;
+        String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        String indexPath = snapshotPath + "/" + INDEX_FILE_NAME;
         Path path = new Path(indexPath);
         
         logger.info("RECORDS MANAGER: Loading lightweight index from {}", indexPath);

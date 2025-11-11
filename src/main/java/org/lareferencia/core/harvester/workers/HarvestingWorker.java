@@ -39,6 +39,7 @@ import org.lareferencia.core.harvester.IHarvestingEventListener;
 import org.lareferencia.core.metadata.IMetadataStore;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.date.DateHelper;
 import org.lareferencia.core.validation.IValidator;
 import org.lareferencia.core.validation.ValidationException;
@@ -149,6 +150,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 	}
 	
 	private Long snapshotId;
+	private SnapshotMetadata snapshotMetadata;
 	
 	// ID del snapshot anterior (para harvesting incremental)
 	private Long previousSnapshotId;
@@ -214,13 +216,14 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 		// Crear el snapshot
 		snapshotId = snapshotStore.createSnapshot(runningContext.getNetwork());
+		snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
 
 		// Configurar timestamp de inicio
 		snapshotStore.updateSnapshotStartDatestamp(snapshotId, startDateStamp);
 
 		// Inicializar repositorio Parquet para escritura
 		try {
-			oaiRecordRepository.initializeSnapshot(snapshotId);
+			oaiRecordRepository.initializeSnapshot(snapshotMetadata);
 			logInfoMessage("PARQUET: Repository initialized for writing - snapshot " + snapshotId);
 		} catch (Exception e) {
 			logErrorMessage("PARQUET: Error initializing repository: " + e.getMessage());
@@ -575,7 +578,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		
 		// 1. Guardar XML en IMetadataStore y obtener hash
 		String metadataStr = metadata.toString();
-		String hash = metadataStore.storeAndReturnHash(metadataStr);
+		String hash = metadataStore.storeAndReturnHash(snapshotMetadata, metadataStr);
 		
 		// 2. Crear OAIRecord Parquet
 		OAIRecord record = OAIRecord.create(

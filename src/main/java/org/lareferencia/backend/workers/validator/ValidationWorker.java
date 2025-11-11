@@ -26,6 +26,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.SnapshotStatus;
 import org.lareferencia.backend.domain.parquet.OAIRecord;
+import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
 import org.lareferencia.backend.repositories.jpa.NetworkRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.services.ValidationService;
@@ -42,6 +43,8 @@ import org.lareferencia.core.validation.ValidationException;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.lareferencia.core.worker.OAIRecordParquetWorker;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import lombok.val;
 
 /**
  * Worker that performs validation and transformation of harvested OAI records using Parquet storage.
@@ -106,7 +109,6 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 	@Autowired
 	private ValidationService validationManager;
 
-	private SnapshotMetadata snapshotMetadata;
 	private Long processedRecordsCount;
 	
 
@@ -140,31 +142,31 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 			return;
 		}
 	
-		// new reusable validation result
-		reusableValidationResult = new ValidatorResult();
-		
-		// trata de conseguir la ultima cosecha válida o el revalida el lgk 
-		this.snapshotId = snapshotStore.findLastHarvestingSnapshot( runningContext.getNetwork() );
+	// new reusable validation result
+	reusableValidationResult = new ValidatorResult();
+	
+	// trata de conseguir la ultima cosecha válida o el revalida el lgk 
+	Long snapshotId = snapshotStore.findLastHarvestingSnapshot( runningContext.getNetwork() );
 
 
-		if ( snapshotId != null ) {
+	if ( snapshotId != null ) {
 
-		
-			snapshotMetadata = snapshotStore.getSnapshotMetadata( snapshotId );
+	
+		// Cargar metadata completo del snapshot y asignarlo al campo del padre
+		this.snapshotMetadata = snapshotStore.getSnapshotMetadata( snapshotId );
 
-			try {
-				validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
-			} catch (ValidationStatisticsException e) {
-				logError("Error deleting previous validation results: " + e.getMessage());
-				this.stop();
-			}
 
-			
-			// INITIALIZE: Create fresh writers AFTER cleanup
-			logInfo("Initializing validation statistics for snapshot: " + snapshotId);
-			validationStatisticsService.initializeValidationForSnapshot( snapshotStore.getSnapshotMetadata(snapshotId)  );
+		try {
+			validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
+		} catch (ValidationStatisticsException e) {
+			logError("Error deleting previous validation results: " + e.getMessage());
+			this.stop();
+		}
 
 		
+		// INITIALIZE: Create fresh writers AFTER cleanup
+		logInfo("Initializing validation statistics for snapshot: " + snapshotId);
+		validationStatisticsService.initializeValidationForSnapshot( this.snapshotMetadata );		
 			logger.debug("Detailed diagnose: " + runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
 			validationStatisticsService.setDetailedDiagnose( runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE") );
 			
@@ -221,7 +223,7 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 			
 			// carga la metadata original sin transformar
 			logger.debug("Load metadata: "  + record.getId() + " :: "+ record.getIdentifier() );
-			String metadataStr = metadataStoreService.getMetadata( record.getOriginalMetadataHash() );
+			String metadataStr = metadataStoreService.getMetadata(snapshotMetadata, record.getOriginalMetadataHash() );
 			OAIRecordMetadata metadata = new OAIRecordMetadata(record.getIdentifier(), metadataStr );
 
 			
@@ -273,7 +275,7 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 			String publishedMetadataHash = record.getOriginalMetadataHash();
 			// Store metadata if transformed
 			if ( wasTransformed ) {
-				publishedMetadataHash = metadataStoreService.storeAndReturnHash(metadata.toString());
+				publishedMetadataHash = metadataStoreService.storeAndReturnHash(snapshotMetadata, metadata.toString());
 			}
 			// store publishedMetadataHash in validation result
 			reusableValidationResult.setMetadataHash( publishedMetadataHash );
@@ -307,9 +309,22 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 		processedRecordsCount++;
 		// log info every 1000 records
 		if ( processedRecordsCount % 1000 == 0 ) {
-			snapshotStore.saveSnapshot(snapshotId);
+			updateSnapshotCounts();
 		}
+	}
+
+	private void updateSnapshotCounts() {
+		// method to update snapshot counts periodically
+		try {
+			SnapshotValidationStats stats =  validationStatisticsService.getSnapshotValidationStats(snapshotMetadata.getSnapshotId());
+			snapshotStore.updateSnapshotCounts(snapshotMetadata.getSnapshotId(),stats.getTotalRecords(), stats.getValidRecords(), stats.getTransformedRecords());
+			snapshotStore.saveSnapshot(snapshotMetadata.getSnapshotId());
 		
+		} catch (ValidationStatisticsException e) {
+			// stop if error occurs
+			logError("Error retrieving validation statistics: " + e.getMessage());
+			this.stop();
+		}
 	}
 
 
@@ -317,9 +332,10 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 	public void postRun() {
 		// CRITICAL: Flush any remaining buffered validation data before marking as complete
 		try {
-			validationStatisticsService.finalizeValidationForSnapshot(snapshotId);
+			updateSnapshotCounts();
+			validationStatisticsService.finalizeValidationForSnapshot(snapshotMetadata.getSnapshotId());
 		} catch (Exception e) {
-			logger.error("ERROR: Failed to flush validation data for snapshot {}", snapshotId, e);
+			logger.error("ERROR: Failed to flush validation data for snapshot {}", snapshotMetadata.getSnapshotId(), e);
 		}
 		
 		setSnapshotStatus(SnapshotStatus.VALID);
@@ -334,19 +350,19 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 	
 	private void setSnapshotStatus(SnapshotStatus status) {
 		// metodo auxiliar para centralizar la forma de actualizar status
-		snapshotStore.updateSnapshotStatus(snapshotId, status);
-		snapshotStore.saveSnapshot(snapshotId);
+		snapshotStore.updateSnapshotStatus(snapshotMetadata.getSnapshotId(), status);
+		snapshotStore.saveSnapshot(snapshotMetadata.getSnapshotId());
 
 	}
 	
 	private void logError(String message) {
 		logger.error(message);
-		snapshotLogService.addEntry(snapshotId, "ERROR: " + message);		
+		snapshotLogService.addEntry(snapshotMetadata.getSnapshotId(), "ERROR: " + message);		
 	}
 
 	private void logInfo(String message) {
 		logger.info(message);
-		snapshotLogService.addEntry(snapshotId, "INFO: " + message);		
+		snapshotLogService.addEntry(snapshotMetadata.getSnapshotId(), "INFO: " + message);		
 	}
 
 	

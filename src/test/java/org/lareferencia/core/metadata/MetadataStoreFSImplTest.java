@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.hashing.IHashingHelper;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -44,11 +45,17 @@ class MetadataStoreFSImplTest {
 
     private MetadataStoreFSImpl store;
     private MockHashingHelper hashingHelper;
+    private SnapshotMetadata testSnapshotMetadata;
 
     @BeforeEach
     void setUp() {
         store = new MetadataStoreFSImpl();
         hashingHelper = new MockHashingHelper();
+        
+        // Create test snapshot metadata
+        testSnapshotMetadata = new SnapshotMetadata();
+        testSnapshotMetadata.setSnapshotId(1L);
+        testSnapshotMetadata.setNetworkAcronym("TEST");
         
         // Set the base path to temp directory
         ReflectionTestUtils.setField(store, "basePath", tempDir.toString());
@@ -102,7 +109,7 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("ABC123456789");
 
-        String hash = store.storeAndReturnHash(metadata);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         assertEquals("ABC123456789", hash);
         
@@ -117,7 +124,7 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("XYZ987654321");
 
-        store.storeAndReturnHash(metadata);
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         // Verify partition directories were created
         assertTrue(Files.exists(tempDir.resolve("X")));
@@ -131,7 +138,7 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test Document with lots of content that should compress well</title></record>";
         hashingHelper.setNextHash("ABC123456789");
 
-        store.storeAndReturnHash(metadata);
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
         
@@ -151,7 +158,7 @@ class MetadataStoreFSImplTest {
         hashingHelper.setNextHash("ABC123456789");
 
         // Store first time
-        String hash1 = store.storeAndReturnHash(metadata);
+        String hash1 = store.storeAndReturnHash(testSnapshotMetadata, metadata);
         
         File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
         long modifiedTime1 = file.lastModified();
@@ -161,7 +168,7 @@ class MetadataStoreFSImplTest {
         try { Thread.sleep(10); } catch (InterruptedException e) {}
 
         // Store second time with same hash
-        String hash2 = store.storeAndReturnHash(metadata);
+        String hash2 = store.storeAndReturnHash(testSnapshotMetadata, metadata);
         
         long modifiedTime2 = file.lastModified();
         long size2 = file.length();
@@ -178,10 +185,10 @@ class MetadataStoreFSImplTest {
         String metadata2 = "<record><title>Second</title></record>";
         
         hashingHelper.setNextHash("ABC111111111");
-        String hash1 = store.storeAndReturnHash(metadata1);
+        String hash1 = store.storeAndReturnHash(testSnapshotMetadata, metadata1);
         
         hashingHelper.setNextHash("XYZ999999999");
-        String hash2 = store.storeAndReturnHash(metadata2);
+        String hash2 = store.storeAndReturnHash(testSnapshotMetadata, metadata2);
 
         assertNotEquals(hash1, hash2);
         
@@ -198,7 +205,7 @@ class MetadataStoreFSImplTest {
         String metadata = "";
         hashingHelper.setNextHash("ABC123456789");
 
-        String hash = store.storeAndReturnHash(metadata);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         assertEquals("ABC123456789", hash);
         File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
@@ -219,7 +226,7 @@ class MetadataStoreFSImplTest {
         
         hashingHelper.setNextHash("ABC123456789");
 
-        String hash = store.storeAndReturnHash(metadata);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         assertEquals("ABC123456789", hash);
         File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
@@ -240,8 +247,8 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("ABC123456789");
         
-        store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata("ABC123456789");
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, "ABC123456789");
 
         assertEquals(metadata, retrieved);
     }
@@ -251,7 +258,7 @@ class MetadataStoreFSImplTest {
     void testGetMetadataNonExistent() {
         MetadataRecordStoreException exception = assertThrows(
             MetadataRecordStoreException.class,
-            () -> store.getMetadata("NONEXISTENT123")
+            () -> store.getMetadata(testSnapshotMetadata, "NONEXISTENT123")
         );
         assertTrue(exception.getMessage().contains("Metadata not found for hash"));
         assertTrue(exception.getMessage().contains("NONEXISTENT123"));
@@ -263,8 +270,8 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test with special chars: é ñ ü</title></record>";
         hashingHelper.setNextHash("ABC123456789");
         
-        store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata("ABC123456789");
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, "ABC123456789");
 
         assertEquals(metadata, retrieved);
     }
@@ -275,8 +282,8 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test with 中文 and Ελληνικά and العربية</title></record>";
         hashingHelper.setNextHash("ABC123456789");
         
-        store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata("ABC123456789");
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, "ABC123456789");
 
         assertEquals(metadata, retrieved);
     }
@@ -294,8 +301,8 @@ class MetadataStoreFSImplTest {
         
         hashingHelper.setNextHash("ABC123456789");
         
-        store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata("ABC123456789");
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, "ABC123456789");
 
         assertEquals(metadata, retrieved);
     }
@@ -321,13 +328,13 @@ class MetadataStoreFSImplTest {
     void testCleanAndOptimizeStoreWithFiles() {
         // Store some files
         hashingHelper.setNextHash("ABC111111111");
-        store.storeAndReturnHash("<record>1</record>");
+        store.storeAndReturnHash(testSnapshotMetadata, "<record>1</record>");
         
         hashingHelper.setNextHash("ABC222222222");
-        store.storeAndReturnHash("<record>2</record>");
+        store.storeAndReturnHash(testSnapshotMetadata, "<record>2</record>");
         
         hashingHelper.setNextHash("XYZ333333333");
-        store.storeAndReturnHash("<record>3</record>");
+        store.storeAndReturnHash(testSnapshotMetadata, "<record>3</record>");
 
         Boolean result = store.cleanAndOptimizeStore();
         assertTrue(result);
@@ -339,7 +346,7 @@ class MetadataStoreFSImplTest {
     @DisplayName("getMetadata should handle hash with less than 3 characters")
     void testGetMetadataShortHash() {
         // This should fail because hash is too short for partitioning
-        assertThrows(Exception.class, () -> store.getMetadata("AB"));
+        assertThrows(Exception.class, () -> store.getMetadata(testSnapshotMetadata, "AB"));
     }
 
     @Test
@@ -348,7 +355,7 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("abc123456789");
 
-        store.storeAndReturnHash(metadata);
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         // Hash should be stored, and partition path should use uppercase
         File file = new File(tempDir.toFile(), "A/B/C/abc123456789.xml.gz");
@@ -367,8 +374,8 @@ class MetadataStoreFSImplTest {
         
         hashingHelper.setNextHash("ABC123456789");
         
-        String hash = store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata(hash);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, hash);
 
         assertEquals(metadata, retrieved, "Roundtrip should preserve content exactly");
     }

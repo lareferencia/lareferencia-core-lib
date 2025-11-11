@@ -20,6 +20,7 @@
 
 package org.lareferencia.backend.domain.parquet;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -70,6 +71,12 @@ public class RecordValidation {
      */
     private String recordId;
     
+    /**
+     * Datestamp del record (fecha de última modificación según OAI-PMH).
+     * Denormalizado desde OAIRecord para facilitar consultas y ordenamiento.
+     */
+    private LocalDateTime datestamp;
+    
     private Boolean recordIsValid;
     private Boolean isTransformed;
     
@@ -116,11 +123,13 @@ public class RecordValidation {
      * Constructor completo con todos los campos.
      */
     public RecordValidation(String identifier, String recordId,
+                           LocalDateTime datestamp,
                            Boolean recordIsValid, Boolean isTransformed,
                            String publishedMetadataHash,
                            List<RuleFact> ruleFacts) {
         this.identifier = identifier;
         this.recordId = recordId != null ? recordId : org.lareferencia.backend.domain.parquet.OAIRecord.generateIdFromIdentifier(identifier);
+        this.datestamp = datestamp;
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
         this.publishedMetadataHash = publishedMetadataHash;
@@ -143,6 +152,14 @@ public class RecordValidation {
     
     public void setRecordId(String recordId) {
         this.recordId = recordId;
+    }
+    
+    public LocalDateTime getDatestamp() {
+        return datestamp;
+    }
+    
+    public void setDatestamp(LocalDateTime datestamp) {
+        this.datestamp = datestamp;
     }
     
     public Boolean getRecordIsValid() {
@@ -189,6 +206,7 @@ public class RecordValidation {
         RecordValidation that = (RecordValidation) o;
         return Objects.equals(recordId, that.recordId) &&
                Objects.equals(identifier, that.identifier) &&
+               Objects.equals(datestamp, that.datestamp) &&
                Objects.equals(recordIsValid, that.recordIsValid) &&
                Objects.equals(isTransformed, that.isTransformed) &&
                Objects.equals(publishedMetadataHash, that.publishedMetadataHash) &&
@@ -197,7 +215,7 @@ public class RecordValidation {
 
     @Override
     public int hashCode() {
-        return Objects.hash(recordId, identifier, recordIsValid, isTransformed, 
+        return Objects.hash(recordId, identifier, datestamp, recordIsValid, isTransformed, 
                           publishedMetadataHash, ruleFacts);
     }
 
@@ -206,6 +224,7 @@ public class RecordValidation {
         return "RecordValidation{" +
                 "recordId='" + recordId + '\'' +
                 ", identifier='" + identifier + '\'' +
+                ", datestamp=" + datestamp +
                 ", recordIsValid=" + recordIsValid +
                 ", isTransformed=" + isTransformed +
                 ", publishedMetadataHash='" + publishedMetadataHash + '\'' +

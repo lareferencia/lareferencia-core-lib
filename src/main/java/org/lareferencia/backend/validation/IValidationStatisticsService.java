@@ -2,6 +2,8 @@ package org.lareferencia.backend.validation;
 
 import org.lareferencia.backend.domain.IOAIRecord;
 import org.lareferencia.backend.domain.NetworkSnapshot;
+import org.lareferencia.backend.domain.parquet.RecordValidation;
+import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.validation.ValidatorResult;
 import org.springframework.data.domain.Pageable;
@@ -90,5 +92,10 @@ public interface IValidationStatisticsService {
 
     void addObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult reusableValidationResult);
 
+    RecordValidation getRecordValidationListBySnapshotAndIdentifier(Long snapshotID, String identifier) throws ValidationStatisticsException;   
+
+
     void finalizeValidationForSnapshot(Long snapshotId);
+
+    SnapshotValidationStats getSnapshotValidationStats(Long snapshotID) throws ValidationStatisticsException;
 }

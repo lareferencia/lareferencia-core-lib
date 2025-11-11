@@ -48,7 +48,7 @@ public class MetadataStoreSQLImpl implements IMetadataStore {
 
 	@Override
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
-	public synchronized String storeAndReturnHash(String metadata) {
+	public synchronized String storeAndReturnHash(SnapshotMetadata snapshotMetadata, String metadata) {
 		
 		String hash = hashing.calculateHash(metadata);
 		
@@ -61,7 +61,7 @@ public class MetadataStoreSQLImpl implements IMetadataStore {
 	}
 
 	@Override
-	public String getMetadata(String hash) throws MetadataRecordStoreException {
+	public String getMetadata(SnapshotMetadata snapshotMetadata, String hash) throws MetadataRecordStoreException {
 		
 		String metadata = mdRepository.getMetadata(hash);
 		

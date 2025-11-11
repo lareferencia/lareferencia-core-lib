@@ -24,6 +24,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.parquet.OAIRecord;
 import org.lareferencia.backend.repositories.parquet.OAIRecordParquetRepository;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
@@ -47,10 +48,11 @@ public abstract class OAIRecordParquetWorker extends BaseWorker<NetworkRunningCo
     @Autowired
     protected OAIRecordParquetRepository oaiRecordRepository;
 
+
     /**
-     * Snapshot a procesar. Debe ser seteado por la implementación en preRun().
+     * Metadata del snapshot a procesar. Debe ser seteado por la implementación en preRun().
      */
-    protected Long snapshotId;
+    protected SnapshotMetadata snapshotMetadata;
 
     private volatile boolean wasStopped = false;
 
@@ -71,13 +73,13 @@ public abstract class OAIRecordParquetWorker extends BaseWorker<NetworkRunningCo
         // Inicialización por la subclase
         preRun();
 
-        if (snapshotId == null) {
-            logger.error("OAI PARQUET WORKER: {} :: snapshotId not set in preRun()", getName());
+        if (snapshotMetadata == null) {
+            logger.error("OAI PARQUET WORKER: {} :: snapshotMetadata not set in preRun()", getName());
             return;
         }
 
         try {
-            Iterable<OAIRecord> iterable = oaiRecordRepository.iterateRecords(snapshotId);
+            Iterable<OAIRecord> iterable = oaiRecordRepository.iterateRecords(snapshotMetadata);
             Iterator<OAIRecord> it = iterable.iterator();
 
             while (it.hasNext() && !wasStopped) {
@@ -102,12 +104,13 @@ public abstract class OAIRecordParquetWorker extends BaseWorker<NetworkRunningCo
             }
 
         } catch (IOException e) {
-            logger.error("OAI PARQUET WORKER: {} :: Failed reading Parquet records for snapshot {}: {}", getName(), snapshotId, e.getMessage(), e);
+            logger.error("OAI PARQUET WORKER: {} :: Failed reading Parquet records for snapshot {}: {}", 
+                        getName(), snapshotMetadata.getSnapshotId(), e.getMessage(), e);
         }
     }
 
     /**
-     * Inicialización antes de comenzar. Debe setear this.snapshotId.
+     * Inicialización antes de comenzar. Debe setear this.snapshotMetadata.
      */
     protected abstract void preRun();
 

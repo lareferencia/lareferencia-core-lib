@@ -27,6 +27,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.parquet.OAIRecord;
+import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.util.PathUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
@@ -91,7 +93,7 @@ public class OAIRecordParquetRepository {
 
     private static final Logger logger = LogManager.getLogger(OAIRecordParquetRepository.class);
 
-    @Value("${store.basepath:/tmp/data/parquet}")
+    @Value("${store.basepath:/tmp/data/}")
     private String basePath;
 
     @Value("${parquet.catalog.records-per-file:10000}")
@@ -159,23 +161,24 @@ public class OAIRecordParquetRepository {
      * @param snapshotId ID del snapshot
      * @throws IOException si hay error
      */
-    public void initializeSnapshot(Long snapshotId) throws IOException {
-        logger.info("INITIALIZE SNAPSHOT: snapshot={}", snapshotId);
+    public void initializeSnapshot(SnapshotMetadata snapshotMetadata) throws IOException {
+        Long snapshotId = snapshotMetadata.getSnapshotId();
+        logger.info("INITIALIZE SNAPSHOT: snapshot={}, network={}", snapshotId, snapshotMetadata.getNetworkAcronym());
         
         try {
-            // Crear directorio del snapshot
-            String snapshotDir = String.format("%s/snapshot_%d", basePath, snapshotId);
+            // Crear directorio del snapshot usando PathUtils
+            String snapshotDir = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
             Files.createDirectories(Paths.get(snapshotDir));
             
             // Determinar flush threshold basado en configuración
             int flushThreshold = determineFlushThreshold(snapshotId);
             
             // Crear manager para escritura con threshold configurado
-            OAIRecordManager manager = OAIRecordManager.forWriting(basePath, snapshotId, hadoopConf, flushThreshold);
+            OAIRecordManager manager = OAIRecordManager.forWriting(basePath, snapshotMetadata, hadoopConf, flushThreshold);
             recordManagers.put(snapshotId, manager);
             
-            logger.info("SNAPSHOT INITIALIZED: snapshot={}, path={}, flushThreshold={}", 
-                       snapshotId, snapshotDir, flushThreshold);
+            logger.info("SNAPSHOT INITIALIZED: snapshot={}, network={}, path={}, flushThreshold={}", 
+                       snapshotId, snapshotMetadata.getNetworkAcronym(), snapshotDir, flushThreshold);
             
         } catch (IOException e) {
             logger.error("INITIALIZATION FAILED: snapshot={}, error={}", snapshotId, e.getMessage());
@@ -314,14 +317,15 @@ public class OAIRecordParquetRepository {
      * Lee todos los records de un snapshot.
      * NOTA: Para datasets grandes, usar iterateRecords() en su lugar.
      * 
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot
      * @return lista de todos los records
      * @throws IOException si hay error
      */
-    public List<OAIRecord> readAllRecords(Long snapshotId) throws IOException {
-        logger.debug("READ ALL RECORDS: snapshot={}", snapshotId);
+    public List<OAIRecord> readAllRecords(SnapshotMetadata snapshotMetadata) throws IOException {
+        logger.debug("READ ALL RECORDS: snapshot={}, network={}", 
+                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
         
-        try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+        try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
             return reader.readAll();
         }
     }
@@ -332,32 +336,34 @@ public class OAIRecordParquetRepository {
      * 
      * Ejemplo de uso:
      * <pre>
-     * for (OAIRecord record : repository.iterateRecords(snapshotId)) {
+     * for (OAIRecord record : repository.iterateRecords(snapshotMetadata)) {
      *     // Procesar record sin cargar todo en memoria
      *     processRecord(record);
      * }
      * </pre>
      * 
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot
      * @return iterable lazy sobre records
      * @throws IOException si hay error
      */
-    public Iterable<OAIRecord> iterateRecords(Long snapshotId) throws IOException {
-        logger.debug("ITERATE RECORDS: snapshot={}", snapshotId);
-        return OAIRecordManager.iterate(basePath, snapshotId, hadoopConf);
+    public Iterable<OAIRecord> iterateRecords(SnapshotMetadata snapshotMetadata) throws IOException {
+        logger.debug("ITERATE RECORDS: snapshot={}, network={}", 
+                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+        return OAIRecordManager.iterate(basePath, snapshotMetadata, hadoopConf);
     }
 
     /**
      * Cuenta el total de records en un snapshot sin cargarlos en memoria.
      * 
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot
      * @return número total de records
      * @throws IOException si hay error
      */
-    public long countRecords(Long snapshotId) throws IOException {
-        logger.debug("COUNT RECORDS: snapshot={}", snapshotId);
+    public long countRecords(SnapshotMetadata snapshotMetadata) throws IOException {
+        logger.debug("COUNT RECORDS: snapshot={}, network={}", 
+                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
         
-        try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+        try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
             return reader.countRecords();
         }
     }

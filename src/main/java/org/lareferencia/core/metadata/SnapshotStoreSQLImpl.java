@@ -36,7 +36,6 @@ import org.lareferencia.backend.repositories.jpa.NetworkSnapshotRepository;
 import org.lareferencia.backend.repositories.jpa.OAIRecordRepository;
 import org.lareferencia.backend.services.SnapshotLogService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 
 /**
  * Implementación SQL del store de snapshots.
@@ -56,7 +55,6 @@ import org.springframework.stereotype.Service;
  * - ConcurrentHashMap para caché de snapshots
  * - Métodos synchronized en operaciones críticas
  */
-@Service
 public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	
 	private static final Logger logger = LogManager.getLogger(SnapshotStoreSQLImpl.class);

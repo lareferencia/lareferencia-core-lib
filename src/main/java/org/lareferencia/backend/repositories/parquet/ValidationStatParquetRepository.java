@@ -34,13 +34,17 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.thirdparty.org.checkerframework.checker.units.qual.s;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.parquet.RecordValidation;
 import org.lareferencia.backend.domain.parquet.RuleFact;
 import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
+import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.util.PathUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
@@ -81,8 +85,11 @@ public class ValidationStatParquetRepository {
 
     private static final Logger logger = LogManager.getLogger(ValidationStatParquetRepository.class);
 
-    @Value("${store.basepath:/tmp/data/parquet}")
+    @Value("${store.basepath:/tmp/data/}")
     private String basePath;
+
+    @Autowired
+    ISnapshotStore snapshotStore;
 
     private Configuration hadoopConf;
     private final Map<Long, SnapshotValidationStats> snapshotStatsCache = new ConcurrentHashMap<>();
@@ -140,19 +147,36 @@ public class ValidationStatParquetRepository {
         logger.info("INITIALIZE SNAPSHOT: snapshot={}", snapshotId);
         
         try {
-            // Crear directorio del snapshot
-            String snapshotDir = String.format("%s/snapshot_%d", basePath, snapshotId);
+            // Crear directorio del snapshot usando PathUtils
+            String snapshotDir = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
             Files.createDirectories(Paths.get(snapshotDir));
 
-            // Crear manager persistente para escritura
-            ValidationRecordManager recordsManager = ValidationRecordManager.forWriting(basePath, snapshotId, hadoopConf);
+            // CLEANUP: Eliminar directorio de validación anterior si existe
+            String validationDir = snapshotDir + "/validation";
+            if (Files.exists(Paths.get(validationDir))) {
+                logger.info("Cleaning up previous validation data at: {}", validationDir);
+                Files.walk(Paths.get(validationDir))
+                    .sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                            logger.debug("Deleted: {}", path);
+                        } catch (IOException e) {
+                            logger.error("Failed to delete {}", path, e);
+                        }
+                    });
+            }
+
+            // Crear manager persistente para escritura (usa basePath original, no snapshotDir)
+            ValidationRecordManager recordsManager = ValidationRecordManager.forWriting(basePath, snapshotMetadata, hadoopConf);
             recordsManagers.put(snapshotId, recordsManager);
             logger.info("Created RecordsManager for snapshot {}", snapshotId);
 
             // create Snapshot Validation Stats
             SnapshotValidationStats snapshotStats = new SnapshotValidationStats(snapshotMetadata);
             
-            SnapshotMetadataManager.writeValidationStats(snapshotDir, snapshotStats);
+            // Escribir metadata usando basePath original (NO snapshotDir)
+            SnapshotMetadataManager.writeValidationStats(basePath, snapshotStats);
             snapshotStatsCache.put(snapshotId, snapshotStats);
 
             logger.info("Snapshot {} initialized and ready for writes", snapshotId);
@@ -259,6 +283,37 @@ public class ValidationStatParquetRepository {
         }
     }   
 
+    /**
+     * Obtiene el SnapshotMetadata desde el cache o desde el archivo de metadata.
+     * Método helper para los métodos que solo reciben snapshotId.
+     */
+    private SnapshotMetadata getSnapshotMetadata(Long snapshotId) throws IOException {
+       return snapshotStore.getSnapshotMetadata(snapshotId);
+    }
+
+    public SnapshotValidationStats getSnapshotStats(Long snapshotId) {
+        return snapshotStatsCache.computeIfAbsent(snapshotId, id -> {
+            try {
+                SnapshotValidationStats stats = SnapshotMetadataManager.readValidationStats(
+                    PathUtils.getSnapshotPath(basePath, getSnapshotMetadata(snapshotId)), getSnapshotMetadata(snapshotId)
+                );
+
+                if (stats != null) {
+                    snapshotStatsCache.put(id, stats);    
+                    return stats;
+                } else {
+                    logger.warn("No stats found for snapshot {}", id);
+                    return null;
+                }
+                // Cachear para futuras llamadas
+                
+            } catch (IOException e) {
+                logger.error("Error loading SnapshotMetadata for snapshot {}", id, e);
+                return null;
+            }
+        }); 
+    }
+
     // iterate over all records of a snapshot, create an empty snapshotValidationStats and update with each record
     public SnapshotValidationStats buildStats(SnapshotMetadata metadata, List<String> fq) throws IOException {
         
@@ -273,7 +328,7 @@ public class ValidationStatParquetRepository {
                     filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
 
         // ITERACIÓN LAZY: Procesar records sin cargar todo en memoria
-        try (ValidationRecordManager recordsManager = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+        try (ValidationRecordManager recordsManager = ValidationRecordManager.forReading(basePath, metadata, hadoopConf)) {
             
             long totalRecords = 0;
             long filteredRecords = 0;
@@ -593,12 +648,19 @@ public class ValidationStatParquetRepository {
      * Primero intenta obtener desde caché en memoria. Si no está disponible,
      * lee desde el archivo JSON en disco y actualiza el caché.
      * 
-     * @param snapshotId el ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y networkAcronym)
      * @return SnapshotValidationStats con las estadísticas, o null si no existen
      * @throws IOException si hay error al leer el archivo
      */
-    public SnapshotValidationStats getSnapshotValidationStats(Long snapshotId) throws IOException {
-        logger.debug("GET SNAPSHOT VALIDATION STATS: snapshot={}", snapshotId);
+    public SnapshotValidationStats getSnapshotValidationStats(SnapshotMetadata snapshotMetadata) throws IOException {
+        if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
+            throw new IllegalArgumentException("snapshotMetadata y snapshotId no pueden ser null");
+        }
+        
+        Long snapshotId = snapshotMetadata.getSnapshotId();
+        
+        logger.debug("GET SNAPSHOT VALIDATION STATS: snapshot={}, network={}", 
+            snapshotId, snapshotMetadata.getNetworkAcronym());
         
         // Intentar obtener desde caché primero
         SnapshotValidationStats snapshotStats = snapshotStatsCache.get(snapshotId);
@@ -610,18 +672,19 @@ public class ValidationStatParquetRepository {
         }
         
         // No está en caché, leer desde disco
-        snapshotStats = SnapshotMetadataManager.readValidationStats(basePath, snapshotId);
+        snapshotStats = SnapshotMetadataManager.readValidationStats(basePath, snapshotMetadata);
         
         if (snapshotStats == null) {
-            logger.warn("SNAPSHOT VALIDATION STATS NOT FOUND: snapshot={}", snapshotId);
+            logger.warn("SNAPSHOT VALIDATION STATS NOT FOUND: snapshot={}, network={}", 
+                snapshotId, snapshotMetadata.getNetworkAcronym());
             return null;
         }
         
         // Actualizar caché para futuras consultas
         snapshotStatsCache.put(snapshotId, snapshotStats);
         
-        logger.debug("SNAPSHOT VALIDATION STATS LOADED FROM DISK: snapshot={}, totalRecords={}", 
-                    snapshotId, snapshotStats.getTotalRecords());
+        logger.debug("SNAPSHOT VALIDATION STATS LOADED FROM DISK: snapshot={}, network={}, totalRecords={}", 
+                    snapshotId, snapshotMetadata.getNetworkAcronym(), snapshotStats.getTotalRecords());
         return snapshotStats;
     }
     
@@ -662,8 +725,11 @@ public class ValidationStatParquetRepository {
         long recordsWithRule = 0;
         long recordsFilteredOut = 0;
         
+        // Obtener SnapshotMetadata para construir paths correctos
+        SnapshotMetadata snapshotMetadata = getSnapshotMetadata(snapshotId);
+        
         // Leer todos los records usando ValidationRecordManager (streaming)
-        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
             
             for (RecordValidation record : reader) {
                 totalRecordsProcessed++;
@@ -736,7 +802,10 @@ public class ValidationStatParquetRepository {
     public List<RecordValidation> getRecordValidationListBySnapshotAndStatus(Long snapshotId, RecordStatus status) throws IOException {
         logger.info("GET RECORD VALIDATION LIST: snapshot={}, status={}", snapshotId, status);
         
-        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+        // Obtener SnapshotMetadata para construir paths correctos
+        SnapshotMetadata snapshotMetadata = getSnapshotMetadata(snapshotId);
+        
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
             List<RecordValidation> indexRecords = reader.loadLightweightIndex(status);
             logger.info("RECORD VALIDATION LIST LOADED: {} records for snapshot {} with status {}", 
                        indexRecords.size(), snapshotId, status);
@@ -792,10 +861,13 @@ public class ValidationStatParquetRepository {
         long totalRecordsProcessed = 0;
         long totalFilteredRecords = 0;
         
+        // Obtener SnapshotMetadata para construir paths correctos
+        SnapshotMetadata snapshotMetadata = getSnapshotMetadata(snapshotId);
+        
         // STREAMING: Leer records de forma lazy
         // OPTIMIZACIÓN DE MEMORIA: Solo guardamos (add) los records de la página actual
         // PERO seguimos contando TODOS los filtrados para tener totalFiltered correcto
-        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotId, hadoopConf)) {
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
             
             for (RecordValidation record : reader) {
                 totalRecordsProcessed++;
@@ -832,4 +904,29 @@ public class ValidationStatParquetRepository {
         
         return result;
     }
+
+    public RecordValidation getRecordValidationBySnapshotAndIdentifier(Long snapshotId, String identifier) {
+
+        logger.info("GET RECORD VALIDATION BY IDENTIFIER: snapshot={}, identifier={}", snapshotId, identifier);
+        
+        
+        try {
+            // Obtener SnapshotMetadata para construir paths correctos
+            SnapshotMetadata snapshotMetadata = getSnapshotMetadata(snapshotId);
+        
+            return this.getRecordValidationListBySnapshotAndStatus(snapshotId, RecordStatus.UNTESTED).stream()
+                .filter(record -> identifier.equals(record.getIdentifier()))
+                .findFirst()
+                .orElse(null);
+        } catch (IOException e) {
+            throw new RuntimeException("Error retrieving record validation for snapshot " + snapshotId + " and identifier " + identifier, e);
+        }
+    }
+
+        
+
+       
+        
+        
+    
 }

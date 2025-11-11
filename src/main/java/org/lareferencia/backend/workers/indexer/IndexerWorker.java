@@ -42,7 +42,6 @@ import org.lareferencia.backend.services.SnapshotLogService;
 import org.lareferencia.backend.validation.IValidationStatisticsService;
 import org.lareferencia.core.metadata.IMDFormatTransformer;
 import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.core.metadata.IMetadataRecordStoreService;
 import org.lareferencia.core.metadata.IMetadataStore;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.MDFormatTranformationException;
@@ -97,6 +96,7 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
+
 	List<RecordValidation> recordsToProcess;
 	Integer currentRecordIndex = 0;
 	Integer totalRecords = 0;
@@ -255,7 +255,7 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 
 		
 			OAIRecordMetadata metadata = new OAIRecordMetadata( record.getIdentifier(), 
-								metadataStore.getMetadata( record.getPublishedMetadataHash()) ); 
+							metadataStore.getMetadata(snapshotMetadata, record.getPublishedMetadataHash()) ); 
 
 			// this filters the records by content, using the contentFiltersByFieldName map
 			if (contentFiltersByFieldName != null ) {
@@ -296,7 +296,7 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 			metadataTransformer.setParameter("record_id", record.getRecordId());
 
 			// metadata como string
-			//metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(record.getDatestamp()));
+			metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(record.getDatestamp()));
 
 			// if the record is invalid, deleted or untested then set the deleted parameter to true
 			// this parameter is used to filter out deleted records in oai providers

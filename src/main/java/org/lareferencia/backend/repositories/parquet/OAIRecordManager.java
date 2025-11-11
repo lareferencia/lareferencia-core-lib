@@ -39,6 +39,8 @@ import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Types;
 import org.lareferencia.backend.domain.parquet.OAIRecord;
+import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.util.PathUtils;
 
 import java.io.IOException;
 import java.sql.Timestamp;
@@ -59,7 +61,7 @@ import java.util.NoSuchElementException;
  * - ORGANIZADO POR SNAPSHOT: Cada snapshot tiene su directorio independiente
  * 
  * ESTRUCTURA DE ARCHIVOS:
- * {basePath}/snapshot_{id}/catalog/oai_records_batch_*.parquet
+ * {basePath}/{NETWORK}/snapshots/snapshot_{id}/catalog/oai_records_batch_*.parquet
  * 
  * FUNCIONALIDADES:
  * - ESCRITURA: Buffer interno inteligente con auto-flush
@@ -161,6 +163,7 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
         .named("OAIRecordCatalog");
     
     private final String basePath;
+    private final SnapshotMetadata snapshotMetadata;
     private final Long snapshotId;
     private final Configuration hadoopConf;
     private final int flushThreshold;  // Configurable flush threshold
@@ -180,9 +183,17 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
     private List<OAIRecord> currentBatchRecords = null;
     private int currentRecordIndex = 0;
     
-    private OAIRecordManager(String basePath, Long snapshotId, Configuration hadoopConf, int flushThreshold) {
+    private OAIRecordManager(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf, int flushThreshold) {
+        if (snapshotMetadata == null) {
+            throw new IllegalArgumentException("snapshotMetadata cannot be null");
+        }
+        if (snapshotMetadata.getSnapshotId() == null) {
+            throw new IllegalArgumentException("snapshotMetadata.snapshotId cannot be null");
+        }
+        
         this.basePath = basePath;
-        this.snapshotId = snapshotId;
+        this.snapshotMetadata = snapshotMetadata;
+        this.snapshotId = snapshotMetadata.getSnapshotId();
         this.hadoopConf = hadoopConf;
         this.flushThreshold = flushThreshold;
         this.currentWriter = null;
@@ -199,30 +210,31 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      * Gestiona automáticamente múltiples archivos batch según performance.
      * 
      * @param basePath ruta base (ej: /data/parquet)
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
      * @param hadoopConf configuración Hadoop
      * @return manager listo para escritura
      * @throws IOException si falla
      */
-    public static OAIRecordManager forWriting(String basePath, Long snapshotId, Configuration hadoopConf) 
+    public static OAIRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
             throws IOException {
-        return forWriting(basePath, snapshotId, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
+        return forWriting(basePath, snapshotMetadata, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
     }
     
     /**
      * Crea un manager para ESCRITURA con flush threshold personalizado.
      * 
      * @param basePath ruta base (ej: /data/parquet)
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
      * @param hadoopConf configuración Hadoop
      * @param flushThreshold número de registros antes de hacer flush automático
      * @return manager listo para escritura
      * @throws IOException si falla
      */
-    public static OAIRecordManager forWriting(String basePath, Long snapshotId, Configuration hadoopConf, int flushThreshold) 
+    public static OAIRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf, int flushThreshold) 
             throws IOException {
-        logger.info("OAI RECORD MANAGER: Creating writer for snapshot {} (flushThreshold={})", snapshotId, flushThreshold);
-        return new OAIRecordManager(basePath, snapshotId, hadoopConf, flushThreshold);
+        logger.info("OAI RECORD MANAGER: Creating writer for snapshot {} network {} (flushThreshold={})", 
+                   snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym(), flushThreshold);
+        return new OAIRecordManager(basePath, snapshotMetadata, hadoopConf, flushThreshold);
     }
     
     /**
@@ -236,14 +248,14 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      * - processRecords(): Procesa con Consumer (streaming funcional)
      * 
      * @param basePath ruta base (ej: /data/parquet)
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
      * @param hadoopConf configuración Hadoop
      * @return manager listo para lectura
      * @throws IOException si falla
      */
-    public static OAIRecordManager forReading(String basePath, Long snapshotId, Configuration hadoopConf) 
+    public static OAIRecordManager forReading(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
             throws IOException {
-        OAIRecordManager manager = new OAIRecordManager(basePath, snapshotId, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
+        OAIRecordManager manager = new OAIRecordManager(basePath, snapshotMetadata, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
         manager.initializeReader();
         return manager;
     }
@@ -254,21 +266,21 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      * 
      * Ejemplo de uso:
      * <pre>
-     * for (OAIRecord record : OAIRecordManager.iterate(basePath, snapshotId, hadoopConf)) {
+     * for (OAIRecord record : OAIRecordManager.iterate(basePath, snapshotMetadata, hadoopConf)) {
      *     // Procesar record sin cargar todo en memoria
      *     validateRecord(record);
      * }
      * </pre>
      * 
      * @param basePath ruta base
-     * @param snapshotId ID del snapshot
+     * @param snapshotMetadata metadata del snapshot
      * @param hadoopConf configuración Hadoop
      * @return iterable lazy sobre todos los records
      * @throws IOException si falla
      */
-    public static Iterable<OAIRecord> iterate(String basePath, Long snapshotId, Configuration hadoopConf) 
+    public static Iterable<OAIRecord> iterate(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
             throws IOException {
-        return forReading(basePath, snapshotId, hadoopConf);
+        return forReading(basePath, snapshotMetadata, hadoopConf);
     }
     
     // ============================================================================
@@ -285,8 +297,8 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
         }
         
         batchNumber++;
-        String batchPath = basePath + "/snapshot_" + snapshotId + "/" + CATALOG_SUBDIR + "/" 
-                         + FILE_PREFIX + batchNumber + ".parquet";
+        String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        String batchPath = snapshotPath + "/" + CATALOG_SUBDIR + "/" + FILE_PREFIX + batchNumber + ".parquet";
         Path path = new Path(batchPath);
         
         logger.info("OAI RECORD MANAGER: Creating batch file #{} at {}", batchNumber, batchPath);
@@ -386,7 +398,8 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      * Inicializa el lector buscando todos los archivos batch del snapshot.
      */
     private void initializeReader() throws IOException {
-        String catalogDir = basePath + "/snapshot_" + snapshotId + "/" + CATALOG_SUBDIR;
+        String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        String catalogDir = snapshotPath + "/" + CATALOG_SUBDIR;
         Path catalogPath = new Path(catalogDir);
         
         FileSystem fs = FileSystem.get(hadoopConf);

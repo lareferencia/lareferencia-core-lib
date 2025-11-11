@@ -70,10 +70,10 @@ public class ValidationStatsResult {
     public static ValidationStatsResult fromSnapshotValidationStats(SnapshotValidationStats snapshotStats) {
         ValidationStatsResult result = new ValidationStatsResult();
         
-        // Convert basic counts (Long to Integer)
-        result.setSize(snapshotStats.getTotalRecords() != null ? snapshotStats.getTotalRecords().intValue() : 0);
-        result.setTransformedSize(snapshotStats.getTransformedRecords() != null ? snapshotStats.getTransformedRecords().intValue() : 0);
-        result.setValidSize(snapshotStats.getValidRecords() != null ? snapshotStats.getValidRecords().intValue() : 0);
+        // Convert basic counts
+        result.setSize(snapshotStats.getTotalRecords() != null ? snapshotStats.getTotalRecords() : 0);
+        result.setTransformedSize(snapshotStats.getTransformedRecords() != null ? snapshotStats.getTransformedRecords() : 0);
+        result.setValidSize(snapshotStats.getValidRecords() != null ? snapshotStats.getValidRecords() : 0);
         
         // Convert rules statistics
         Map<String, ValidationRuleStat> rulesByID = new HashMap<>();

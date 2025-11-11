@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lareferencia.core.util.hashing.MD5Hashing;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -25,11 +24,17 @@ class MetadataStoreIntegrationTest {
 
     private MetadataStoreFSImpl metadataStore;
     private MD5Hashing hashingHelper;
+    private SnapshotMetadata testSnapshotMetadata;
 
     @BeforeEach
     void setUp() throws Exception {
         metadataStore = new MetadataStoreFSImpl();
         hashingHelper = new MD5Hashing();
+        
+        // Create a test snapshot metadata
+        testSnapshotMetadata = new SnapshotMetadata(1L);
+        testSnapshotMetadata.setNetworkAcronym("TEST");
+        testSnapshotMetadata.setSize(100L);
 
         // Inject test configuration using reflection
         var basePathField = MetadataStoreFSImpl.class.getDeclaredField("basePath");
@@ -50,8 +55,8 @@ class MetadataStoreIntegrationTest {
         String xmlContent = "<metadata><title>Test Record</title><author>John Doe</author></metadata>";
 
         // When
-        String hash = metadataStore.storeAndReturnHash(xmlContent);
-        String retrieved = metadataStore.getMetadata(hash);
+        String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
+        String retrieved = metadataStore.getMetadata(testSnapshotMetadata, hash);
 
         // Then
         assertNotNull(hash);
@@ -75,13 +80,13 @@ class MetadataStoreIntegrationTest {
 
         // When - Store all records
         for (String xml : xmlContents) {
-            String hash = metadataStore.storeAndReturnHash(xml);
+            String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xml);
             hashes.add(hash);
         }
 
         // Then - Retrieve and verify all records
         for (int i = 0; i < 10; i++) {
-            String retrieved = metadataStore.getMetadata(hashes.get(i));
+            String retrieved = metadataStore.getMetadata(testSnapshotMetadata, hashes.get(i));
             assertNotNull(retrieved);
             assertEquals(xmlContents.get(i), retrieved);
             assertTrue(retrieved.contains(String.format("Record %d", i)));
@@ -95,7 +100,7 @@ class MetadataStoreIntegrationTest {
         String xmlContent = "<metadata><title>Partition Test</title></metadata>";
 
         // When
-        String hash = metadataStore.storeAndReturnHash(xmlContent);
+        String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
 
         // Then - Verify 3-level partitioning (A/B/C/hash.xml.gz)
         String level1 = hash.substring(0, 1).toUpperCase();
@@ -114,8 +119,8 @@ class MetadataStoreIntegrationTest {
         String xmlContent = "<metadata><title>Duplicate Test</title></metadata>";
 
         // When - Store same content twice
-        String hash1 = metadataStore.storeAndReturnHash(xmlContent);
-        String hash2 = metadataStore.storeAndReturnHash(xmlContent);
+        String hash1 = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
+        String hash2 = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
 
         // Then
         assertEquals(hash1, hash2, "Same content should produce same hash");
@@ -140,8 +145,8 @@ class MetadataStoreIntegrationTest {
                 "</metadata>";
 
         // When
-        String hash = metadataStore.storeAndReturnHash(xmlContent);
-        String retrieved = metadataStore.getMetadata(hash);
+        String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
+        String retrieved = metadataStore.getMetadata(testSnapshotMetadata, hash);
 
         // Then
         assertNotNull(retrieved);
@@ -161,7 +166,7 @@ class MetadataStoreIntegrationTest {
                 "</metadata>";
 
         // When
-        String hash = metadataStore.storeAndReturnHash(xmlContent);
+        String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
 
         // Then - Verify file is gzipped
         String level1 = hash.substring(0, 1).toUpperCase();
@@ -188,8 +193,8 @@ class MetadataStoreIntegrationTest {
         String xmlContent = "<metadata></metadata>";
 
         // When
-        String hash = metadataStore.storeAndReturnHash(xmlContent);
-        String retrieved = metadataStore.getMetadata(hash);
+        String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
+        String retrieved = metadataStore.getMetadata(testSnapshotMetadata, hash);
 
         // Then
         assertNotNull(hash);
@@ -209,8 +214,8 @@ class MetadataStoreIntegrationTest {
         String xmlContent = xmlBuilder.toString();
 
         // When
-        String hash = metadataStore.storeAndReturnHash(xmlContent);
-        String retrieved = metadataStore.getMetadata(hash);
+        String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
+        String retrieved = metadataStore.getMetadata(testSnapshotMetadata, hash);
 
         // Then
         assertNotNull(hash);
@@ -228,7 +233,7 @@ class MetadataStoreIntegrationTest {
 
         // When/Then
         assertThrows(MetadataRecordStoreException.class, () -> {
-            metadataStore.getMetadata(nonExistentHash);
+            metadataStore.getMetadata(testSnapshotMetadata, nonExistentHash);
         });
     }
 
@@ -251,7 +256,7 @@ class MetadataStoreIntegrationTest {
                     for (int i = 0; i < recordsPerThread; i++) {
                         String xml = String.format("<metadata><thread>%d</thread><record>%d</record></metadata>", 
                                                   threadId, i);
-                        String hash = metadataStore.storeAndReturnHash(xml);
+                        String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xml);
                         hashes.add(hash);
                     }
                 } finally {
@@ -272,7 +277,7 @@ class MetadataStoreIntegrationTest {
             assertEquals(recordsPerThread, hashes.size());
             
             for (int i = 0; i < recordsPerThread; i++) {
-                String retrieved = metadataStore.getMetadata(hashes.get(i));
+                String retrieved = metadataStore.getMetadata(testSnapshotMetadata, hashes.get(i));
                 assertNotNull(retrieved);
                 assertTrue(retrieved.contains(String.format("<thread>%d</thread>", t)));
                 assertTrue(retrieved.contains(String.format("<record>%d</record>", i)));

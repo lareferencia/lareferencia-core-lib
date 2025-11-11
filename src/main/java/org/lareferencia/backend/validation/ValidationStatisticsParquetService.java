@@ -20,6 +20,7 @@
 
 package org.lareferencia.backend.validation;
 
+import org.apache.jena.sparql.function.library.e;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.backend.domain.IOAIRecord;
@@ -29,7 +30,7 @@ import org.lareferencia.backend.domain.parquet.RuleFact;
 import org.lareferencia.backend.domain.parquet.SnapshotValidationStats;
 import org.lareferencia.backend.repositories.parquet.ValidationStatParquetRepository;
 import org.lareferencia.backend.validation.validator.ContentValidatorResult;
-import org.lareferencia.core.metadata.IMetadataRecordStoreService;
+import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.IRecordFingerprintHelper;
 import org.lareferencia.core.validation.ValidatorResult;
@@ -39,8 +40,10 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import com.codahale.metrics.Snapshot;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.*;
 
 
@@ -69,7 +72,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     private ValidationStatParquetRepository parquetRepository;
 
     @Autowired
-    IMetadataRecordStoreService metadataStoreService;
+    private ISnapshotStore snapshotStore;
 
     private boolean detailedDiagnose = false;
 
@@ -208,6 +211,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             validationResult.isTransformed()
         );
 
+        // Set datestamp based on transformation status
+        if ( !validationResult.isTransformed() ) // original record timestamp
+            recordValidation.setDatestamp(record.getDatestamp());
+        else // set now as timestamp if transformed
+            recordValidation.setDatestamp(LocalDateTime.now());
+
         // Create and add RuleFact objects directly to RecordValidation
         for (ValidatorRuleResult ruleResult : validationResult.getRulesResults()) {
             String ruleID = ruleResult.getRule().getRuleId().toString();
@@ -264,8 +273,8 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             // we need calculate the stats based on filters
             logger.info("FILTERS APPLIED: Calculating filtered snapshot statistics from Parquet for snapshot {}", snapshot.getId());
             try {
-                // Obtener SnapshotMetadata desde el record store service
-                SnapshotMetadata metadata = metadataStoreService.getSnapshotMetadata(snapshot.getId());
+                // Obtener SnapshotMetadata desde snapshotStore
+                SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshot.getId());
                 if (metadata == null) {
                     throw new ValidationStatisticsException("Snapshot metadata not found for snapshot: " + snapshot.getId());
                 }
@@ -285,7 +294,13 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             // if validation stats exist in cache return otherwise read from parquet
             SnapshotValidationStats snapshotStats;
             try {
-                snapshotStats = parquetRepository.getSnapshotValidationStats(snapshot.getId());
+                // Obtener SnapshotMetadata desde snapshotStore
+                SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshot.getId());
+                if (metadata == null) {
+                    throw new ValidationStatisticsException("Snapshot metadata not found for snapshot: " + snapshot.getId());
+                }
+                
+                snapshotStats = parquetRepository.getSnapshotValidationStats(metadata);
             } catch (IOException e) {
                 throw new ValidationStatisticsException("Error querying validation statistics from Parquet: " + e.getMessage());
             }
@@ -422,7 +437,11 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
                 snapshotID, fq, offset, limit
             );
 
-            SnapshotMetadata metadata = parquetRepository.getSnapshotValidationStats(snapshotID).getSnapshotMetadata();
+            // Obtener SnapshotMetadata desde snapshotStore
+            SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotID);
+            if (metadata == null) {
+                throw new ValidationStatisticsException("Snapshot metadata not found for snapshot: " + snapshotID);
+            }
 
             
             @SuppressWarnings("unchecked")
@@ -637,12 +656,35 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         logger.info("Validation finalized for snapshot {} - all data persisted", snapshotId);
     }
 
-   
+    @Override
+    public RecordValidation getRecordValidationListBySnapshotAndIdentifier(Long snapshotID, String identifier) throws ValidationStatisticsException {
+            RecordValidation recordValidation = parquetRepository.getRecordValidationBySnapshotAndIdentifier(snapshotID, identifier);
+            if (recordValidation == null) {
+                throw new ValidationStatisticsException("No record validation found for snapshot " + snapshotID + " and identifier " + identifier);
+            }
+            return recordValidation;
+      
 
-    
- 
+    }
 
- 
+    @Override
+    public SnapshotValidationStats getSnapshotValidationStats(Long snapshotID) throws ValidationStatisticsException {
+        try {
+            // Obtener SnapshotMetadata desde snapshotStore
+            SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotID);
+            if (metadata == null) {
+                throw new ValidationStatisticsException("Snapshot metadata not found for snapshot: " + snapshotID);
+            }
+            
+            SnapshotValidationStats snapshotStats = parquetRepository.getSnapshotValidationStats(metadata);
+            if (snapshotStats == null) {
+                throw new ValidationStatisticsException("No validation statistics found for snapshot " + snapshotID);
+            }
+            return snapshotStats;
+        } catch (IOException e) {
+            throw new ValidationStatisticsException("Error querying validation statistics from Parquet: " + e.getMessage());
+        }
+    }
     
  
 

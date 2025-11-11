@@ -37,7 +37,7 @@ public interface IMetadataStore {
 	 * @param metadata the metadata string to store
 	 * @return the calculated hash of the metadata
 	 */
-	String storeAndReturnHash(String metadata);
+	String storeAndReturnHash(SnapshotMetadata snapshotMetadata, String metadata);
 	
 	/**
 	 * Retrieves metadata by its hash.
@@ -46,7 +46,7 @@ public interface IMetadataStore {
 	 * @return the metadata string
 	 * @throws MetadataRecordStoreException if retrieval fails
 	 */
-	String getMetadata(String hash) throws MetadataRecordStoreException;
+	String getMetadata(SnapshotMetadata snapshotMetadata, String hash) throws MetadataRecordStoreException;
 
 	/**
 	 * Performs cleanup and optimization on the metadata store.
