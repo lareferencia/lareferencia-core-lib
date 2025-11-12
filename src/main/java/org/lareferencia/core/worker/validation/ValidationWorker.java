@@ -150,7 +150,6 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 		// Cargar metadata completo del snapshot y asignarlo al campo del padre
 		this.snapshotMetadata = snapshotStore.getSnapshotMetadata( snapshotId );
 
-
 		try {
 			validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
 		} catch (ValidationStatisticsException e) {
@@ -230,12 +229,12 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 			
 			if ( transformer != null ) {
 				logger.debug("Primary transformer: "  + record.getId() + " :: "+ record.getIdentifier() );
-				wasTransformed |= transformer.transform(this.runningContext, record, metadata);
+				wasTransformed |= transformer.transform(this.snapshotMetadata, record, metadata);
 			}
 			
 			if ( secondaryTransformer != null ) {
 				logger.debug("Secondary transformer: "  + record.getId() + " :: "+ record.getIdentifier() );
-				wasTransformed |= secondaryTransformer.transform(this.runningContext, record, metadata);
+				wasTransformed |= secondaryTransformer.transform(this.snapshotMetadata, record, metadata);
 			}
 				
 			logger.debug( record.getId() + " :: "+ record.getIdentifier() + "  Transformed: " + wasTransformed);

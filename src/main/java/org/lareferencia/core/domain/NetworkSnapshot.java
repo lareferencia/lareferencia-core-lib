@@ -25,7 +25,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import lombok.Getter;
 import lombok.Setter;
-import org.joda.time.DateTime;
 import org.lareferencia.core.util.JsonDateSerializer;
 import org.lareferencia.core.util.LocalDateTimeAttributeConverter;
 

@@ -26,7 +26,6 @@ import org.apache.tika.exception.TikaException;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.sax.BodyContentHandler;
-import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.domain.OAIBitstream;
 import org.lareferencia.core.domain.OAIBitstreamStatus;
 import org.lareferencia.core.repository.jpa.OAIBitstreamRepository;
@@ -56,7 +55,7 @@ public class FulltextWorker extends BaseBatchWorker<OAIBitstream, NetworkRunning
 	
 	private static Logger logger = LogManager.getLogger(FulltextWorker.class);
 	
-	@Value("${downloaded.files.path}")
+	@Value("${bitstream.path:/tmp/bitstreams}")
 	private String BITSTREAM_PATH;
 
 	@Autowired

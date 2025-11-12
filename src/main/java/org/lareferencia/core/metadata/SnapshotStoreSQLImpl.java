@@ -68,9 +68,6 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	@Autowired
 	private OAIRecordRepository recordRepository;
 	
-	@Autowired
-	private SnapshotLogService snapshotLogService;
-	
 	// ============================================================================
 	// CACHE MANAGEMENT (privado)
 	// ============================================================================
@@ -144,36 +141,27 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	}
 	
 	@Override
-	public void deleteSnapshot(Long snapshotId) {
-		try {
-			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			
-			// Eliminar logs
-			snapshotLogService.deleteSnapshotLog(snapshotId);
-			
-			// Eliminar records (delegado al RecordStore en el futuro)
-			recordRepository.deleteBySnapshotID(snapshotId);
-			
-			// Eliminar snapshot
-			snapshotRepository.deleteBySnapshotID(snapshotId);
-			
-			// Eliminar del caché
-			removeFromCache(snapshotId);
-			
-			logger.info("SNAPSHOT STORE: Deleted snapshot {}", snapshotId);
-			
-		} catch (MetadataRecordStoreException e) {
-			logger.error("SNAPSHOT STORE: Error deleting snapshot {}: {}", snapshotId, e.getMessage());
-		}
+	public void deleteSnapshot(Long snapshotId) {	
+	
+		// Eliminar records (delegado al RecordStore en el futuro)
+		recordRepository.deleteBySnapshotID(snapshotId);
+		
+		// Eliminar snapshot
+		snapshotRepository.deleteBySnapshotID(snapshotId);
+		
+		// Eliminar del caché
+		removeFromCache(snapshotId);
+		
+		logger.info("SNAPSHOT STORE: Deleted snapshot {}", snapshotId);
 	}
+			
+	
+	
 	
 	@Override
 	public void cleanSnapshotData(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			
-			// Eliminar logs
-			snapshotLogService.deleteSnapshotLog(snapshotId);
 			
 			// Eliminar records (delegado al RecordStore en el futuro)
 			recordRepository.deleteBySnapshotID(snapshotId);
@@ -262,7 +250,12 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	@Override
 	public SnapshotMetadata getSnapshotMetadata(Long snapshotId) {
 		try {
-			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			// Traer siempre de la BD, evitando el caché
+			Optional<NetworkSnapshot> optSnapshot = snapshotRepository.findById(snapshotId);
+			if (!optSnapshot.isPresent()) {
+				throw new MetadataRecordStoreException("Snapshot: " + snapshotId + " not found.");
+			}
+			NetworkSnapshot snapshot = optSnapshot.get();
 			
 			SnapshotMetadata metadata = new SnapshotMetadata(snapshotId);
 			
