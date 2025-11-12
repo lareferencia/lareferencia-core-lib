@@ -20,6 +20,8 @@
 
 package org.lareferencia.core.worker;
 
+import java.util.Iterator;
+
 /**
  * Interface for workers that process data in batches.
  * <p>
@@ -33,7 +35,7 @@ package org.lareferencia.core.worker;
  * @see IWorker
  * @see IPaginator
  */
-public interface IBatchWorker<I,C extends IRunningContext> extends IWorker<C> {
+public interface IIteratorWorker<I,C extends IRunningContext> extends IWorker<C> {
 	
 	/**
 	 * Processes a single item from the batch.
@@ -42,15 +44,6 @@ public interface IBatchWorker<I,C extends IRunningContext> extends IWorker<C> {
 	 */
 	void processItem(I item) throws Exception;
 	
-	/**
-	 * Hook called before processing each page of items.
-	 */
-	void prePage();
-	
-	/**
-	 * Hook called after processing each page of items.
-	 */
-	void postPage();
 	
 	/**
 	 * Gets the completion rate as a percentage.
@@ -60,10 +53,11 @@ public interface IBatchWorker<I,C extends IRunningContext> extends IWorker<C> {
 	double getCompletionRate();
 	
 	/**
-	 * Sets the paginator for iterating through items.
+	 * Sets the iterator for iterating through items.
 	 * 
-	 * @param paginator the paginator to use
+	 * @param iterator the iterator to use
+	 * @param totalRecords the total number of records to process
 	 */
-	void setPaginator(IPaginator<I> paginator);
-	
+    void setIterator(Iterator<I> iterator, Integer totalRecords);
+
 }

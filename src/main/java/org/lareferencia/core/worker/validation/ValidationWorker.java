@@ -20,12 +20,15 @@
 
 package org.lareferencia.core.worker.validation;
 
+import java.io.IOException;
 import java.text.NumberFormat;
+import java.util.Iterator;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.domain.SnapshotStatus;
 import org.lareferencia.core.repository.parquet.OAIRecord;
+import org.lareferencia.core.repository.parquet.OAIRecordParquetRepository;
 import org.lareferencia.core.repository.parquet.SnapshotValidationStats;
 import org.lareferencia.core.repository.jpa.NetworkRepository;
 import org.lareferencia.core.service.management.SnapshotLogService;
@@ -36,8 +39,12 @@ import org.lareferencia.core.metadata.IMetadataStore;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
-import org.lareferencia.core.worker.OAIRecordParquetWorker;
+import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.worker.BaseIteratorWorker;
+import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import com.codahale.metrics.Snapshot;
 
 
 
@@ -75,9 +82,9 @@ import org.springframework.beans.factory.annotation.Autowired;
  * @see IValidator
  * @see ITransformer
  * @see ValidationService
- * @see OAIRecordParquetWorker
+ * @see BaseParquetOAIRecordWorker
  */
-public class ValidationWorker extends OAIRecordParquetWorker {
+public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunningContext> {
 	
 	private static Logger logger = LogManager.getLogger(ValidationWorker.class);
 
@@ -95,6 +102,9 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 
 	@Autowired
 	private IMetadataStore metadataStoreService;
+
+	@Autowired
+    protected OAIRecordParquetRepository recordRepository;
 	
 	
 	private ITransformer transformer;
@@ -103,19 +113,15 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 
 	@Autowired
 	private ValidationService validationManager;
-
-	private Long processedRecordsCount;
-	
-
-	//private ArrayList<ValidationStatObservation> validationStatsObservations = new ArrayList<ValidationStatObservation>();
 	
 	@Autowired
 	IValidationStatisticsService validationStatisticsService;
 	
-	
 	// reusable objects
 	private ValidatorResult reusableValidationResult;
 	private Boolean wasTransformed;
+
+	private SnapshotMetadata snapshotMetadata;
 	
 	/**
 	 * Constructs a new validation worker.
@@ -128,27 +134,26 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 	@Override
 	public void preRun() {
 
-		processedRecordsCount = 0L;
-
-		// check if validation statistics service is available
-		if ( ! validationStatisticsService.isServiceAvailable() ) {
-			logError("Validation Statistics Service is not available, can't run validation");
-			this.stop();
-			return;
-		}
-	
 	// new reusable validation result
 	reusableValidationResult = new ValidatorResult();
 	
 	// trata de conseguir la ultima cosecha válida o el revalida el lgk 
 	Long snapshotId = snapshotStore.findLastHarvestingSnapshot( runningContext.getNetwork() );
 
-
 	if ( snapshotId != null ) {
 
-	
 		// Cargar metadata completo del snapshot y asignarlo al campo del padre
 		this.snapshotMetadata = snapshotStore.getSnapshotMetadata( snapshotId );
+
+
+        try {
+			Iterator<OAIRecord> it = recordRepository.getIterator(snapshotMetadata);
+			this.setIterator(it, snapshotMetadata.getSize());
+		} catch (IOException e) {
+			logError("Error initializing OAIRecord iterator for snapshot " + snapshotId + ": " + e.getMessage());
+			this.stop();
+			return;
+		}
 
 		try {
 			validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
@@ -199,7 +204,15 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 		
 	}
 
+	@Override
+	public void prePage() {
+		// actualiza conteos periodicamente
+	}
 
+	@Override
+	public void postPage() {
+		updateSnapshotCounts();
+	}
 
 	
 	@Override
@@ -247,19 +260,11 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 				// validación
 				reusableValidationResult = validator.validate(metadata, reusableValidationResult);
 				reusableValidationResult.setTransformed(wasTransformed);
-				
-				// update record validation status
-				//metadataStoreService.updateRecordStatus(record, reusableValidationResult.isValid() ? RecordStatus.VALID : RecordStatus.INVALID, wasTransformed);
-					
-				
+						
 			}
 			else { // if no validator is set, then record is consired valid and the validation results are set to true
 				
 			    reusableValidationResult.setValid(true);
-
-	            // update record validation status
-				//metadataStoreService.updateRecordStatus(record, RecordStatus.VALID, wasTransformed);
-
 			}
 			
 			
@@ -267,6 +272,7 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 
 			// store metadata if needed and set publishedMetadataHash
 			String publishedMetadataHash = record.getOriginalMetadataHash();
+
 			// Store metadata if transformed
 			if ( wasTransformed ) {
 				publishedMetadataHash = metadataStoreService.storeAndReturnHash(snapshotMetadata, metadata.toString());
@@ -278,8 +284,6 @@ public class ValidationWorker extends OAIRecordParquetWorker {
             logger.debug("Storing diagnose "  + record.getId() + " :: "+ record.getIdentifier() );
             // validationStatsObservations.add( validationStatisticsService.buildObservation(record, reusableValidationResult) );
 			validationStatisticsService.addObservation(snapshotMetadata, record, reusableValidationResult);
-
-
 
 			
 		} catch (OAIRecordMetadataParseException e) {
@@ -299,12 +303,7 @@ public class ValidationWorker extends OAIRecordParquetWorker {
 			setSnapshotStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
 			this.stop();
 		}
-
-		processedRecordsCount++;
-		// log info every 1000 records
-		if ( processedRecordsCount % 1000 == 0 ) {
-			updateSnapshotCounts();
-		}
+		
 	}
 
 	private void updateSnapshotCounts() {

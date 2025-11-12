@@ -32,17 +32,14 @@ import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.worker.validation.transformer.FieldContentTranslateRule;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.lareferencia.core.util.Profiler;
 import org.lareferencia.core.worker.validation.Translation;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.junit4.SpringRunner;
 import org.w3c.dom.Document;
 
-import net.openhft.hashing.LongHashFunction;
 
 @RunWith(SpringRunner.class)
 @SpringBootTest

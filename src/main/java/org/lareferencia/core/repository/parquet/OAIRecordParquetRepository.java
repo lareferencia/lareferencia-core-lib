@@ -26,7 +26,6 @@ import jakarta.annotation.PreDestroy;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.lareferencia.core.repository.parquet.OAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.PathUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,7 +34,7 @@ import org.springframework.stereotype.Repository;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.List;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -47,7 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Gestiona OAIRecordManager de forma centralizada
  * - Provee API de alto nivel para workers y servicios
  * - Maneja ciclo de vida completo de managers (init/write/close)
- * - Thread-safe con managers persistentes por snapshot
+ * - Thread-safe: managers de escritura persistentes, lectores por instancia
  * 
  * FUNCIONALIDADES:
  * ================
@@ -58,33 +57,31 @@ import java.util.concurrent.ConcurrentHashMap;
  *    - flush(): Fuerza escritura de buffer a disco
  * 
  * 2. LECTURA:
- *    - readAllRecords(): Carga todos los records (para datasets pequeños)
- *    - iterateRecords(): Streaming lazy (recomendado para grandes)
- *    - countRecords(): Cuenta sin cargar en memoria
- *    - queryRecords(): Paginación y filtrado (futuro)
+ *    - getIterator(): Retorna NUEVA instancia de manager para lectura thread-safe
  * 
  * 3. GESTIÓN:
  *    - deleteSnapshot(): Elimina directorio completo
- *    - cleanup(): Cierra todos los managers activos
+ *    - cleanup(): Cierra todos los managers activos de escritura
  * 
  * CICLO DE VIDA TÍPICO:
  * =====================
- * 1. initializeSnapshot(snapshotId) → Crea manager
+ * ESCRITURA:
+ * 1. initializeSnapshot(snapshotMetadata) → Crea manager
  * 2. saveRecord(snapshotId, record) × N → Escritura buffered
  * 3. flush(snapshotId) (opcional) → Persistencia periódica
  * 4. finalizeSnapshot(snapshotId) → Cierra y flush final
  * 
- * DIFERENCIAS CON ValidationStatParquetRepository:
- * ================================================
- * - NO mantiene metadata en memoria (solo el manager)
- * - NO calcula estadísticas (catálogo simple)
- * - Enfocado en CRUD básico de records OAI
+ * LECTURA (THREAD-SAFE):
+ * 1. Iterator<OAIRecord> iterator = getIterator(snapshotMetadata) → Nueva instancia de manager internamente
+ * 2. Procesar records con while/for
+ * 3. Iterator es de uso seguro sin cerrar (manager interno manejado automáticamente)
  * 
  * THREAD SAFETY:
  * ==============
- * - Managers persistentes en ConcurrentHashMap
- * - Múltiples threads pueden llamar saveRecord() concurrentemente
- * - Sincronización manejada por OAIRecordManager internamente
+ * - ESCRITURA: Managers persistentes en ConcurrentHashMap, uno por snapshot
+ * - LECTURA: Cada getIterator() crea NUEVA instancia de manager
+ * - Múltiples threads pueden leer el MISMO snapshot concurrentemente sin interferencia
+ * - Sincronización de escritura manejada por OAIRecordManager internamente
  * 
  * @author LA Referencia Team
  */
@@ -314,63 +311,48 @@ public class OAIRecordParquetRepository {
     }
 
     /**
-     * Lee todos los records de un snapshot.
-     * NOTA: Para datasets grandes, usar iterateRecords() en su lugar.
+     * Retorna un iterator directo para streaming lazy sobre records de un snapshot.
      * 
-     * @param snapshotMetadata metadata del snapshot
-     * @return lista de todos los records
-     * @throws IOException si hay error
-     */
-    public List<OAIRecord> readAllRecords(SnapshotMetadata snapshotMetadata) throws IOException {
-        logger.debug("READ ALL RECORDS: snapshot={}, network={}", 
-                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
-        
-        try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
-            return reader.readAll();
-        }
-    }
-
-    /**
-     * Retorna un iterable para streaming lazy sobre records de un snapshot.
-     * RECOMENDADO para datasets grandes que no caben en memoria.
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de OAIRecordManager internamente.
+     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin interferencia.
+     * 
+     * El manager interno es manejado automáticamente - no necesita cerrar.
      * 
      * Ejemplo de uso:
      * <pre>
-     * for (OAIRecord record : repository.iterateRecords(snapshotMetadata)) {
-     *     // Procesar record sin cargar todo en memoria
+     * Iterator&lt;OAIRecord&gt; iterator = repository.getIterator(snapshotMetadata);
+     * while (iterator.hasNext()) {
+     *     OAIRecord record = iterator.next();
      *     processRecord(record);
      * }
      * </pre>
      * 
      * @param snapshotMetadata metadata del snapshot
-     * @return iterable lazy sobre records
+     * @return iterator lazy sobre records (nueva instancia de manager interna)
      * @throws IOException si hay error
      */
-    public Iterable<OAIRecord> iterateRecords(SnapshotMetadata snapshotMetadata) throws IOException {
-        logger.debug("ITERATE RECORDS: snapshot={}, network={}", 
+    public Iterator<OAIRecord> getIterator(SnapshotMetadata snapshotMetadata) throws IOException {
+        logger.debug("GET ITERATOR: snapshot={}, network={} (NEW INSTANCE)", 
                     snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
-        return OAIRecordManager.iterate(basePath, snapshotMetadata, hadoopConf);
+        // Crear NUEVA instancia de manager para cada llamada - garantiza thread safety
+        OAIRecordManager manager = OAIRecordManager.forReading(basePath, snapshotMetadata, hadoopConf);
+        return manager.iterator();
     }
 
     /**
-     * Cuenta el total de records en un snapshot sin cargarlos en memoria.
+     * Verifica si un snapshot tiene un manager activo de escritura.
+     * Usado internamente para monitoreo de estado.
      * 
-     * @param snapshotMetadata metadata del snapshot
-     * @return número total de records
-     * @throws IOException si hay error
+     * @param snapshotId ID del snapshot
+     * @return true si hay manager activo
      */
-    public long countRecords(SnapshotMetadata snapshotMetadata) throws IOException {
-        logger.debug("COUNT RECORDS: snapshot={}, network={}", 
-                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
-        
-        try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
-            return reader.countRecords();
-        }
+    public boolean hasActiveManager(Long snapshotId) {
+        return recordManagers.containsKey(snapshotId);
     }
 
     /**
      * Obtiene información del manager activo de un snapshot.
-     * Útil para debugging y monitoreo.
+     * Útil para debugging y monitoreo de estado.
      * 
      * @param snapshotId ID del snapshot
      * @return mapa con información del manager, o null si no hay manager activo
@@ -387,45 +369,6 @@ public class OAIRecordParquetRepository {
             "batchCount", manager.getBatchCount(),
             "isActive", true
         );
-    }
-
-    /**
-     * Verifica si un snapshot tiene un manager activo.
-     * 
-     * @param snapshotId ID del snapshot
-     * @return true si hay manager activo
-     */
-    public boolean hasActiveManager(Long snapshotId) {
-        return recordManagers.containsKey(snapshotId);
-    }
-
-    /**
-     * Retorna el total de managers activos.
-     * Útil para monitoreo de recursos.
-     * 
-     * @return número de managers activos
-     */
-    public int getActiveManagerCount() {
-        return recordManagers.size();
-    }
-
-    /**
-     * Retorna la configuración Hadoop usada por el repositorio.
-     * Útil para tests y debugging.
-     * 
-     * @return configuración Hadoop
-     */
-    public Configuration getHadoopConfiguration() {
-        return hadoopConf;
-    }
-
-    /**
-     * Retorna la ruta base configurada.
-     * 
-     * @return ruta base del repositorio
-     */
-    public String getBasePath() {
-        return basePath;
     }
     
     /**

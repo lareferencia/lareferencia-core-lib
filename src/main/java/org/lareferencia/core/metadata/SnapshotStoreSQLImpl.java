@@ -260,9 +260,9 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			SnapshotMetadata metadata = new SnapshotMetadata(snapshotId);
 			
 			// Información básica
-			metadata.setSize(snapshot.getSize() != null ? snapshot.getSize().longValue() : 0L);
-			metadata.setValidSize(snapshot.getValidSize() != null ? snapshot.getValidSize().longValue() : 0L);
-			metadata.setTransformedSize(snapshot.getTransformedSize() != null ? snapshot.getTransformedSize().longValue() : 0L);
+			metadata.setSize(snapshot.getSize() != null ? snapshot.getSize() : 0);
+			metadata.setValidSize(snapshot.getValidSize());
+			metadata.setTransformedSize(snapshot.getTransformedSize());
 			
 			// Timestamp de creación
 			if (snapshot.getStartTime() != null) {

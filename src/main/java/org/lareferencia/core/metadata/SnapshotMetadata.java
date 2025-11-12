@@ -35,9 +35,11 @@ import java.util.*;
 public class SnapshotMetadata {
     
     private Long snapshotId;
-    private Long size;
-    private Long transformedSize;
-    private Long validSize;
+    
+    private Integer size;
+    private Integer transformedSize;
+    private Integer validSize;
+    
     private Long createdAt;
     
     // Snapshot origin information
@@ -54,9 +56,9 @@ public class SnapshotMetadata {
     
     public SnapshotMetadata(Long snapshotId) {
         this.snapshotId = snapshotId;
-        this.size = 0L;
-        this.transformedSize = 0L;
-        this.validSize = 0L;
+        this.size = 0;
+        this.transformedSize = 0;
+        this.validSize = 0;
         this.createdAt = System.currentTimeMillis();
     }
     
@@ -98,7 +100,7 @@ public class SnapshotMetadata {
     }
     
     // Calculated field for invalid records
-    public Long getInvalidSize() { 
-        return (size != null && validSize != null) ? size - validSize : 0L; 
+    public int getInvalidSize() { 
+        return (size != null && validSize != null) ? size - validSize : 0; 
     }
 }

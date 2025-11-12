@@ -38,7 +38,6 @@ import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Types;
-import org.lareferencia.core.repository.parquet.OAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.PathUtils;
 
@@ -69,13 +68,14 @@ import java.util.NoSuchElementException;
  * - SCHEMA: Simplificado solo con campos del catálogo OAI
  * 
  * THREAD SAFETY:
- * - ParquetWriter/Reader NO son thread-safe
- * - Usar synchronized en operaciones de escritura
- * - Un manager por snapshot (no compartir entre snapshots)
+ * - ESCRITURA: ParquetWriter NO es thread-safe - usar synchronized
+ * - LECTURA: Cada manager es independiente - crear nueva instancia por thread
+ * - NO compartir instancias entre threads
+ * - Repository.getIterator() crea nueva instancia automáticamente
  * 
  * ESTRATEGIA DE BATCHING (ESCRITURA):
  * - Buffer interno: Acumula registros en memoria
- * - Flush automático: Cuando alcanza umbral (10,000 registros)
+ * - Flush automático: Cuando alcanza umbral (10,000 registros por defecto)
  * - Flush manual: Mediante flush() para garantizar persistencia
  * - Archivos múltiples: Cada flush crea un archivo oai_records_batch_XXXXX.parquet
  * 
@@ -90,7 +90,7 @@ import java.util.NoSuchElementException;
  * 
  * 1. ESCRITURA (Harvesting):
  * <pre>
- * try (OAIRecordManager writer = OAIRecordManager.forWriting(basePath, snapshotId, conf)) {
+ * try (OAIRecordManager writer = OAIRecordManager.forWriting(basePath, snapshotMetadata, conf)) {
  *     for (OAIRecord record : harvestedRecords) {
  *         writer.writeRecord(record);
  *     }
@@ -98,31 +98,24 @@ import java.util.NoSuchElementException;
  * }
  * </pre>
  * 
- * 2. LECTURA LAZY (RECOMENDADO para datasets grandes):
+ * 2. LECTURA LAZY (RECOMENDADO - Thread-safe):
  * <pre>
- * try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotId, conf)) {
- *     for (OAIRecord record : reader) {
- *         // Procesa record sin cargar todo en memoria
+ * // Cada thread obtiene su propia instancia
+ * try (OAIRecordManager reader = repository.getIterator(snapshotMetadata)) {
+ *     Iterator&lt;OAIRecord&gt; iterator = reader.iterator();
+ *     while (iterator.hasNext()) {
+ *         OAIRecord record = iterator.next();
  *         validateRecord(record);
  *     }
  * }
  * </pre>
  * 
- * 3. LECTURA CON CONSUMER:
+ * 3. LECTURA CON FOR-EACH:
  * <pre>
- * try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotId, conf)) {
- *     reader.processRecords(record -> {
- *         // Lógica de procesamiento
- *         indexRecord(record);
- *     });
- * }
- * </pre>
- * 
- * 4. CONTADOR SIN CARGAR EN MEMORIA:
- * <pre>
- * try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotId, conf)) {
- *     long totalRecords = reader.countRecords();
- *     System.out.println("Total records in catalog: " + totalRecords);
+ * try (OAIRecordManager reader = OAIRecordManager.forReading(basePath, snapshotMetadata, conf)) {
+ *     for (OAIRecord record : reader) {
+ *         processRecord(record);
+ *     }
  * }
  * </pre>
  */
@@ -241,11 +234,12 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      * Crea un manager para LECTURA que lee TODOS los archivos batch de un snapshot.
      * Busca automáticamente todos los oai_records_batch_*.parquet
      * 
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia.
+     * Múltiples threads pueden leer el mismo snapshot concurrentemente.
+     * 
      * OPCIONES DE LECTURA:
-     * - readNext(): Lee record por record (streaming manual)
-     * - readAll(): Carga todos los records en memoria (solo para datasets pequeños)
      * - iterator(): Iteración lazy (RECOMENDADO para datasets grandes)
-     * - processRecords(): Procesa con Consumer (streaming funcional)
+     * - Iterable: Usar for-each sobre la instancia
      * 
      * @param basePath ruta base (ej: /data/parquet)
      * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
@@ -258,29 +252,6 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
         OAIRecordManager manager = new OAIRecordManager(basePath, snapshotMetadata, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
         manager.initializeReader();
         return manager;
-    }
-    
-    /**
-     * Método de conveniencia para iterar sobre records de forma lazy.
-     * Equivalente a: OAIRecordManager.forReading(...).iterator()
-     * 
-     * Ejemplo de uso:
-     * <pre>
-     * for (OAIRecord record : OAIRecordManager.iterate(basePath, snapshotMetadata, hadoopConf)) {
-     *     // Procesar record sin cargar todo en memoria
-     *     validateRecord(record);
-     * }
-     * </pre>
-     * 
-     * @param basePath ruta base
-     * @param snapshotMetadata metadata del snapshot
-     * @param hadoopConf configuración Hadoop
-     * @return iterable lazy sobre todos los records
-     * @throws IOException si falla
-     */
-    public static Iterable<OAIRecord> iterate(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
-            throws IOException {
-        return forReading(basePath, snapshotMetadata, hadoopConf);
     }
     
     // ============================================================================
@@ -463,49 +434,6 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
         return true;
     }
     
-    /**
-     * Lee siguiente record (automáticamente de todos los archivos batch).
-     * SIN CACHE: cada batch se carga completo, se itera en memoria, luego se libera.
-     * 
-     * @return record o null si EOF (todos los archivos procesados)
-     * @throws IOException si falla
-     */
-    public OAIRecord readNext() throws IOException {
-        while (true) {
-            // Si no hay batch cargado o se agotó el actual, cargar siguiente
-            if (currentBatchRecords == null || currentRecordIndex >= currentBatchRecords.size()) {
-                if (!loadNextBatch()) {
-                    return null;  // No hay más archivos
-                }
-            }
-            
-            // Retornar siguiente record del batch actual
-            if (currentRecordIndex < currentBatchRecords.size()) {
-                recordsRead++;
-                return currentBatchRecords.get(currentRecordIndex++);
-            }
-        }
-    }
-    
-    /**
-     * Lee todos los records de los archivos batch.
-     * NOTA: Para datasets grandes, usar iterator() en su lugar para evitar cargar todo en memoria.
-     * 
-     * @return lista de records
-     * @throws IOException si falla
-     */
-    public List<OAIRecord> readAll() throws IOException {
-        List<OAIRecord> records = new ArrayList<>();
-        OAIRecord record;
-        
-        while ((record = readNext()) != null) {
-            records.add(record);
-        }
-        
-        logger.info("OAI RECORD MANAGER: Read {} records total", recordsRead);
-        return records;
-    }
-    
     // ============================================================================
     // ITERADOR - LAZY ITERATION (RECOMENDADO PARA DATASETS GRANDES)
     // ============================================================================
@@ -514,31 +442,14 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      * Retorna un iterator que lee records de forma lazy (streaming).
      * NO carga todo el dataset en memoria - ideal para datasets grandes.
      * 
-     * IMPORTANTE: Solo un iterator activo por vez. Llamar reset() para crear nuevo iterator.
+     * THREAD-SAFE: Cada instancia de manager tiene su propio estado.
+     * No compartir managers entre threads.
      * 
      * @return iterator lazy sobre todos los records
      */
     @Override
     public Iterator<OAIRecord> iterator() {
         return new RecordIterator();
-    }
-    
-    /**
-     * Reinicia el lector para permitir una nueva iteración desde el principio.
-     * Útil cuando se necesita iterar múltiples veces sobre el mismo dataset.
-     * 
-     * @throws IOException si falla al reinicializar
-     */
-    public void reset() throws IOException {
-        // Liberar batch actual en memoria
-        currentBatchRecords = null;
-        currentRecordIndex = 0;
-        
-        // Reiniciar contadores y estado
-        currentBatchIndex = 0;
-        recordsRead = 0;
-        
-        logger.debug("OAI RECORD MANAGER: Reset completed for snapshot {} (NO CACHE)", snapshotId);
     }
     
     /**
@@ -559,7 +470,7 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
             
             if (!hasNextComputed) {
                 try {
-                    nextRecord = readNext();
+                    nextRecord = readNextRecord();
                     hasNextComputed = true;
                     if (nextRecord == null) {
                         iteratorExhausted = true;
@@ -589,36 +500,26 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
     }
     
     /**
-     * Cuenta el total de records sin cargarlos en memoria.
-     * Itera sobre todos los records pero solo cuenta, no los almacena.
+     * Lee siguiente record (usado internamente por iterator).
+     * Automáticamente lee de todos los archivos batch.
      * 
-     * @return número total de records en todos los archivos batch
+     * @return record o null si EOF
+     * @throws IOException si falla
      */
-    public long countRecords() {
-        long count = 0;
-        for (@SuppressWarnings("unused") OAIRecord record : this) {
-            count++;
-        }
-        return count;
-    }
-    
-    /**
-     * Procesa records de forma streaming usando un Consumer.
-     * Permite procesar datasets grandes sin cargar todo en memoria.
-     * 
-     * Ejemplo de uso:
-     * <pre>
-     * manager.processRecords(record -> {
-     *     // Procesar cada record individualmente
-     *     System.out.println("Processing: " + record.getId());
-     * });
-     * </pre>
-     * 
-     * @param processor función que procesa cada record
-     */
-    public void processRecords(java.util.function.Consumer<OAIRecord> processor) {
-        for (OAIRecord record : this) {
-            processor.accept(record);
+    private OAIRecord readNextRecord() throws IOException {
+        while (true) {
+            // Si no hay batch cargado o se agotó el actual, cargar siguiente
+            if (currentBatchRecords == null || currentRecordIndex >= currentBatchRecords.size()) {
+                if (!loadNextBatch()) {
+                    return null;  // No hay más archivos
+                }
+            }
+            
+            // Retornar siguiente record del batch actual
+            if (currentRecordIndex < currentBatchRecords.size()) {
+                recordsRead++;
+                return currentBatchRecords.get(currentRecordIndex++);
+            }
         }
     }
     

@@ -34,7 +34,7 @@ class MetadataStoreIntegrationTest {
         // Create a test snapshot metadata
         testSnapshotMetadata = new SnapshotMetadata(1L);
         testSnapshotMetadata.setNetworkAcronym("TEST");
-        testSnapshotMetadata.setSize(100L);
+        testSnapshotMetadata.setSize(100);
 
         // Inject test configuration using reflection
         var basePathField = MetadataStoreFSImpl.class.getDeclaredField("basePath");

@@ -40,7 +40,7 @@ class SnapshotValidationStatsTest {
         // Create test data
         SnapshotMetadata metadata = new SnapshotMetadata();
         metadata.setSnapshotId(1L);
-        metadata.setSize(100L);
+        metadata.setSize(100);
 
         // Add rule definitions
         SnapshotMetadata.RuleDefinition ruleDef = new SnapshotMetadata.RuleDefinition();
