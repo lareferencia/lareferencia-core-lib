@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.core.domain.OAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,7 +22,7 @@ class IdentifierRegexRuleTest {
 
 
     @Mock
-    private NetworkRunningContext context;
+    private SnapshotMetadata snapshotMetadata;
     @Mock
     private OAIRecord record;
 
@@ -44,7 +44,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("oai:example.org:123");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("example.org:123");
@@ -58,7 +58,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("oai:repository.edu:article-123");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("repository.edu/article-123");
@@ -72,7 +72,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("prefix-identifier-123");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("identifier-123");
@@ -86,7 +86,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("identifier-123-suffix");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("identifier-123");
@@ -100,7 +100,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("test-id-123-456");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("test_id_123_456");
@@ -114,7 +114,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("identifier-123");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("identifier-123");
@@ -128,7 +128,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("doi.org.10.1234");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("doi-org-10-1234");
@@ -142,7 +142,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("article-2023-12-25-test");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("article-25/12/2023-test");
@@ -156,7 +156,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("");
@@ -170,7 +170,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("https://doi.org/10.1234/test");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("doi:10.1234/test");
@@ -184,7 +184,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("test-identifier");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
     }
@@ -211,7 +211,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("article-título-123");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("article-title-123");
@@ -225,7 +225,7 @@ class IdentifierRegexRuleTest {
         
         when(record.getIdentifier()).thenReturn("test identifier with spaces");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(record).setIdentifier("testidentifierwithspaces");

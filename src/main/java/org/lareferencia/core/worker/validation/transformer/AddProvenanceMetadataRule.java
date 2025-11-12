@@ -28,11 +28,10 @@ import java.util.Map;
 
 import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.domain.IOAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
 import org.lareferencia.core.worker.validation.ValidationException;
-import org.apache.commons.beanutils.BeanUtils;
 
 /**
  * Transformation rule that adds provenance metadata to records.
@@ -162,17 +161,17 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 	}
 
 	@Override
-	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
+	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
 
 		// LAReferenciaNetworkAttributes attributes = (LAReferenciaNetworkAttributes)
-		// context.getNetwork().getAttributes();
+		// snapshotMetadata.getNetwork().getAttributes();
 		
 		metadata.removeFieldOcurrence(repoNameField);
 		metadata.removeFieldOcurrence(contactEmailField);
 		metadata.removeFieldOcurrence(oaiIdentifierField);
 
 		try {
-			Network network = context.getNetwork();
+			Network network = snapshotMetadata.getNetwork();
 			// AbstractNetworkAttributes attributes = network.getAttributes();
 			Map<String, Object> attributes = network.getAttributes();
 
@@ -200,8 +199,8 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 
 			metadata.addFieldOcurrence(repoIdField, idWithPrefix);
 			metadata.addFieldOcurrence(harvestDateField, record.getDatestamp().toString());
-			metadata.addFieldOcurrence(repoNameField, "" + context.getNetwork().getName() + " - "
-				+ context.getNetwork().getInstitutionName());
+			metadata.addFieldOcurrence(repoNameField, "" + snapshotMetadata.getNetwork().getName() + " - "
+				+ snapshotMetadata.getNetwork().getInstitutionName());
 			// TODO: transformed status not available in IOAIRecord - need to get from validation stats
 			// metadata.addFieldOcurrence(statusField, "" + record.getTransformed());
 		} catch (Exception e) {

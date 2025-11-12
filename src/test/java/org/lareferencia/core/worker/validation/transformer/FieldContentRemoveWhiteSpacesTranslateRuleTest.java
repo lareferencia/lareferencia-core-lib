@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.core.domain.OAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -26,7 +26,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
 
 
     @Mock
-    private NetworkRunningContext context;
+    private SnapshotMetadata snapshotMetadata;
     @Mock
     private OAIRecord record;
 
@@ -55,7 +55,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node = createMockNodeWithMutableValue("123 456 789");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node.getFirstChild()).setNodeValue("123456789");
@@ -67,7 +67,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node = createMockNodeWithMutableValue("test\t\tvalue");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node.getFirstChild()).setNodeValue("testvalue");
@@ -79,7 +79,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node = createMockNodeWithMutableValue("line1\nline2\nline3");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node.getFirstChild()).setNodeValue("line1line2line3");
@@ -91,7 +91,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node = createMockNodeWithMutableValue("testvalue");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(node.getFirstChild()).setNodeValue("testvalue");
@@ -103,7 +103,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node = createMockNodeWithMutableValue("  value  ");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node.getFirstChild()).setNodeValue("value");
@@ -115,7 +115,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node = createMockNodeWithMutableValue("a     b     c");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node.getFirstChild()).setNodeValue("abc");
@@ -126,7 +126,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
     void testEmptyFieldList() {
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
     }
@@ -138,7 +138,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node2 = createMockNodeWithMutableValue("test 2");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node1.getFirstChild()).setNodeValue("test1");
@@ -151,7 +151,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node = createMockNodeWithMutableValue("a b\tc\nd\re\u000Bf");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node.getFirstChild()).setNodeValue("abcdef");
@@ -163,7 +163,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node = createMockNodeWithMutableValue("   \t\n   ");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node.getFirstChild()).setNodeValue("");
@@ -193,7 +193,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         Node node2 = createMockNodeWithMutableValue("has whitespace");
         when(metadata.getFieldNodes("dc.identifier")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(node1.getFirstChild()).setNodeValue("nowhitespace");

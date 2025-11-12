@@ -24,7 +24,7 @@ import java.util.List;
 
 import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 
 /**
  * Interface for metadata transformers.
@@ -54,10 +54,11 @@ public interface ITransformer {
 	/**
 	 * Transforms the OAI record.
 	 * 
+	 * @param snapshotMetadata the snapshot metadata context
 	 * @param record the OAI record to transform
 	 * @param metadata the record metadata
 	 * @return true if any transformation was applied, false otherwise
 	 * @throws ValidationException if transformation fails
 	 */
-	public boolean transform(NetworkRunningContext networkContext, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
+	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 }

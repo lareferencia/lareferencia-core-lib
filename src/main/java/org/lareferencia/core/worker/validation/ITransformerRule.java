@@ -22,7 +22,7 @@ package org.lareferencia.core.worker.validation;
 
 import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 
 /**
  * Interface for metadata transformation rules.
@@ -45,7 +45,7 @@ public interface ITransformerRule {
 	 * @return true if a transformation was applied, false otherwise
 	 * @throws ValidationException if an error occurs during transformation
 	 */
-	abstract boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
+	abstract boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 	
 	/**
 	 * Gets the unique identifier of this rule.

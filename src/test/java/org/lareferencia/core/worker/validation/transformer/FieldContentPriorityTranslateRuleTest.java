@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.core.domain.OAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.Translation;
 import org.mockito.Mock;
@@ -28,7 +28,7 @@ class FieldContentPriorityTranslateRuleTest {
 
 
     @Mock
-    private NetworkRunningContext context;
+    private SnapshotMetadata snapshotMetadata;
     @Mock
     private OAIRecord record;
 
@@ -68,7 +68,7 @@ class FieldContentPriorityTranslateRuleTest {
         
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         // Should process article first (first translation in array), then stop because replaceAllMatchingOccurrences=false
@@ -90,7 +90,7 @@ class FieldContentPriorityTranslateRuleTest {
         
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(1)).addFieldOcurrence("dc.type", "Article");
@@ -110,7 +110,7 @@ class FieldContentPriorityTranslateRuleTest {
         
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata, times(1)).addFieldOcurrence("dc.type", "Article");
@@ -128,7 +128,7 @@ class FieldContentPriorityTranslateRuleTest {
         Node node = createMockNode("article-journal");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "Article");
@@ -146,7 +146,7 @@ class FieldContentPriorityTranslateRuleTest {
         Node node = createMockNode("article");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -164,7 +164,7 @@ class FieldContentPriorityTranslateRuleTest {
         Node node = createMockNode("article");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node);
@@ -183,7 +183,7 @@ class FieldContentPriorityTranslateRuleTest {
         Node node = createMockNode("article");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node);
@@ -203,7 +203,7 @@ class FieldContentPriorityTranslateRuleTest {
         
         when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -217,7 +217,7 @@ class FieldContentPriorityTranslateRuleTest {
         Node node = createMockNode("article");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -233,7 +233,7 @@ class FieldContentPriorityTranslateRuleTest {
 
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
@@ -285,7 +285,7 @@ class FieldContentPriorityTranslateRuleTest {
         Node node = createMockNode("artículo");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata).addFieldOcurrence("dc.type", "Article");

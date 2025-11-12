@@ -25,7 +25,7 @@ import lombok.Setter;
 
 import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -75,6 +75,6 @@ public abstract class AbstractTransformerRule implements ITransformerRule {
 	 * @return true if a transformation was applied, false otherwise
 	 * @throws ValidationException if an error occurs during transformation
 	 */
-	public abstract boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
+	public abstract boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException;
 	
 }

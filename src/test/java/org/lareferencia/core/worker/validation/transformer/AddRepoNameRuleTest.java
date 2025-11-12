@@ -7,7 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.domain.NetworkSnapshot;
 import org.lareferencia.core.domain.OAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -27,7 +27,7 @@ class AddRepoNameRuleTest {
 
 
     @Mock
-    private NetworkRunningContext context;
+    private SnapshotMetadata snapshotMetadata;
     @Mock
     private OAIRecord record;
 
@@ -46,7 +46,7 @@ class AddRepoNameRuleTest {
     void setUp() {
         rule = new AddRepoNameRule();
         
-        lenient().when(context.getNetwork()).thenReturn(network);
+        lenient().when(snapshotMetadata.getNetwork()).thenReturn(network);
         lenient().when(record.getSnapshot()).thenReturn(snapshot);
         lenient().when(snapshot.getNetwork()).thenReturn(network);
     }
@@ -60,7 +60,7 @@ class AddRepoNameRuleTest {
         
         when(network.getName()).thenReturn("TestRepository");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         // RepositoryNameHelper.appendNameToMetadata is called internally
@@ -78,7 +78,7 @@ class AddRepoNameRuleTest {
         when(network.getInstitutionName()).thenReturn("Test University");
         when(network.getInstitutionAcronym()).thenReturn("TU");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
     }
@@ -96,7 +96,7 @@ class AddRepoNameRuleTest {
         when(network.getInstitutionName()).thenReturn("Test Institution");
         when(network.getInstitutionAcronym()).thenReturn("TI");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
     }
@@ -107,7 +107,7 @@ class AddRepoNameRuleTest {
         rule.setDoRepoNameAppend(false);
         rule.setDoInstNameAppend(false);
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
     }
@@ -121,7 +121,7 @@ class AddRepoNameRuleTest {
         
         when(network.getName()).thenReturn("CustomRepo");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         assertEquals("repository:", rule.getRepoNamePrefix());
@@ -139,7 +139,7 @@ class AddRepoNameRuleTest {
         when(network.getInstitutionName()).thenReturn("Custom University");
         when(network.getInstitutionAcronym()).thenReturn("CU");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         assertEquals("institution:", rule.getInstNamePrefix());
@@ -243,7 +243,7 @@ class AddRepoNameRuleTest {
         
         when(network.getName()).thenReturn("Repositório Científico");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
     }
@@ -258,7 +258,7 @@ class AddRepoNameRuleTest {
         when(network.getInstitutionName()).thenReturn("Universität München");
         when(network.getInstitutionAcronym()).thenReturn("UM");
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
     }

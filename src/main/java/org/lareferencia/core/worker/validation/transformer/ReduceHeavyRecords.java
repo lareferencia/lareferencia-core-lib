@@ -23,7 +23,7 @@ package org.lareferencia.core.worker.validation.transformer;
 import java.util.List;
 
 import org.lareferencia.core.domain.IOAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
 import org.w3c.dom.Document;
@@ -72,7 +72,7 @@ public class ReduceHeavyRecords extends AbstractTransformerRule {
 	 * @return true if any fields were removed, false otherwise
 	 */
 	@Override
-	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 		
 		boolean wasTransformed = false;
 				

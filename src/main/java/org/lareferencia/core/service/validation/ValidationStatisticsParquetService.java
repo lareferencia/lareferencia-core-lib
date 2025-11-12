@@ -20,7 +20,6 @@
 
 package org.lareferencia.core.service.validation;
 
-import org.apache.jena.sparql.function.library.e;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.domain.IOAIRecord;
@@ -40,7 +39,6 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-import com.codahale.metrics.Snapshot;
 
 import java.io.IOException;
 import java.time.LocalDateTime;

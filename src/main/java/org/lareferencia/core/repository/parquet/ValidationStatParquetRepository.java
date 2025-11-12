@@ -34,12 +34,8 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.thirdparty.org.checkerframework.checker.units.qual.s;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.lareferencia.core.repository.parquet.RecordValidation;
-import org.lareferencia.core.repository.parquet.RuleFact;
-import org.lareferencia.core.repository.parquet.SnapshotValidationStats;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.metadata.SnapshotMetadata;
@@ -175,7 +171,7 @@ public class ValidationStatParquetRepository {
             // create Snapshot Validation Stats
             SnapshotValidationStats snapshotStats = new SnapshotValidationStats(snapshotMetadata);
             
-            // Escribir metadata usando basePath original (NO snapshotDir)
+            // Escribir metadata usando basePath original 
             SnapshotMetadataManager.writeValidationStats(basePath, snapshotStats);
             snapshotStatsCache.put(snapshotId, snapshotStats);
 

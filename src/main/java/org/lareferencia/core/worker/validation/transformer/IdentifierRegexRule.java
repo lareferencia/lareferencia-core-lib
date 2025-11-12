@@ -24,7 +24,7 @@ package org.lareferencia.core.worker.validation.transformer;
 import lombok.Getter;
 import lombok.Setter;
 import org.lareferencia.core.domain.IOAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
 import org.w3c.dom.Node;
@@ -84,7 +84,7 @@ public class IdentifierRegexRule extends AbstractTransformerRule {
 	 * @return true always, as transformation is always applied
 	 */
 	@Override
-	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		// set the new identifier value as the result of the regex replace
 		record.setIdentifier( record.getIdentifier().replaceAll(regexSearch, regexReplace) );

@@ -26,7 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -41,7 +41,7 @@ class AbstractTransformerRuleTest {
         private boolean shouldReturnTrue = false;
 
         @Override
-        public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
+        public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
             transformCalled = true;
             return shouldReturnTrue;
         }

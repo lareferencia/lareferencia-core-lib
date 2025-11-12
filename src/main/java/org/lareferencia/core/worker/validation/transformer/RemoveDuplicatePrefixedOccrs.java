@@ -25,7 +25,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import org.lareferencia.core.domain.IOAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.RepositoryNameHelper;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
@@ -67,7 +67,7 @@ public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 	 * @return true if any duplicates were removed, false otherwise
 	 */
 	@Override
-	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 		return RepositoryNameHelper.removeDuplicates(metadata, fieldName, prefix);
 	}
 

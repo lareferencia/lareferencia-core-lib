@@ -27,12 +27,8 @@ import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.domain.IOAIRecord;
-import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.lareferencia.core.worker.validation.ITransformer;
-import org.lareferencia.core.worker.validation.ITransformerRule;
-import org.lareferencia.core.worker.validation.ValidationException;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.springframework.stereotype.Component;
 
 import lombok.Getter;
@@ -71,7 +67,7 @@ public class TransformerImpl implements ITransformer {
 	 * @throws ValidationException if an error occurs during rule execution
 	 */
 	@Override
-	public boolean transform(NetworkRunningContext networkContext, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
+	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) throws ValidationException {
 
 		boolean anyTransformationOccurred = false;
 
@@ -79,7 +75,7 @@ public class TransformerImpl implements ITransformer {
 
 			try {
 				logger.debug( "RecordID: " + record.getId() + "oai_id:" + record.getIdentifier() +  " rule::" + rule.getRuleId() + "::" + rule.getClass().getName() );
-				anyTransformationOccurred |= rule.transform(networkContext,record, metadata);
+				anyTransformationOccurred |= rule.transform(snapshotMetadata,record, metadata);
 				
 			} catch (Exception | Error e) {
 				logger.debug( e + e.getMessage() + "RecordID: " + record.getId() + "oai_id:" + record.getIdentifier() +  " rule"  + rule.getClass().getName()  );

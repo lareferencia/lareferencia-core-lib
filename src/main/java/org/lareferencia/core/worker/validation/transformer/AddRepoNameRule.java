@@ -25,7 +25,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import org.lareferencia.core.domain.IOAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.RepositoryNameHelper;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
@@ -91,19 +91,19 @@ public class AddRepoNameRule extends AbstractTransformerRule {
 	}
 
 	@Override
-	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		// Se carga el helper para la resolución de nombre de repositorios
 		repositoryNameHelper = new RepositoryNameHelper();
 
 		// Si está configurado agrega a la metadata el reponame y el instname
 		if (doRepoNameAppend) {
-			repositoryNameHelper.appendNameToMetadata(metadata, repoNameField, repoNamePrefix, context.getNetwork().getName(), doRepoNameReplace);
+			repositoryNameHelper.appendNameToMetadata(metadata, repoNameField, repoNamePrefix, snapshotMetadata.getNetwork().getName(), doRepoNameReplace);
 		}
 
 		if (doInstNameAppend) {
-			repositoryNameHelper.appendNameToMetadata(metadata, instNameField,  instNamePrefix, context.getNetwork().getInstitutionName(), doInstNameReplace);
-			repositoryNameHelper.appendNameToMetadata(metadata, instAcronField, instAcronPrefix, context.getNetwork().getInstitutionAcronym(), doInstNameReplace);
+			repositoryNameHelper.appendNameToMetadata(metadata, instNameField,  instNamePrefix, snapshotMetadata.getNetwork().getInstitutionName(), doInstNameReplace);
+			repositoryNameHelper.appendNameToMetadata(metadata, instAcronField, instAcronPrefix, snapshotMetadata.getNetwork().getInstitutionAcronym(), doInstNameReplace);
 
 		}
 

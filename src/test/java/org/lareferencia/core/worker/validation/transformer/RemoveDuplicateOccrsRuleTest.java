@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.core.domain.OAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -26,7 +26,7 @@ class RemoveDuplicateOccrsRuleTest {
 
 
     @Mock
-    private NetworkRunningContext context;
+    private SnapshotMetadata snapshotMetadata;
     @Mock
     private OAIRecord record;
 
@@ -58,7 +58,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node2);
@@ -75,7 +75,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -92,7 +92,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -103,7 +103,7 @@ class RemoveDuplicateOccrsRuleTest {
     void testEmptyFieldList() {
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.emptyList());
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -115,7 +115,7 @@ class RemoveDuplicateOccrsRuleTest {
         Node node = createMockNode("Single Subject");
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.singletonList(node));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -129,7 +129,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -143,7 +143,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
         verify(metadata, never()).removeNode(any());
@@ -160,7 +160,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3, node4, node5));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -179,7 +179,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2, node3));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -195,7 +195,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata, never()).removeNode(node1);
@@ -217,7 +217,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node2);
@@ -232,7 +232,7 @@ class RemoveDuplicateOccrsRuleTest {
         
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(node1, node2));
 
-        boolean result = rule.transform(context, record, metadata);
+        boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
         verify(metadata).removeNode(node2);

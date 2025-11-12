@@ -21,22 +21,17 @@
 package org.lareferencia.core.worker.validation.transformer;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 import lombok.Getter;
 import lombok.Setter;
 
-import org.lareferencia.core.worker.validation.validator.FieldExpressionEvaluator;
 import org.lareferencia.core.domain.IOAIRecord;
-import org.lareferencia.core.worker.NetworkRunningContext;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
-import org.lareferencia.core.worker.validation.QuantifierValues;
 import org.w3c.dom.Node;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -68,7 +63,7 @@ public class RemoveEmptyOccrsRule extends AbstractTransformerRule {
 	 * @return true if any empty occurrences were removed, false otherwise
 	 */
 	@Override
-	public boolean transform(NetworkRunningContext context, IOAIRecord record, OAIRecordMetadata metadata) {
+	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		boolean wasTransformed = false;
 		
