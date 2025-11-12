@@ -32,10 +32,10 @@ import java.util.zip.GZIPOutputStream;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.lareferencia.core.util.PathUtils;
 import org.lareferencia.core.util.hashing.IHashingHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 
@@ -44,18 +44,21 @@ import jakarta.annotation.PostConstruct;
  * 
  * ARCHITECTURE:
  * - Stores each metadata record as a compressed XML file
- * - Structure: /base-path/{L1}/{L2}/{L3}/{HASH}.xml.gz
+ * - Structure: /base-path/{NETWORK}/metadata/{L1}/{L2}/{L3}/{HASH}.xml.gz
+ * - Network-aware: Organizes by sanitized network acronym
  * - 3-level partitioning based on first 3 characters of hash
  * - Filename is the complete hash
  * 
  * EXAMPLE:
+ * Network: "LA Referencia" → "LA_REFERENCIA"
  * Hash: ABCDEF123456789
- * Path: /base-path/A/B/C/ABCDEF123456789.xml.gz
+ * Path: /base-path/LA_REFERENCIA/metadata/A/B/C/ABCDEF123456789.xml.gz
  * 
  * PARTITIONING:
- * - 3 levels of 1 character each (16^3 = 4,096 partitions)
- * - With 10M files: ~2,440 files per partition
- * - With 100M files: ~24,414 files per partition
+ * - Network level: Isolates data by network
+ * - Hash partitioning: 3 levels of 1 character each (16^3 = 4,096 partitions)
+ * - With 10M files per network: ~2,440 files per partition
+ * - With 100M files per network: ~24,414 files per partition
  * 
  * BENEFITS:
  * - Extremely simple (~150 lines of code)
@@ -65,8 +68,8 @@ import jakarta.annotation.PostConstruct;
  * - Easy debugging (can decompress and read any file manually)
  * - Compression: ~70-80% space savings with gzip
  * - Direct lookup by hash (no scanning needed)
+ * - Network isolation for multi-tenant scenarios
  */
-@Component("metadataStoreFS")
 public class MetadataStoreFSImpl implements IMetadataStore {
 
     private static final Logger logger = LogManager.getLogger(MetadataStoreFSImpl.class);
@@ -80,7 +83,7 @@ public class MetadataStoreFSImpl implements IMetadataStore {
 		// Default constructor
 	}
 
-    @Value("${metadata.store.fs.basepath:/tmp/metadata-store}")
+    @Value("${store.basepath:/tmp/data}")
     private String basePath;
 
     @Autowired
@@ -127,14 +130,26 @@ public class MetadataStoreFSImpl implements IMetadataStore {
     }
 
     /**
-     * Gets the file path for a given hash
+     * Gets the network-aware base path for metadata storage
      * 
+     * @param snapshotMetadata SnapshotMetadata containing network information
+     * @return Base path for the network's metadata
+     */
+    private String getNetworkBasePath(SnapshotMetadata snapshotMetadata) {
+        return PathUtils.getMetadataStorePath(basePath, snapshotMetadata);
+    }
+
+    /**
+     * Gets the file path for a given hash and network
+     * 
+     * @param snapshotMetadata SnapshotMetadata containing network information
      * @param hash The hash
      * @return File path
      */
-    private File getFileForHash(String hash) {
+    private File getFileForHash(SnapshotMetadata snapshotMetadata, String hash) {
+        String networkBasePath = getNetworkBasePath(snapshotMetadata);
         String partitionPath = getPartitionPath(hash);
-        File partitionDir = new File(basePath, partitionPath);
+        File partitionDir = new File(networkBasePath, partitionPath);
         return new File(partitionDir, hash + FILE_EXTENSION);
     }
 
@@ -179,13 +194,13 @@ public class MetadataStoreFSImpl implements IMetadataStore {
     }
 
     @Override
-    public String storeAndReturnHash(String metadata) {
+    public String storeAndReturnHash(SnapshotMetadata snapshotMetadata, String metadata) {
         try {
             // Calculate hash
             String hash = hashing.calculateHash(metadata);
             
-            // Get file path
-            File file = getFileForHash(hash);
+            // Get file path using SnapshotMetadata
+            File file = getFileForHash(snapshotMetadata, hash);
             
             // Only write if file doesn't exist (deduplication)
             if (!file.exists()) {
@@ -193,9 +208,13 @@ public class MetadataStoreFSImpl implements IMetadataStore {
                 writeCompressed(file, metadata);
                 long duration = System.currentTimeMillis() - startTime;
                 
-                logger.debug("Stored metadata with hash {} in {}ms", hash, duration);
+                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetworkAcronym() : "UNKNOWN";
+                logger.debug("Stored metadata with hash {} in {}ms (network: {})", 
+                    hash, duration, networkAcronym);
             } else {
-                logger.debug("Metadata with hash {} already exists, skipping", hash);
+                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetworkAcronym() : "UNKNOWN";
+                logger.debug("Metadata with hash {} already exists, skipping (network: {})", 
+                    hash, networkAcronym);
             }
             
             return hash;
@@ -207,19 +226,23 @@ public class MetadataStoreFSImpl implements IMetadataStore {
     }
 
     @Override
-    public String getMetadata(String hash) throws MetadataRecordStoreException {
+    public String getMetadata(SnapshotMetadata snapshotMetadata, String hash) throws MetadataRecordStoreException {
         try {
-            File file = getFileForHash(hash);
+            File file = getFileForHash(snapshotMetadata, hash);
+            
+            String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetworkAcronym() : "UNKNOWN";
             
             if (!file.exists()) {
-                throw new MetadataRecordStoreException("Metadata not found for hash: " + hash);
+                throw new MetadataRecordStoreException("Metadata not found for hash: " + hash + 
+                    " (network: " + networkAcronym + ")");
             }
             
             long startTime = System.currentTimeMillis();
             String metadata = readCompressed(file);
             long duration = System.currentTimeMillis() - startTime;
             
-            logger.debug("Retrieved metadata with hash {} in {}ms", hash, duration);
+            logger.debug("Retrieved metadata with hash {} in {}ms (network: {})", 
+                hash, duration, networkAcronym);
             
             return metadata;
             

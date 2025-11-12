@@ -37,6 +37,14 @@ public class WorkerRuntimeException extends Exception {
 		super(msg);
 	}
 	
-	
+	/**
+	 * Constructs a new WorkerRuntimeException with the specified detail message and cause.
+	 *
+	 * @param msg the detail message explaining the error
+	 * @param cause the cause of the error
+	 */
+	public WorkerRuntimeException(String msg, Throwable cause) {
+		super(msg, cause);
+	}
 
 }

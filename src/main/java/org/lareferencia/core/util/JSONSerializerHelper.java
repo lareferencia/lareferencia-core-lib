@@ -23,7 +23,7 @@ package org.lareferencia.core.util;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.lareferencia.backend.domain.Validator;
+import org.lareferencia.core.domain.Validator;
 
 import java.io.File;
 import java.io.IOException;

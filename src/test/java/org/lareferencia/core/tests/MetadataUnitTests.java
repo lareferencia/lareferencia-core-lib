@@ -27,7 +27,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.lareferencia.backend.domain.OAIRecord;
+import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.Profiler;
 import org.springframework.boot.test.context.SpringBootTest;

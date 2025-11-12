@@ -44,11 +44,17 @@ class MetadataStoreFSImplTest {
 
     private MetadataStoreFSImpl store;
     private MockHashingHelper hashingHelper;
+    private SnapshotMetadata testSnapshotMetadata;
 
     @BeforeEach
     void setUp() {
         store = new MetadataStoreFSImpl();
         hashingHelper = new MockHashingHelper();
+        
+        // Create test snapshot metadata
+        testSnapshotMetadata = new SnapshotMetadata();
+        testSnapshotMetadata.setSnapshotId(1L);
+        testSnapshotMetadata.setNetworkAcronym("TEST");
         
         // Set the base path to temp directory
         ReflectionTestUtils.setField(store, "basePath", tempDir.toString());
@@ -61,6 +67,17 @@ class MetadataStoreFSImplTest {
     @AfterEach
     void tearDown() {
         // Cleanup is automatic with @TempDir
+    }
+
+    // Helper method to build correct file path
+    private File getExpectedFilePath(String hash) {
+        String networkAcronym = testSnapshotMetadata.getNetworkAcronym();
+        String sanitizedNetwork = networkAcronym != null ? networkAcronym.toUpperCase() : "UNKNOWN";
+        return new File(tempDir.toFile(), sanitizedNetwork + "/metadata/" + 
+                       hash.substring(0, 1) + "/" + 
+                       hash.substring(1, 2) + "/" + 
+                       hash.substring(2, 3) + "/" + 
+                       hash + ".xml.gz");
     }
 
     // Init tests
@@ -102,12 +119,12 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("ABC123456789");
 
-        String hash = store.storeAndReturnHash(metadata);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         assertEquals("ABC123456789", hash);
         
         // Verify file was created
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         assertTrue(file.exists());
     }
 
@@ -117,12 +134,13 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("XYZ987654321");
 
-        store.storeAndReturnHash(metadata);
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         // Verify partition directories were created
-        assertTrue(Files.exists(tempDir.resolve("X")));
-        assertTrue(Files.exists(tempDir.resolve("X/Y")));
-        assertTrue(Files.exists(tempDir.resolve("X/Y/Z")));
+        File expectedFile = getExpectedFilePath("XYZ987654321");
+        assertTrue(expectedFile.getParentFile().exists(), "Partition directory X/Y/Z should exist");
+        assertTrue(expectedFile.getParentFile().getParentFile().exists(), "Partition directory X/Y should exist");
+        assertTrue(expectedFile.getParentFile().getParentFile().getParentFile().exists(), "Partition directory X should exist");
     }
 
     @Test
@@ -131,9 +149,9 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test Document with lots of content that should compress well</title></record>";
         hashingHelper.setNextHash("ABC123456789");
 
-        store.storeAndReturnHash(metadata);
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         
         // Read compressed content and verify it's correct
         String decompressed = decompressFile(file);
@@ -151,9 +169,9 @@ class MetadataStoreFSImplTest {
         hashingHelper.setNextHash("ABC123456789");
 
         // Store first time
-        String hash1 = store.storeAndReturnHash(metadata);
+        String hash1 = store.storeAndReturnHash(testSnapshotMetadata, metadata);
         
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         long modifiedTime1 = file.lastModified();
         long size1 = file.length();
 
@@ -161,7 +179,7 @@ class MetadataStoreFSImplTest {
         try { Thread.sleep(10); } catch (InterruptedException e) {}
 
         // Store second time with same hash
-        String hash2 = store.storeAndReturnHash(metadata);
+        String hash2 = store.storeAndReturnHash(testSnapshotMetadata, metadata);
         
         long modifiedTime2 = file.lastModified();
         long size2 = file.length();
@@ -178,15 +196,15 @@ class MetadataStoreFSImplTest {
         String metadata2 = "<record><title>Second</title></record>";
         
         hashingHelper.setNextHash("ABC111111111");
-        String hash1 = store.storeAndReturnHash(metadata1);
+        String hash1 = store.storeAndReturnHash(testSnapshotMetadata, metadata1);
         
         hashingHelper.setNextHash("XYZ999999999");
-        String hash2 = store.storeAndReturnHash(metadata2);
+        String hash2 = store.storeAndReturnHash(testSnapshotMetadata, metadata2);
 
         assertNotEquals(hash1, hash2);
         
-        File file1 = new File(tempDir.toFile(), "A/B/C/ABC111111111.xml.gz");
-        File file2 = new File(tempDir.toFile(), "X/Y/Z/XYZ999999999.xml.gz");
+        File file1 = getExpectedFilePath("ABC111111111");
+        File file2 = getExpectedFilePath("XYZ999999999");
         
         assertTrue(file1.exists());
         assertTrue(file2.exists());
@@ -198,10 +216,10 @@ class MetadataStoreFSImplTest {
         String metadata = "";
         hashingHelper.setNextHash("ABC123456789");
 
-        String hash = store.storeAndReturnHash(metadata);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         assertEquals("ABC123456789", hash);
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         assertTrue(file.exists());
     }
 
@@ -219,10 +237,10 @@ class MetadataStoreFSImplTest {
         
         hashingHelper.setNextHash("ABC123456789");
 
-        String hash = store.storeAndReturnHash(metadata);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         assertEquals("ABC123456789", hash);
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         assertTrue(file.exists());
         
         // Verify significant compression
@@ -240,8 +258,8 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("ABC123456789");
         
-        store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata("ABC123456789");
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, "ABC123456789");
 
         assertEquals(metadata, retrieved);
     }
@@ -251,7 +269,7 @@ class MetadataStoreFSImplTest {
     void testGetMetadataNonExistent() {
         MetadataRecordStoreException exception = assertThrows(
             MetadataRecordStoreException.class,
-            () -> store.getMetadata("NONEXISTENT123")
+            () -> store.getMetadata(testSnapshotMetadata, "NONEXISTENT123")
         );
         assertTrue(exception.getMessage().contains("Metadata not found for hash"));
         assertTrue(exception.getMessage().contains("NONEXISTENT123"));
@@ -263,8 +281,8 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test with special chars: é ñ ü</title></record>";
         hashingHelper.setNextHash("ABC123456789");
         
-        store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata("ABC123456789");
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, "ABC123456789");
 
         assertEquals(metadata, retrieved);
     }
@@ -275,8 +293,8 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test with 中文 and Ελληνικά and العربية</title></record>";
         hashingHelper.setNextHash("ABC123456789");
         
-        store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata("ABC123456789");
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, "ABC123456789");
 
         assertEquals(metadata, retrieved);
     }
@@ -294,8 +312,8 @@ class MetadataStoreFSImplTest {
         
         hashingHelper.setNextHash("ABC123456789");
         
-        store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata("ABC123456789");
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, "ABC123456789");
 
         assertEquals(metadata, retrieved);
     }
@@ -321,13 +339,13 @@ class MetadataStoreFSImplTest {
     void testCleanAndOptimizeStoreWithFiles() {
         // Store some files
         hashingHelper.setNextHash("ABC111111111");
-        store.storeAndReturnHash("<record>1</record>");
+        store.storeAndReturnHash(testSnapshotMetadata, "<record>1</record>");
         
         hashingHelper.setNextHash("ABC222222222");
-        store.storeAndReturnHash("<record>2</record>");
+        store.storeAndReturnHash(testSnapshotMetadata, "<record>2</record>");
         
         hashingHelper.setNextHash("XYZ333333333");
-        store.storeAndReturnHash("<record>3</record>");
+        store.storeAndReturnHash(testSnapshotMetadata, "<record>3</record>");
 
         Boolean result = store.cleanAndOptimizeStore();
         assertTrue(result);
@@ -339,7 +357,7 @@ class MetadataStoreFSImplTest {
     @DisplayName("getMetadata should handle hash with less than 3 characters")
     void testGetMetadataShortHash() {
         // This should fail because hash is too short for partitioning
-        assertThrows(Exception.class, () -> store.getMetadata("AB"));
+        assertThrows(Exception.class, () -> store.getMetadata(testSnapshotMetadata, "AB"));
     }
 
     @Test
@@ -348,10 +366,10 @@ class MetadataStoreFSImplTest {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("abc123456789");
 
-        store.storeAndReturnHash(metadata);
+        store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         // Hash should be stored, and partition path should use uppercase
-        File file = new File(tempDir.toFile(), "A/B/C/abc123456789.xml.gz");
+        File file = getExpectedFilePath("abc123456789");
         assertTrue(file.exists());
     }
 
@@ -367,8 +385,8 @@ class MetadataStoreFSImplTest {
         
         hashingHelper.setNextHash("ABC123456789");
         
-        String hash = store.storeAndReturnHash(metadata);
-        String retrieved = store.getMetadata(hash);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String retrieved = store.getMetadata(testSnapshotMetadata, hash);
 
         assertEquals(metadata, retrieved, "Roundtrip should preserve content exactly");
     }

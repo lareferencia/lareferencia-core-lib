@@ -20,8 +20,11 @@
 
 package org.lareferencia.core.util;
 
-import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.validation.ValidationStatObservation;
+import org.lareferencia.core.domain.IOAIRecord;
+import org.lareferencia.core.service.validation.ValidationStatObservation;
+import org.lareferencia.core.metadata.SnapshotMetadata;
+
+import com.codahale.metrics.Snapshot;
 
 /**
  * Interface for generating unique fingerprints and statistics IDs from records.
@@ -36,7 +39,7 @@ public interface IRecordFingerprintHelper {
 	 * @param record the OAI record
 	 * @return the fingerprint string
 	 */
-	public String getFingerprint(OAIRecord record);
+	public String getFingerprint(IOAIRecord record, SnapshotMetadata snapshotMetadata);
 
 	/**
 	 * Gets the fingerprint for a validation observation.
@@ -46,13 +49,15 @@ public interface IRecordFingerprintHelper {
 	 */
 	public String getFingerprint(ValidationStatObservation observation);
 
+	
+
 	/**
 	 * Gets the statistics ID from an OAI record.
 	 * 
 	 * @param record the OAI record
 	 * @return the stats ID string
 	 */
-	public String getStatsIDfromRecord(OAIRecord record);
+	public String getStatsIDfromRecord(IOAIRecord record, SnapshotMetadata snapshotMetadata);
 	
 	/**
 	 * Gets the statistics ID from a validation observation.

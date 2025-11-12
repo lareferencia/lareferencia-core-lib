@@ -32,11 +32,11 @@ import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.validation.transformer.FieldContentTranslateRule;
+import org.lareferencia.core.domain.OAIRecord;
+import org.lareferencia.core.worker.validation.transformer.FieldContentTranslateRule;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.Profiler;
-import org.lareferencia.core.validation.Translation;
+import org.lareferencia.core.worker.validation.Translation;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.junit4.SpringRunner;
@@ -69,7 +69,7 @@ public class MetadataTransformersUnitTests {
     	trfTranslate.setTestFieldName("dc.rights.*");
     	trfTranslate.setWriteFieldName("dc.rights.none");
     	
-    	trfTranslate.transform(null, metadata);
+    	trfTranslate.transform(null, null, metadata);
     	
     	System.out.println(  metadata.getFieldOcurrences("dc.rights.*") );
     	assertTrue( metadata.getFieldOcurrences("dc.rights.*").contains("openAccess") );
@@ -95,7 +95,7 @@ public class MetadataTransformersUnitTests {
     	trfTranslate.setTestFieldName("dc.rights.*");
     	trfTranslate.setWriteFieldName("dc.rights.none");
     	
-    	trfTranslate.transform(null, metadata);
+    	trfTranslate.transform(null, null, metadata);
     	
     	System.out.println(  metadata.getFieldOcurrences("dc.rights.*") );
     	assertTrue( metadata.getFieldOcurrences("dc.rights.*").contains("openAccess") );

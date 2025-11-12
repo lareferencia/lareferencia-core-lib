@@ -12,23 +12,44 @@ The fact table implementation completely replaces the previous architecture base
 validation.stats.parquet.path=/tmp/validation-stats-parquet
 ```
 
-**Description**: Base directory where partitioned Parquet files are stored.
+**Description**: Base directory where partitioned Parquet files and metadata are stored, organized by network.
 
-**Directory Structure**:
+**Directory Structure** (updated to organize by network):
 ```
 /tmp/validation-stats-parquet/
-├── snapshot_id=8/
-│   ├── network=test/
-│   │   ├── is_valid=true/
-│   │   │   └── part-00000.parquet
-│   │   └── is_valid=false/
-│   │       └── part-00000.parquet
+├── LA_REFERENCIA/                    # Network-level directory (sanitized acronym)
+│   ├── metadata/                     # Metadata XML files for this network
+│   │   ├── 0/
+│   │   │   └── abc123def456.xml.gz
+│   │   └── 1/
+│   │       └── xyz789uvw012.xml.gz
+│   └── snapshots/                    # Snapshot-specific data
+│       ├── snapshot_8/
+│       │   ├── metadata.json         # Snapshot metadata
+│       │   ├── validation_stats.json # Validation statistics
+│       │   ├── oai_records/          # OAI catalog records
+│       │   │   └── records.parquet
+│       │   └── validation_records/   # Validation fact table
+│       │       ├── part-00000.parquet
+│       │       └── part-00001.parquet
+│       └── snapshot_9/
+│           └── ...
+└── OTHER_NETWORK/
+    ├── metadata/
+    └── snapshots/
 ```
+
+**Key Changes**:
+- **Network isolation**: Each network has its own top-level directory
+- **Network acronym sanitization**: Spaces and special characters are converted (e.g., "LA Referencia" → "LA_REFERENCIA")
+- **Metadata centralization**: XML metadata files are stored under `{NETWORK}/metadata/`
+- **Snapshot organization**: All snapshot data is under `{NETWORK}/snapshots/snapshot_{id}/`
 
 **Recommendations**:
 - In production, use a distributed file system (HDFS, S3, Azure Blob)
 - Ensure sufficient disk space
 - Configure appropriate read/write permissions
+- Network acronyms are automatically sanitized to uppercase alphanumeric + underscore/hyphen only
 
 ---
 
@@ -183,23 +204,40 @@ logging.level.org.lareferencia.backend.validation=DEBUG
 
 ### Partitioning
 
-**Strategy**: Hierarchical partitioning by 3 levels
+**Strategy**: Network-based directory structure with file-based organization
 
+**Directory Organization**:
 ```
-snapshot_id={id}/network={acronym}/is_valid={true|false}
+{basePath}/
+└── {NETWORK_ACRONYM}/              # Top-level: sanitized network acronym
+    ├── metadata/                    # XML metadata for this network
+    │   └── {hash_prefix}/
+    │       └── {hash}.xml.gz
+    └── snapshots/
+        └── snapshot_{id}/           # Snapshot-specific data
+            ├── metadata.json        # Snapshot metadata
+            ├── validation_stats.json # Validation statistics summary
+            ├── oai_records/         # OAI catalog records (Parquet)
+            └── validation_records/  # Validation fact table (Parquet)
 ```
 
 **Advantages**:
-- Predicate pushdown: Skips entire partitions
-- Snapshot queries: Reads only relevant directories
-- Network queries: Filters at filesystem level
-- Valid vs invalid: Physical separation for frequent queries
+- **Network isolation**: Each network has dedicated storage space
+- **Simplified management**: Easy to backup/restore per network
+- **Clear organization**: Metadata and snapshots clearly separated
+- **Filesystem-level filtering**: OS-level operations on specific networks
+- **Scalability**: Networks can be distributed across different storage systems
+
+**Path Construction** (handled by `PathUtils`):
+- Metadata: `{basePath}/{NETWORK}/metadata/{hash[0]}/{hash}.xml.gz`
+- Snapshots base: `{basePath}/{NETWORK}/snapshots/`
+- Snapshot data: `{basePath}/{NETWORK}/snapshots/snapshot_{id}/`
 
 ---
 
-## Migration from Avro
+## Migration from Previous Version
 
-### Migration Steps
+### Migration Steps (v4.x to v5.0)
 
 1. **Backup existing data** (optional):
    ```bash
@@ -212,18 +250,38 @@ snapshot_id={id}/network={acronym}/is_valid={true|false}
    mkdir -p /tmp/validation-stats-parquet
    ```
 
-3. **Update configuration**: Use recommended values in `application.properties`
+3. **Update code**: Replace all deprecated method calls with `SnapshotMetadata`-based API (see API Changes section)
 
-4. **Restart application**: Data will be regenerated on next validation
+4. **Update configuration**: Use recommended values in `application.properties`
 
-5. **Verify structure**:
+5. **Restart application**: Data will be regenerated on next validation with new directory structure
+
+6. **Verify structure**:
    ```bash
-   ls -la /tmp/validation-stats-parquet/snapshot_id=*/network=*/is_valid=*/*.parquet
+   # Check network-based organization
+   ls -la /tmp/validation-stats-parquet/
+   
+   # Check specific network
+   ls -la /tmp/validation-stats-parquet/LA_REFERENCIA/snapshots/
+   
+   # Check snapshot data
+   ls -la /tmp/validation-stats-parquet/LA_REFERENCIA/snapshots/snapshot_*/
    ```
 
-### Compatibility
+### Key Changes
 
-**No backward compatibility** with old Avro files. Parquet files must be completely regenerated.
+**Directory Structure**:
+- Old: `snapshot_id={id}/network={acronym}/is_valid={true|false}/`
+- New: `{NETWORK}/snapshots/snapshot_{id}/validation_records/`
+
+**API**:
+- All methods now require `SnapshotMetadata` instead of `Long snapshotId`
+- Deprecated methods have been removed
+
+**Compatibility**:
+- **No backward compatibility** with old directory structure
+- Parquet files must be completely regenerated
+- Code must be updated to use new API
 
 ---
 
@@ -324,8 +382,86 @@ du -sh /tmp/validation-stats-parquet
 
 **Files per snapshot**:
 ```bash
-ls -la /tmp/validation-stats-parquet/snapshot_id=8/network=*/is_valid=*/*.parquet
+ls -la /tmp/validation-stats-parquet/LA_REFERENCIA/snapshots/snapshot_8/*/*.parquet
 ```
+
+---
+
+## API Changes (v5.0)
+
+### SnapshotMetadata-Based API
+
+All Parquet repository methods now require a `SnapshotMetadata` object instead of just a `Long snapshotId`. This ensures proper network isolation and path construction.
+
+**Old API (deprecated, removed in v5.0)**:
+```java
+// ❌ No longer supported
+oaiRecordRepository.initializeSnapshot(snapshotId);
+validationStatRepository.getSnapshotValidationStats(snapshotId);
+```
+
+**New API (required)**:
+```java
+// ✅ Required: Pass complete SnapshotMetadata
+SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotId);
+oaiRecordRepository.initializeSnapshot(metadata);
+validationStatRepository.getSnapshotValidationStats(metadata);
+```
+
+### Updated Methods
+
+#### OAIRecordParquetRepository
+- `initializeSnapshot(SnapshotMetadata)` - Initialize snapshot for OAI record writing
+- `readAllRecords(SnapshotMetadata)` - Read all records (not recommended for large datasets)
+- `iterateRecords(SnapshotMetadata)` - Lazy iteration for large datasets (recommended)
+- `countRecords(SnapshotMetadata)` - Count records without loading
+
+#### ValidationStatParquetRepository
+- `getSnapshotValidationStats(SnapshotMetadata)` - Get validation statistics
+
+#### Path Utilities
+- `PathUtils.sanitizeNetworkAcronym(String)` - Sanitize network acronym for filesystem
+- `PathUtils.getMetadataStorePath(String, SnapshotMetadata)` - Get metadata XML path
+- `PathUtils.getSnapshotsBasePath(String, SnapshotMetadata)` - Get snapshots base path
+- `PathUtils.getSnapshotPath(String, SnapshotMetadata)` - Get specific snapshot path
+
+### Network Acronym Sanitization
+
+Network acronyms are automatically sanitized for filesystem compatibility:
+- Converted to uppercase
+- Only alphanumeric characters, hyphens, and underscores allowed
+- Spaces and special characters replaced with underscores
+
+**Examples**:
+```java
+"LA Referencia" → "LA_REFERENCIA"
+"test-network" → "TEST-NETWORK"
+"México 2024" → "M_XICO_2024"
+```
+
+### Migration Guide
+
+1. **Update all method calls** to pass `SnapshotMetadata`:
+   ```java
+   // Before
+   Long snapshotId = ...;
+   repository.method(snapshotId);
+   
+   // After
+   SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotId);
+   repository.method(metadata);
+   ```
+
+2. **Ensure SnapshotMetadata has networkAcronym**:
+   ```java
+   metadata.setNetworkAcronym(network.getAcronym());
+   ```
+
+3. **Update tests** to provide `networkAcronym` in test metadata:
+   ```java
+   SnapshotMetadata testMetadata = new SnapshotMetadata(1L);
+   testMetadata.setNetworkAcronym("TEST");
+   ```
 
 ---
 

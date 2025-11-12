@@ -24,8 +24,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.commons.codec.digest.DigestUtils;
-import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.validation.ValidationStatObservation;
+import org.lareferencia.core.domain.IOAIRecord;
+import org.lareferencia.core.domain.OAIRecord;
+import org.lareferencia.core.service.validation.ValidationStatObservation;
+import org.lareferencia.core.metadata.SnapshotMetadata;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -68,16 +70,12 @@ public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper
 	 * @return the generated fingerprint string
 	 */
 	@Override
-	public String getFingerprint(OAIRecord record) {
-		
-
-//oai:repositorio.bc.ufg.br:ri/7176 foi transformado em:
-//oai:agregador.ibict.br.RI_UFG:oai:repositorio.bc.ufg.br:ri/7176
+	public String getFingerprint(IOAIRecord record, SnapshotMetadata snapshotMetadata) {
 		
 		
-		if (record.getSnapshot() != null) {
+		if (snapshotMetadata.getNetworkAcronym() != null) {
 			
-			String networkAcronym = record.getSnapshot().getNetwork().getAcronym();
+			String networkAcronym = snapshotMetadata.getNetworkAcronym();
 			
 			String new_identifier = prefix + record.getIdentifier();
 			
@@ -117,8 +115,8 @@ public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper
 	}
 
 	@Override
-	public String getStatsIDfromRecord(OAIRecord record) {
-		return record.getSnapshot().getId() + "-" + this.getFingerprint(record);
+	public String getStatsIDfromRecord(IOAIRecord record, SnapshotMetadata snapshotMetadata) {
+		return snapshotMetadata.getSnapshotId() + "-" + this.getFingerprint(record, snapshotMetadata);
 
 	}
 
