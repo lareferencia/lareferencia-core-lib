@@ -23,10 +23,10 @@ package org.lareferencia.core.metadata;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.lareferencia.backend.domain.Network;
-import org.lareferencia.backend.domain.SnapshotIndexStatus;
-import org.lareferencia.backend.domain.SnapshotStatus;
-import org.lareferencia.backend.domain.Validator;
+import org.lareferencia.core.domain.Network;
+import org.lareferencia.core.domain.SnapshotIndexStatus;
+import org.lareferencia.core.domain.SnapshotStatus;
+import org.lareferencia.core.domain.Validator;
 
 /**
  * Interface for snapshot storage operations.

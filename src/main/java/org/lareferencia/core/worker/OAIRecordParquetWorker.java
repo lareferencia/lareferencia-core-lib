@@ -22,8 +22,8 @@ package org.lareferencia.core.worker;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.lareferencia.backend.domain.parquet.OAIRecord;
-import org.lareferencia.backend.repositories.parquet.OAIRecordParquetRepository;
+import org.lareferencia.core.repository.parquet.OAIRecord;
+import org.lareferencia.core.repository.parquet.OAIRecordParquetRepository;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.springframework.beans.factory.annotation.Autowired;
 

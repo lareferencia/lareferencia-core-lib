@@ -102,12 +102,19 @@ class MetadataStoreIntegrationTest {
         // When
         String hash = metadataStore.storeAndReturnHash(testSnapshotMetadata, xmlContent);
 
-        // Then - Verify 3-level partitioning (A/B/C/hash.xml.gz)
+        // Then - Verify 3-level partitioning (NETWORK/metadata/A/B/C/hash.xml.gz)
         String level1 = hash.substring(0, 1).toUpperCase();
         String level2 = hash.substring(1, 2).toUpperCase();
         String level3 = hash.substring(2, 3).toUpperCase();
         
-        Path expectedPath = tempDir.resolve(level1).resolve(level2).resolve(level3).resolve(hash + ".xml.gz");
+        // Path includes network and metadata directory
+        Path expectedPath = tempDir
+            .resolve(testSnapshotMetadata.getNetworkAcronym())
+            .resolve("metadata")
+            .resolve(level1)
+            .resolve(level2)
+            .resolve(level3)
+            .resolve(hash + ".xml.gz");
         assertTrue(Files.exists(expectedPath), "File should exist at: " + expectedPath);
         assertTrue(Files.isRegularFile(expectedPath), "Should be a regular file");
     }
@@ -129,7 +136,13 @@ class MetadataStoreIntegrationTest {
         String level1 = hash1.substring(0, 1).toUpperCase();
         String level2 = hash1.substring(1, 2).toUpperCase();
         String level3 = hash1.substring(2, 3).toUpperCase();
-        Path filePath = tempDir.resolve(level1).resolve(level2).resolve(level3).resolve(hash1 + ".xml.gz");
+        Path filePath = tempDir
+            .resolve(testSnapshotMetadata.getNetworkAcronym())
+            .resolve("metadata")
+            .resolve(level1)
+            .resolve(level2)
+            .resolve(level3)
+            .resolve(hash1 + ".xml.gz");
         
         assertTrue(Files.exists(filePath), "File should exist");
     }
@@ -172,7 +185,13 @@ class MetadataStoreIntegrationTest {
         String level1 = hash.substring(0, 1).toUpperCase();
         String level2 = hash.substring(1, 2).toUpperCase();
         String level3 = hash.substring(2, 3).toUpperCase();
-        Path filePath = tempDir.resolve(level1).resolve(level2).resolve(level3).resolve(hash + ".xml.gz");
+        Path filePath = tempDir
+            .resolve(testSnapshotMetadata.getNetworkAcronym())
+            .resolve("metadata")
+            .resolve(level1)
+            .resolve(level2)
+            .resolve(level3)
+            .resolve(hash + ".xml.gz");
 
         assertTrue(Files.exists(filePath), "Compressed file should exist");
         assertTrue(filePath.toString().endsWith(".xml.gz"), "File should have .xml.gz extension");

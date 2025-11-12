@@ -25,7 +25,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.hashing.IHashingHelper;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -68,6 +67,17 @@ class MetadataStoreFSImplTest {
     @AfterEach
     void tearDown() {
         // Cleanup is automatic with @TempDir
+    }
+
+    // Helper method to build correct file path
+    private File getExpectedFilePath(String hash) {
+        String networkAcronym = testSnapshotMetadata.getNetworkAcronym();
+        String sanitizedNetwork = networkAcronym != null ? networkAcronym.toUpperCase() : "UNKNOWN";
+        return new File(tempDir.toFile(), sanitizedNetwork + "/metadata/" + 
+                       hash.substring(0, 1) + "/" + 
+                       hash.substring(1, 2) + "/" + 
+                       hash.substring(2, 3) + "/" + 
+                       hash + ".xml.gz");
     }
 
     // Init tests
@@ -114,7 +124,7 @@ class MetadataStoreFSImplTest {
         assertEquals("ABC123456789", hash);
         
         // Verify file was created
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         assertTrue(file.exists());
     }
 
@@ -127,9 +137,10 @@ class MetadataStoreFSImplTest {
         store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         // Verify partition directories were created
-        assertTrue(Files.exists(tempDir.resolve("X")));
-        assertTrue(Files.exists(tempDir.resolve("X/Y")));
-        assertTrue(Files.exists(tempDir.resolve("X/Y/Z")));
+        File expectedFile = getExpectedFilePath("XYZ987654321");
+        assertTrue(expectedFile.getParentFile().exists(), "Partition directory X/Y/Z should exist");
+        assertTrue(expectedFile.getParentFile().getParentFile().exists(), "Partition directory X/Y should exist");
+        assertTrue(expectedFile.getParentFile().getParentFile().getParentFile().exists(), "Partition directory X should exist");
     }
 
     @Test
@@ -140,7 +151,7 @@ class MetadataStoreFSImplTest {
 
         store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         
         // Read compressed content and verify it's correct
         String decompressed = decompressFile(file);
@@ -160,7 +171,7 @@ class MetadataStoreFSImplTest {
         // Store first time
         String hash1 = store.storeAndReturnHash(testSnapshotMetadata, metadata);
         
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         long modifiedTime1 = file.lastModified();
         long size1 = file.length();
 
@@ -192,8 +203,8 @@ class MetadataStoreFSImplTest {
 
         assertNotEquals(hash1, hash2);
         
-        File file1 = new File(tempDir.toFile(), "A/B/C/ABC111111111.xml.gz");
-        File file2 = new File(tempDir.toFile(), "X/Y/Z/XYZ999999999.xml.gz");
+        File file1 = getExpectedFilePath("ABC111111111");
+        File file2 = getExpectedFilePath("XYZ999999999");
         
         assertTrue(file1.exists());
         assertTrue(file2.exists());
@@ -208,7 +219,7 @@ class MetadataStoreFSImplTest {
         String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         assertEquals("ABC123456789", hash);
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         assertTrue(file.exists());
     }
 
@@ -229,7 +240,7 @@ class MetadataStoreFSImplTest {
         String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         assertEquals("ABC123456789", hash);
-        File file = new File(tempDir.toFile(), "A/B/C/ABC123456789.xml.gz");
+        File file = getExpectedFilePath("ABC123456789");
         assertTrue(file.exists());
         
         // Verify significant compression
@@ -358,7 +369,7 @@ class MetadataStoreFSImplTest {
         store.storeAndReturnHash(testSnapshotMetadata, metadata);
 
         // Hash should be stored, and partition path should use uppercase
-        File file = new File(tempDir.toFile(), "A/B/C/abc123456789.xml.gz");
+        File file = getExpectedFilePath("abc123456789");
         assertTrue(file.exists());
     }
 

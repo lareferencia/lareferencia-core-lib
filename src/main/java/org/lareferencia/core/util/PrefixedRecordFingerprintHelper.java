@@ -24,9 +24,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.commons.codec.digest.DigestUtils;
-import org.lareferencia.backend.domain.IOAIRecord;
-import org.lareferencia.backend.domain.OAIRecord;
-import org.lareferencia.backend.validation.ValidationStatObservation;
+import org.lareferencia.core.domain.IOAIRecord;
+import org.lareferencia.core.domain.OAIRecord;
+import org.lareferencia.core.service.validation.ValidationStatObservation;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 
 import lombok.Getter;

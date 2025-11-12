@@ -21,7 +21,7 @@
 
 package org.lareferencia.core.worker;
 
-import org.lareferencia.backend.domain.Network;
+import org.lareferencia.core.domain.Network;
 
 import lombok.Getter;
 import lombok.Setter;

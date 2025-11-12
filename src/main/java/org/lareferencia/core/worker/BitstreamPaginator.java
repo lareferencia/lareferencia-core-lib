@@ -23,10 +23,10 @@ package org.lareferencia.core.worker;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.lareferencia.backend.domain.Network;
-import org.lareferencia.backend.domain.OAIBitstream;
-import org.lareferencia.backend.domain.OAIBitstreamStatus;
-import org.lareferencia.backend.repositories.jpa.OAIBitstreamRepository;
+import org.lareferencia.core.domain.Network;
+import org.lareferencia.core.domain.OAIBitstream;
+import org.lareferencia.core.domain.OAIBitstreamStatus;
+import org.lareferencia.core.repository.jpa.OAIBitstreamRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 

@@ -22,7 +22,7 @@ package org.lareferencia.core.metadata;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.lareferencia.backend.domain.Network;
+import org.lareferencia.core.domain.Network;
 
 import java.util.*;
 

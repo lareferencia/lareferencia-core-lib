@@ -21,8 +21,8 @@
 
 package org.lareferencia.core.metadata;
 
-import org.lareferencia.backend.domain.OAIMetadata;
-import org.lareferencia.backend.repositories.jpa.OAIMetadataRepository;
+import org.lareferencia.core.domain.OAIMetadata;
+import org.lareferencia.core.repository.jpa.OAIMetadataRepository;
 import org.lareferencia.core.util.hashing.IHashingHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;

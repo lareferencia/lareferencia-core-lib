@@ -27,14 +27,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.lareferencia.backend.domain.Network;
-import org.lareferencia.backend.domain.NetworkSnapshot;
-import org.lareferencia.backend.domain.SnapshotIndexStatus;
-import org.lareferencia.backend.domain.SnapshotStatus;
-import org.lareferencia.backend.domain.Validator;
-import org.lareferencia.backend.repositories.jpa.NetworkSnapshotRepository;
-import org.lareferencia.backend.repositories.jpa.OAIRecordRepository;
-import org.lareferencia.backend.services.SnapshotLogService;
+import org.lareferencia.core.domain.Network;
+import org.lareferencia.core.domain.NetworkSnapshot;
+import org.lareferencia.core.domain.SnapshotIndexStatus;
+import org.lareferencia.core.domain.SnapshotStatus;
+import org.lareferencia.core.domain.Validator;
+import org.lareferencia.core.repository.jpa.NetworkSnapshotRepository;
+import org.lareferencia.core.repository.jpa.OAIRecordRepository;
+import org.lareferencia.core.service.management.SnapshotLogService;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**

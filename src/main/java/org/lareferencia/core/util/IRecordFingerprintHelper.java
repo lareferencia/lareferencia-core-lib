@@ -20,8 +20,8 @@
 
 package org.lareferencia.core.util;
 
-import org.lareferencia.backend.domain.IOAIRecord;
-import org.lareferencia.backend.validation.ValidationStatObservation;
+import org.lareferencia.core.domain.IOAIRecord;
+import org.lareferencia.core.service.validation.ValidationStatObservation;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 
 import com.codahale.metrics.Snapshot;
