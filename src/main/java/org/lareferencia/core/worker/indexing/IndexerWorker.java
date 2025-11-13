@@ -26,15 +26,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.hadoop.thirdparty.org.checkerframework.checker.units.qual.A;
-import org.apache.jena.atlas.iterator.Iter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
-import org.checkerframework.checker.units.qual.N;
 import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.repository.parquet.RecordValidation;
 import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
@@ -45,7 +42,6 @@ import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.MDFormatTranformationException;
 import org.lareferencia.core.metadata.MDFormatTransformerService;
 import org.lareferencia.core.metadata.MDTransformerParameterSetter;
-import org.lareferencia.core.metadata.MetadataRecordStoreException;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
 import org.lareferencia.core.metadata.RecordStatus;
@@ -293,9 +289,10 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 		} catch (OAIRecordMetadataParseException e) {
 			logError("Index::RecordID:" + record.getRecordId() + " oai_id:" + record.getIdentifier()
 			+ " error getting record metadata: :: " + e.getMessage());
-		} catch (MetadataRecordStoreException e) {
+		} catch (Exception e) {
+			// Catches MetadataRecordStoreException and other exceptions
 			logError("Index::RecordID:" + record.getRecordId()+ " oai_id:" + record.getIdentifier()
-			+ " error getting record metadata: :: " + e.getMessage());
+			+ " error: :: " + e.getMessage());
 		}
 
 	}
@@ -336,11 +333,7 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 			this.sendUpdateToSolr("<commit/>");
 
 			if (executeIndexing)
-				snapshotStore.updateSnapshotIndexStatus(snapshotId, SnapshotIndexStatus.INDEXED);
-			else
-				snapshotStore.updateSnapshotIndexStatus(snapshotId, SnapshotIndexStatus.UNKNOWN);
-				
-			snapshotStore.saveSnapshot(snapshotId);
+				snapshotStore.markAsIndexed(snapshotId);
 
 			logInfo("Finishing Indexing: "+ runningContext.toString() + "(" + this.targetSchemaName + ")");
 			logInfo("Indexed documents in " + runningContext.getNetwork().getAcronym() + "::" + this.targetSchemaName + " = " + this.queryForNetworkDocumentCount( runningContext.getNetwork().getAcronym() ) );
@@ -355,10 +348,9 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 
 	/******************* Auxiliares ********** */
 	private void error() {
-		if ( snapshotId != null) {
-			snapshotStore.updateSnapshotIndexStatus(snapshotId, SnapshotIndexStatus.FAILED);
-			snapshotStore.saveSnapshot(snapshotId);
-		}
+		// With new @Transactional pattern, simply stopping the worker will persist
+		// the current snapshot state. Index status remains FAILED by default.
+		// No need to call saveSnapshot() - automatic persistence handles this.
 		this.stop();
 	}
 
@@ -369,7 +361,7 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 
 	private void logInfo(String message) {
 		logger.info(message);
-		snapshotLogService.addEntry(snapshotId, "INFO: " + message);
+				snapshotLogService.addEntry(snapshotId, "INFO: " + message);
 	}
 
 	private void delete(String networkAcronym) {
@@ -379,19 +371,6 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 					"<delete><query>" + this.solrNetworkIDField + ":" + networkAcronym + "</query></delete>");
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
 			logError("Issues when deleting index: " + runningContext.toString() + ": " + e.getMessage());
-			error();
-		}
-	}
-
-	private void deleteRecord(String id, String fingerprint) {
-		// Borrado de la red
-		try {
-			this.sendUpdateToSolr("<delete><query>" + solrRecordIDField + ":" + id + "</query></delete>");
-
-		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
-			logError("Issues deleting record: " + id + " :: " + fingerprint + " network: "
-			        + runningContext.toString() + ": "
-					+ e.getMessage());
 			error();
 		}
 	}

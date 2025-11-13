@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lareferencia.core.util.hashing.MD5Hashing;
+import org.lareferencia.core.domain.Network;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,7 +34,12 @@ class MetadataStoreIntegrationTest {
         
         // Create a test snapshot metadata
         testSnapshotMetadata = new SnapshotMetadata(1L);
-        testSnapshotMetadata.setNetworkAcronym("TEST");
+        
+        // Create and set network
+        Network testNetwork = new Network();
+        testNetwork.setAcronym("TEST");
+        testSnapshotMetadata.setNetwork(testNetwork);
+        
         testSnapshotMetadata.setSize(100);
 
         // Inject test configuration using reflection
@@ -109,7 +115,7 @@ class MetadataStoreIntegrationTest {
         
         // Path includes network and metadata directory
         Path expectedPath = tempDir
-            .resolve(testSnapshotMetadata.getNetworkAcronym())
+            .resolve(testSnapshotMetadata.getNetwork().getAcronym())
             .resolve("metadata")
             .resolve(level1)
             .resolve(level2)
@@ -137,7 +143,7 @@ class MetadataStoreIntegrationTest {
         String level2 = hash1.substring(1, 2).toUpperCase();
         String level3 = hash1.substring(2, 3).toUpperCase();
         Path filePath = tempDir
-            .resolve(testSnapshotMetadata.getNetworkAcronym())
+            .resolve(testSnapshotMetadata.getNetwork().getAcronym())
             .resolve("metadata")
             .resolve(level1)
             .resolve(level2)
@@ -186,7 +192,7 @@ class MetadataStoreIntegrationTest {
         String level2 = hash.substring(1, 2).toUpperCase();
         String level3 = hash.substring(2, 3).toUpperCase();
         Path filePath = tempDir
-            .resolve(testSnapshotMetadata.getNetworkAcronym())
+            .resolve(testSnapshotMetadata.getNetwork().getAcronym())
             .resolve("metadata")
             .resolve(level1)
             .resolve(level2)

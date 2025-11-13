@@ -116,7 +116,7 @@ public final class SnapshotMetadataManager {
         mapper.writeValue(new File(metadataPath), metadata);
         
         logger.info("METADATA WRITTEN: snapshot={}, network={}, path={}", 
-            metadata.getSnapshotId(), metadata.getNetworkAcronym(), metadataPath);
+            metadata.getSnapshotId(), metadata.getNetwork().getAcronym(), metadataPath);
     }
     
     /**
@@ -143,7 +143,7 @@ public final class SnapshotMetadataManager {
         
         SnapshotMetadata metadata = mapper.readValue(file, SnapshotMetadata.class);
         logger.debug("METADATA READ: snapshot={}, network={}, records={}", 
-            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym(), metadata.getSize());
+            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym(), metadata.getSize());
         return metadata;
     }    /**
      * Verifica si existe metadata para un snapshot
@@ -182,7 +182,7 @@ public final class SnapshotMetadataManager {
         
         if (file.exists() && file.delete()) {
             logger.info("METADATA DELETED: snapshot={}, network={}", 
-                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
             return true;
         }
         
@@ -218,7 +218,7 @@ public final class SnapshotMetadataManager {
         mapper.writeValue(new File(validationStatsPath), validationStats);
         
         logger.info("VALIDATION STATS WRITTEN: snapshot={}, network={}, path={}", 
-            metadata.getSnapshotId(), metadata.getNetworkAcronym(), validationStatsPath);
+            metadata.getSnapshotId(), metadata.getNetwork().getAcronym(), validationStatsPath);
     }
     
     /**
@@ -241,13 +241,13 @@ public final class SnapshotMetadataManager {
         
         if (!file.exists()) {
             logger.warn("VALIDATION STATS NOT FOUND: snapshot={}, network={}, path={}", 
-                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym(), validationStatsPath);
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym(), validationStatsPath);
             return null;
         }
         
         SnapshotValidationStats validationStats = mapper.readValue(file, SnapshotValidationStats.class);
         logger.debug("VALIDATION STATS READ: snapshot={}, network={}, totalRecords={}", 
-            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym(), validationStats.getTotalRecords());
+            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym(), validationStats.getTotalRecords());
         return validationStats;
     }
     
@@ -288,7 +288,7 @@ public final class SnapshotMetadataManager {
         
         if (file.exists() && file.delete()) {
             logger.info("VALIDATION STATS DELETED: snapshot={}, network={}", 
-                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
             return true;
         }
         

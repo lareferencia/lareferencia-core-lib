@@ -653,7 +653,7 @@ public class ValidationStatParquetRepository {
         Long snapshotId = snapshotMetadata.getSnapshotId();
         
         logger.debug("GET SNAPSHOT VALIDATION STATS: snapshot={}, network={}", 
-            snapshotId, snapshotMetadata.getNetworkAcronym());
+            snapshotId, snapshotMetadata.getNetwork().getAcronym());
         
         // Intentar obtener desde caché primero
         SnapshotValidationStats snapshotStats = snapshotStatsCache.get(snapshotId);
@@ -669,7 +669,7 @@ public class ValidationStatParquetRepository {
         
         if (snapshotStats == null) {
             logger.warn("SNAPSHOT VALIDATION STATS NOT FOUND: snapshot={}, network={}", 
-                snapshotId, snapshotMetadata.getNetworkAcronym());
+                snapshotId, snapshotMetadata.getNetwork().getAcronym());
             return null;
         }
         
@@ -677,7 +677,7 @@ public class ValidationStatParquetRepository {
         snapshotStatsCache.put(snapshotId, snapshotStats);
         
         logger.debug("SNAPSHOT VALIDATION STATS LOADED FROM DISK: snapshot={}, network={}, totalRecords={}", 
-                    snapshotId, snapshotMetadata.getNetworkAcronym(), snapshotStats.getTotalRecords());
+                    snapshotId, snapshotMetadata.getNetwork().getAcronym(), snapshotStats.getTotalRecords());
         return snapshotStats;
     }
     
@@ -939,7 +939,7 @@ public class ValidationStatParquetRepository {
      */
     public Iterator<RecordValidation> getIterator(SnapshotMetadata snapshotMetadata) throws IOException {
         logger.debug("GET ITERATOR: snapshot={}, network={} (NEW INSTANCE - FULL MODE)", 
-                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
         
         // Delegar al ValidationRecordManager para crear iterator completo
         return ValidationRecordManager.iterate(basePath, snapshotMetadata, hadoopConf);
@@ -968,7 +968,7 @@ public class ValidationStatParquetRepository {
      */
     public Iterator<RecordValidation> getLightweightIterator(SnapshotMetadata snapshotMetadata, RecordStatus status) throws IOException {
         logger.debug("GET LIGHTWEIGHT ITERATOR: snapshot={}, network={} (NEW INSTANCE - LIGHT MODE)", 
-                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
         
         // Delegar al ValidationRecordManager para crear iterator ligero de forma simple
         return ValidationRecordManager.iterateLightweight(basePath, snapshotMetadata, status, hadoopConf);

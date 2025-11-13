@@ -208,11 +208,11 @@ public class MetadataStoreFSImpl implements IMetadataStore {
                 writeCompressed(file, metadata);
                 long duration = System.currentTimeMillis() - startTime;
                 
-                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetworkAcronym() : "UNKNOWN";
+                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
                 logger.debug("Stored metadata with hash {} in {}ms (network: {})", 
                     hash, duration, networkAcronym);
             } else {
-                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetworkAcronym() : "UNKNOWN";
+                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
                 logger.debug("Metadata with hash {} already exists, skipping (network: {})", 
                     hash, networkAcronym);
             }
@@ -230,7 +230,7 @@ public class MetadataStoreFSImpl implements IMetadataStore {
         try {
             File file = getFileForHash(snapshotMetadata, hash);
             
-            String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetworkAcronym() : "UNKNOWN";
+            String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
             
             if (!file.exists()) {
                 throw new MetadataRecordStoreException("Metadata not found for hash: " + hash + 

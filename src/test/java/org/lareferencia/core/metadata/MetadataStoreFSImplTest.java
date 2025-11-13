@@ -26,6 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lareferencia.core.util.hashing.IHashingHelper;
+import org.lareferencia.core.domain.Network;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.*;
@@ -54,7 +55,11 @@ class MetadataStoreFSImplTest {
         // Create test snapshot metadata
         testSnapshotMetadata = new SnapshotMetadata();
         testSnapshotMetadata.setSnapshotId(1L);
-        testSnapshotMetadata.setNetworkAcronym("TEST");
+        
+        // Create and set network
+        Network testNetwork = new Network();
+        testNetwork.setAcronym("TEST");
+        testSnapshotMetadata.setNetwork(testNetwork);
         
         // Set the base path to temp directory
         ReflectionTestUtils.setField(store, "basePath", tempDir.toString());
@@ -71,7 +76,7 @@ class MetadataStoreFSImplTest {
 
     // Helper method to build correct file path
     private File getExpectedFilePath(String hash) {
-        String networkAcronym = testSnapshotMetadata.getNetworkAcronym();
+        String networkAcronym = testSnapshotMetadata.getNetwork().getAcronym();
         String sanitizedNetwork = networkAcronym != null ? networkAcronym.toUpperCase() : "UNKNOWN";
         return new File(tempDir.toFile(), sanitizedNetwork + "/metadata/" + 
                        hash.substring(0, 1) + "/" + 

@@ -20,9 +20,13 @@
 
 package org.lareferencia.core.metadata;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.lareferencia.core.domain.Network;
+import org.lareferencia.core.domain.NetworkSnapshot;
 
 import java.util.*;
 
@@ -30,8 +34,10 @@ import java.util.*;
  * Simple class to accumulate snapshot validation metadata.
  * Contains general snapshot information and references to validation statistics.
  */
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
+@AllArgsConstructor
 public class SnapshotMetadata {
     
     private Long snapshotId;
@@ -42,17 +48,49 @@ public class SnapshotMetadata {
     
     private Long createdAt;
     
-    // Snapshot origin information
-    private String origin;
-    private String setSpec;
-    private String metadataPrefix;
-    private String networkAcronym;
-    
     // Network reference
     private Network network;
     
     // Rule definitions: ruleID -> rule information
     private Map<Long, RuleDefinition> ruleDefinitions = new LinkedHashMap<>();
+    
+    /**
+     * Constructor que crea SnapshotMetadata directamente desde NetworkSnapshot.
+     * 
+     * @param snapshot el snapshot desde el cual construir la metadata
+     */
+    public SnapshotMetadata(NetworkSnapshot snapshot) {
+        this.snapshotId = snapshot.getId();
+        this.size = snapshot.getSize() != null ? snapshot.getSize() : 0;
+        this.transformedSize = snapshot.getTransformedSize();
+        this.validSize = snapshot.getValidSize();
+        
+        // Timestamp de creación
+        if (snapshot.getStartTime() != null) {
+            this.createdAt = snapshot.getStartTime().toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+        } else {
+            this.createdAt = System.currentTimeMillis();
+        }
+        
+        // Network reference
+        this.network = snapshot.getNetwork();
+        
+        // Rule definitions desde el validator
+        this.ruleDefinitions = new LinkedHashMap<>();
+        if (snapshot.getNetwork() != null && snapshot.getNetwork().getValidator() != null) {
+            snapshot.getNetwork().getValidator().getRules().forEach(rule -> {
+                this.ruleDefinitions.put(rule.getId(), 
+                    new RuleDefinition(
+                        rule.getId(),
+                        rule.getName(),
+                        rule.getDescription(),
+                        rule.getQuantifier().name(),
+                        rule.getMandatory()
+                    )
+                );
+            });
+        }
+    }
     
     public SnapshotMetadata(Long snapshotId) {
         this.snapshotId = snapshotId;
@@ -82,11 +120,6 @@ public class SnapshotMetadata {
             this.mandatory = mandatory;
         }
     }
-    
-    // Counter increment methods
-    public void incrementSize() { this.size++; }
-    public void incrementValidSize() { this.validSize++; }
-    public void incrementTransformedSize() { this.transformedSize++; }
     
     // Rule management methods
     public void registerRule(Long ruleID, String name, String description, String quantifier, Boolean mandatory) {

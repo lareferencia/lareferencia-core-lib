@@ -177,9 +177,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		logInfoMessage(runningContext.toString() + " Stop signal received - Harvesting is stopping");
 		harvester.stop();
 
-		snapshotStore.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
-		snapshotStore.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());
-		snapshotStore.saveSnapshot(snapshotId);
+		snapshotStore.finishHarvesting(this.snapshotId);
 
 		try {
 			Thread.sleep(1000);
@@ -205,7 +203,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		validatorResult = new ValidatorResult();
 
 		// Timestamps
-		LocalDateTime startDateStamp = LocalDateTime.now();
 		LocalDateTime previousSnapshotStartDatestamp = null;
 
 		// URL de origen
@@ -215,8 +212,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		snapshotId = snapshotStore.createSnapshot(runningContext.getNetwork());
 		snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
 
-		// Configurar timestamp de inicio
-		snapshotStore.updateSnapshotStartDatestamp(snapshotId, startDateStamp);
+		// El timestamp de inicio se establece en startHarvesting() automáticamente
 
 		// Inicializar repositorio Parquet para escritura
 		try {
@@ -224,7 +220,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			logInfoMessage("PARQUET: Repository initialized for writing - snapshot " + snapshotId);
 		} catch (Exception e) {
 			logErrorMessage("PARQUET: Error initializing repository: " + e.getMessage());
-			snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+			snapshotStore.markAsFailed(snapshotId);
 			return;
 		}
 
@@ -302,8 +298,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 		logInfoMessage("Harvesting is starting for " + runningContext.toString() + "...");
 				
-		snapshotStore.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING);
-		snapshotStore.saveSnapshot(snapshotId);
+		snapshotStore.startHarvesting(this.snapshotId);
 
 		// Inicialización del harvester
 		harvester.reset();
@@ -314,7 +309,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		// Si el tamaño del snapshot es 0 y no es incremental, no hay records
 		if (snapshotStore.getSnapshotSize(snapshotId) < 1 && !isIncremental()) {
 			logErrorMessage(runningContext.toString() + " :: No records found !!");
-			snapshotStore.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+			snapshotStore.markAsFailed(this.snapshotId);
 		}
 		
 		// Si el status no es error, el harvesting terminó exitosamente
@@ -333,14 +328,11 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 			logInfoMessage(runningContext.toString() + " :: Harvesting ended successfully.");
 
-			snapshotStore.updateSnapshotStatus(this.snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
-			snapshotStore.updateSnapshotStartDatestamp(snapshotId, startDateStamp);						
-			snapshotStore.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());	
-			snapshotStore.saveSnapshot(snapshotId);
+			snapshotStore.finishHarvesting(snapshotId);
 
 		} else {
 			logErrorMessage(runningContext.toString() + " :: Harvesting ended with errors !!!");
-			snapshotStore.saveSnapshot(snapshotId);
+			snapshotStore.markAsFailed(snapshotId);
 		}
 		
 		// Cerrar repositorio Parquet (flush final) - SE CIERRA SIEMPRE al final
@@ -501,8 +493,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			}
 
 			// Actualizar estado del snapshot
-			snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING);
-			snapshotStore.saveSnapshot(snapshotId);
+			snapshotStore.updateHarvesting(snapshotId);
 
 			break;
 			
@@ -512,18 +503,16 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			if (!bySetHarvesting) {
 
 				if (isIncremental()) {
-					snapshotStore.updateSnapshotStatus(snapshotId, 
-					                                  SnapshotStatus.HARVESTING_FINISHED_VALID);
+					snapshotStore.finishHarvesting(snapshotId);
 					logInfoMessage("No records found in incremental harvesting" + 
 					             runningContext.toString());
 				} else {
-					snapshotStore.updateSnapshotStatus(snapshotId, 
-					                                  SnapshotStatus.HARVESTING_FINISHED_ERROR);
+					snapshotStore.markAsFailed(snapshotId);
 					logInfoMessage("No records found!!! at " + runningContext.toString());
 				}
 
 			} else {
-				snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+				snapshotStore.finishHarvesting(snapshotId);
 				logInfoMessage("No records found for the set: " + currentSetSpec + " at " + 
 				             runningContext.toString());
 			}
@@ -533,22 +522,22 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		case ERROR_RETRY:
 
 			logErrorMessage("Retry:" + event.getMessage());
-			snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.RETRYING);
+			snapshotStore.markAsRetrying(snapshotId);
 			break;
 
 		case ERROR_FATAL:
 
 			logErrorMessage("Fatal Error:" + event.getMessage());
-			snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+			snapshotStore.markAsFailed(snapshotId);
 			break;
 
 		case STOP_SIGNAL_RECEIVED:
 
 			logErrorMessage("Stop signal received:" + event.getMessage());
 			if (snapshotStore.getSnapshotSize(snapshotId) > 0)
-				snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_VALID);
+				snapshotStore.finishHarvesting(snapshotId);
 			else
-				snapshotStore.updateSnapshotStatus(snapshotId, SnapshotStatus.HARVESTING_FINISHED_ERROR);
+				snapshotStore.markAsFailed(snapshotId);
 			
 			// Cerrar repositorio Parquet cuando se detiene el harvesting
 			closeOAIRecordRepository();
@@ -559,8 +548,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			break;
 		}
 		
-		snapshotStore.updateSnapshotEndDatestamp(snapshotId, LocalDateTime.now());	
-		snapshotStore.saveSnapshot(snapshotId);
 		transactionManager.commit(transactionStatus);
 
 	}

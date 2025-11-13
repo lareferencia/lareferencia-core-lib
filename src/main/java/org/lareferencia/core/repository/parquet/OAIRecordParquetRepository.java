@@ -160,7 +160,7 @@ public class OAIRecordParquetRepository {
      */
     public void initializeSnapshot(SnapshotMetadata snapshotMetadata) throws IOException {
         Long snapshotId = snapshotMetadata.getSnapshotId();
-        logger.info("INITIALIZE SNAPSHOT: snapshot={}, network={}", snapshotId, snapshotMetadata.getNetworkAcronym());
+        logger.info("INITIALIZE SNAPSHOT: snapshot={}, network={}", snapshotId, snapshotMetadata.getNetwork().getAcronym());
         
         try {
             // Crear directorio del snapshot usando PathUtils
@@ -175,7 +175,7 @@ public class OAIRecordParquetRepository {
             recordManagers.put(snapshotId, manager);
             
             logger.info("SNAPSHOT INITIALIZED: snapshot={}, network={}, path={}, flushThreshold={}", 
-                       snapshotId, snapshotMetadata.getNetworkAcronym(), snapshotDir, flushThreshold);
+                       snapshotId, snapshotMetadata.getNetwork().getAcronym(), snapshotDir, flushThreshold);
             
         } catch (IOException e) {
             logger.error("INITIALIZATION FAILED: snapshot={}, error={}", snapshotId, e.getMessage());
@@ -333,7 +333,7 @@ public class OAIRecordParquetRepository {
      */
     public Iterator<OAIRecord> getIterator(SnapshotMetadata snapshotMetadata) throws IOException {
         logger.debug("GET ITERATOR: snapshot={}, network={} (NEW INSTANCE)", 
-                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
         // Crear NUEVA instancia de manager para cada llamada - garantiza thread safety
         OAIRecordManager manager = OAIRecordManager.forReading(basePath, snapshotMetadata, hadoopConf);
         return manager.iterator();

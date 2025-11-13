@@ -73,9 +73,9 @@ public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper
 	public String getFingerprint(IOAIRecord record, SnapshotMetadata snapshotMetadata) {
 		
 		
-		if (snapshotMetadata.getNetworkAcronym() != null) {
+		if (snapshotMetadata.getNetwork().getAcronym() != null) {
 			
-			String networkAcronym = snapshotMetadata.getNetworkAcronym();
+			String networkAcronym = snapshotMetadata.getNetwork().getAcronym();
 			
 			String new_identifier = prefix + record.getIdentifier();
 			

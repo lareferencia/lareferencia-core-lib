@@ -267,7 +267,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     public static ValidationRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
             throws IOException {
         logger.info("RECORDS MANAGER: Creating writer for snapshot {} (network: {})", 
-            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
         return new ValidationRecordManager(basePath, snapshotMetadata, hadoopConf);
     }
     

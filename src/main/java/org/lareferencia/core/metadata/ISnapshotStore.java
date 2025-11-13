@@ -60,13 +60,6 @@ public interface ISnapshotStore {
 	Long createSnapshot(Network network);
 	
 	/**
-	 * Persiste los cambios del snapshot en el store.
-	 * 
-	 * @param snapshotId el ID del snapshot a guardar
-	 */
-	void saveSnapshot(Long snapshotId);
-	
-	/**
 	 * Elimina completamente un snapshot y sus datos asociados.
 	 * Incluye: logs, records (delegado a RecordStore), y metadata del snapshot.
 	 * 
@@ -148,8 +141,9 @@ public interface ISnapshotStore {
 	 */
 	Validator getValidator(Long snapshotId);
 	
+	
 	// ============================================================================
-	// SNAPSHOT STATUS
+	// SNAPSHOT STATUS - USE BATCH METHODS INSTEAD (startHarvesting, finishValidation, etc)
 	// ============================================================================
 	
 	/**
@@ -161,14 +155,6 @@ public interface ISnapshotStore {
 	SnapshotStatus getSnapshotStatus(Long snapshotId);
 	
 	/**
-	 * Actualiza el estado del snapshot.
-	 * 
-	 * @param snapshotId el ID del snapshot
-	 * @param status el nuevo estado
-	 */
-	void updateSnapshotStatus(Long snapshotId, SnapshotStatus status);
-	
-	/**
 	 * Obtiene el estado de indexación del snapshot.
 	 * 
 	 * @param snapshotId el ID del snapshot
@@ -176,16 +162,8 @@ public interface ISnapshotStore {
 	 */
 	SnapshotIndexStatus getSnapshotIndexStatus(Long snapshotId);
 	
-	/**
-	 * Actualiza el estado de indexación del snapshot.
-	 * 
-	 * @param snapshotId el ID del snapshot
-	 * @param status el nuevo estado de indexación
-	 */
-	void updateSnapshotIndexStatus(Long snapshotId, SnapshotIndexStatus status);
-	
 	// ============================================================================
-	// SNAPSHOT TIMESTAMPS
+	// SNAPSHOT TIMESTAMPS - USE BATCH METHODS FOR STATE CHANGES
 	// ============================================================================
 	
 	/**
@@ -197,28 +175,12 @@ public interface ISnapshotStore {
 	LocalDateTime getSnapshotStartDatestamp(Long snapshotId);
 	
 	/**
-	 * Actualiza el timestamp de inicio del snapshot.
-	 * 
-	 * @param snapshotId el ID del snapshot
-	 * @param datestamp el timestamp de inicio
-	 */
-	void updateSnapshotStartDatestamp(Long snapshotId, LocalDateTime datestamp);
-	
-	/**
 	 * Obtiene el timestamp de fin del snapshot.
 	 * 
 	 * @param snapshotId el ID del snapshot
 	 * @return el timestamp de fin
 	 */
 	LocalDateTime getSnapshotEndDatestamp(Long snapshotId);
-	
-	/**
-	 * Actualiza el timestamp de fin del snapshot.
-	 * 
-	 * @param snapshotId el ID del snapshot
-	 * @param datestamp el timestamp de fin
-	 */
-	void updateSnapshotEndDatestamp(Long snapshotId, LocalDateTime datestamp);
 	
 	/**
 	 * Obtiene el timestamp del último harvesting incremental.
@@ -230,6 +192,7 @@ public interface ISnapshotStore {
 	
 	/**
 	 * Actualiza el timestamp del último harvesting incremental.
+	 * Usado durante harvesting incremental para trackear el progreso.
 	 * 
 	 * @param snapshotId el ID del snapshot
 	 * @param datestamp el timestamp del último incremental
@@ -248,6 +211,31 @@ public interface ISnapshotStore {
 	 */
 	Integer getSnapshotSize(Long snapshotId);
 	
+	/**
+	 * Obtiene el tamaño válido actual del snapshot.
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 * @return el número de records válidos
+	 */
+	Integer getSnapshotValidSize(Long snapshotId);
+	
+	/**
+	 * Obtiene el tamaño transformado actual del snapshot.
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 * @return el número de records transformados
+	 */
+	Integer getSnapshotTransformedSize(Long snapshotId);
+	
+	/**
+	 * Incrementa el contador de tamaño del snapshot.
+	 * Llamado cuando se crea un nuevo record.
+	 * 
+	 * @deprecated Usar {@link #updateCounters(Long, CountersUpdate)} en su lugar.
+	 * Ejemplo: updateCounters(id, CountersUpdate.incrementHarvested())
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
 	/**
 	 * Incrementa el contador de tamaño del snapshot.
 	 * Llamado cuando se crea un nuevo record.
@@ -291,16 +279,97 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 * @throws MetadataRecordStoreException si falla la operación
 	 */
-	void resetSnapshotValidationCounts(Long snapshotId) throws MetadataRecordStoreException;
+	void resetSnapshotValidationCounts(Long snapshotId);
 	
 	/**
-	 * Actualiza los contadores de tamaño del snapshot basándose en conteo real.
-	 * Usado después de operaciones bulk como copyNotDeletedRecordsFromSnapshot.
+	 * Fuerza la persistencia de cambios pendientes a la BD.
+	 * 
+	 * CUÁNDO USAR:
+	 * - Al final de cada fase (harvesting, validation, indexing)
+	 * - Antes de leer datos que acabas de escribir desde otro componente
+	 * - Para garantizar durabilidad en puntos críticos
+	 * 
+	 * NOTA: Con @Transactional, esto fuerza el flush del EntityManager.
+	 * Los cambios se persisten pero la transacción sigue activa.
+	 * 
+	 * @param snapshotId el ID del snapshot (puede ser null para flush general)
+	 */
+	void flush(Long snapshotId);
+	
+	// ============================================================================
+	// BATCH UPDATE METHODS - Simplified API (Fase 2)
+	// ============================================================================
+	
+	/**
+	 * Inicia la fase de harvesting.
+	 * Actualiza: status = HARVESTING, startTime = now()
 	 * 
 	 * @param snapshotId el ID del snapshot
-	 * @param size el tamaño total
-	 * @param validSize el número de records válidos
-	 * @param transformedSize el número de records transformados
 	 */
-	void updateSnapshotCounts(Long snapshotId, Integer size, Integer validSize, Integer transformedSize);
+	void startHarvesting(Long snapshotId);
+	
+	/**
+	 * Actualiza el estado de harvesting sin finalizar.
+	 * Actualiza: status = HARVESTING, endTime = now()
+	 * Útil para marcar checkpoints durante el harvesting.
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
+	void updateHarvesting(Long snapshotId);
+	
+	/**
+	 * Finaliza la fase de harvesting exitosamente.
+	 * Actualiza: status = HARVESTED, endTime = now()
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
+	void finishHarvesting(Long snapshotId);
+	
+	/**
+	 * Inicia la fase de validación.
+	 * Actualiza: status = VALIDATING
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
+	void startValidation(Long snapshotId);
+	
+	/**
+	 * Finaliza la fase de validación exitosamente.
+	 * Actualiza: status = VALID, endTime = now()
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
+	void finishValidation(Long snapshotId);
+	
+	/**
+	 * Marca el snapshot como indexado.
+	 * Actualiza: indexStatus = INDEXED
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
+	void markAsIndexed(Long snapshotId);
+	
+	/**
+	 * Marca el snapshot como fallido.
+	 * Actualiza: status = FAILED, endTime = now()
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
+	void markAsFailed(Long snapshotId);
+	
+	/**
+	 * Marca el snapshot en estado de reintento.
+	 * Actualiza: status = RETRYING
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
+	void markAsRetrying(Long snapshotId);
+	
+	/**
+	 * Marca el snapshot como eliminado.
+	 * Actualiza: status = DELETED, endTime = now()
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 */
+	void markAsDeleted(Long snapshotId);
 }

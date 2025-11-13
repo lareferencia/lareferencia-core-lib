@@ -113,7 +113,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     public void addObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult validationResult) {
         
         Long snapshotId = snapshotMetadata.getSnapshotId();
-        String networkAcronym = snapshotMetadata.getNetworkAcronym();
+        String networkAcronym = snapshotMetadata.getNetwork().getAcronym();
         logger.debug("Adding observation for record identifier: {} in snapshot {} network: {}", 
                     record.getIdentifier(), snapshotId, networkAcronym);
 
@@ -425,10 +425,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         // Crear observación (repositoryName e institutionName son null en nueva arquitectura)
         return new ValidationStatObservation(
             recordId, identifier, metadata.getSnapshotId(), 
-            metadata.getOrigin(), 
+            metadata.getNetwork().getOriginURL(), 
             null, // repositoryName (eliminado en nueva arquitectura)
-            metadata.getMetadataPrefix(), 
-            metadata.getNetworkAcronym(), 
+            metadata.getNetwork().getMetadataPrefix(), 
+            metadata.getNetwork().getAcronym(), 
             null, // institutionName (eliminado en nueva arquitectura)
             null, // setSpec (no disponible en RecordValidation)
             isValid, isTransformed,

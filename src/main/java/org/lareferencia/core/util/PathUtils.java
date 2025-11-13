@@ -82,7 +82,7 @@ public final class PathUtils {
      * @return acronym sanitizado
      */
     private static String extractNetworkAcronym(SnapshotMetadata snapshotMetadata) {
-        String acronym = snapshotMetadata != null ? snapshotMetadata.getNetworkAcronym() : null;
+        String acronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : null;
         return sanitizeNetworkAcronym(acronym);
     }
 

@@ -226,7 +226,7 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
     public static OAIRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf, int flushThreshold) 
             throws IOException {
         logger.info("OAI RECORD MANAGER: Creating writer for snapshot {} network {} (flushThreshold={})", 
-                   snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym(), flushThreshold);
+                   snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym(), flushThreshold);
         return new OAIRecordManager(basePath, snapshotMetadata, hadoopConf, flushThreshold);
     }
     

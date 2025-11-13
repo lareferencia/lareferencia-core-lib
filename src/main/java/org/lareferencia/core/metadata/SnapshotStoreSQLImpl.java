@@ -22,8 +22,11 @@ package org.lareferencia.core.metadata;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+
+import jakarta.persistence.EntityManager;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,8 +37,8 @@ import org.lareferencia.core.domain.SnapshotStatus;
 import org.lareferencia.core.domain.Validator;
 import org.lareferencia.core.repository.jpa.NetworkSnapshotRepository;
 import org.lareferencia.core.repository.jpa.OAIRecordRepository;
-import org.lareferencia.core.service.management.SnapshotLogService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Implementación SQL del store de snapshots.
@@ -44,23 +47,22 @@ import org.springframework.beans.factory.annotation.Autowired;
  * - Gestión de lifecycle de snapshots (crear, guardar, eliminar)
  * - Gestión de estados y timestamps
  * - Queries sobre snapshots
- * - Caché en memoria de snapshots para performance
  * 
- * SEPARACIÓN CON RECORD STORE:
- * - Este store NO gestiona records, solo metadata de snapshots
- * - Delegación a RecordStore para operaciones de records
- * - Mantiene contadores sincronizados (size, validSize, transformedSize)
+ * ARQUITECTURA REFACTORIZADA (v5.0):
+ * - NetworkSnapshot (SQL) es la ÚNICA fuente de verdad
+ * - SnapshotMetadata es un DTO construido on-demand desde NetworkSnapshot
+ * - Sin caché manual: confiamos en JPA level-1 cache + @Transactional
+ * - Dirty checking automático de JPA para persistencia
  * 
  * THREAD SAFETY:
- * - ConcurrentHashMap para caché de snapshots
- * - Métodos synchronized en operaciones críticas
+ * - @Transactional maneja concurrencia
+ * - Métodos synchronized solo donde sea estrictamente necesario
  */
+@Transactional
 public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	
 	private static final Logger logger = LogManager.getLogger(SnapshotStoreSQLImpl.class);
-	
-	// Caché de snapshots en memoria para performance
-	private ConcurrentHashMap<Long, NetworkSnapshot> snapshotCache = new ConcurrentHashMap<>();
+	private static final int AUTOFLUSH_THRESHOLD = 100; // Flush cada 100 updates
 	
 	@Autowired
 	private NetworkSnapshotRepository snapshotRepository;
@@ -68,45 +70,55 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	@Autowired
 	private OAIRecordRepository recordRepository;
 	
+	@Autowired
+	private EntityManager entityManager;
+	
+	// Contador de updates para autoflush por snapshot
+	private final Map<Long, Integer> updateCounters = new ConcurrentHashMap<>();
+	
 	// ============================================================================
-	// CACHE MANAGEMENT (privado)
+	// PRIVATE HELPERS
 	// ============================================================================
 	
 	/**
-	 * Obtiene un snapshot desde el caché o la BD.
+	 * Obtiene un snapshot dado su ID
+	 * 
+	 * @param snapshotId ID del snapshot a obtener
+	 * @return NetworkSnapshot con los datos del snapshot
+	 * @throws SnapshotStoreException si el snapshot no existe
+	 */
+	private NetworkSnapshot getSnapshot(Long snapshotId) throws SnapshotStoreException {
+		Optional<NetworkSnapshot> optSnapshot = snapshotRepository.findById(snapshotId);
+		if (optSnapshot.isPresent()) {
+			return optSnapshot.get();
+		} else {
+			throw new SnapshotStoreException("Snapshot: " + snapshotId + " not found.");
+		}
+	}
+
+	/**
+	 * Incrementa el contador de updates para autoflush.
+	 * Hace flush si se alcanza el threshold.
 	 * 
 	 * @param snapshotId el ID del snapshot
-	 * @return el snapshot
-	 * @throws MetadataRecordStoreException si el snapshot no existe
 	 */
-	private NetworkSnapshot getSnapshot(Long snapshotId) throws MetadataRecordStoreException {
-		NetworkSnapshot snapshot = snapshotCache.get(snapshotId);
-		
-		if (snapshot == null) {
-			Optional<NetworkSnapshot> optSnapshot = snapshotRepository.findById(snapshotId);
-			if (optSnapshot.isPresent()) {
-				snapshot = optSnapshot.get();
-				snapshotCache.put(snapshotId, snapshot);
-			} else {
-				throw new MetadataRecordStoreException("Snapshot: " + snapshotId + " not found.");
-			}
+	private void trackUpdateAndAutoFlush(Long snapshotId) {
+		int count = updateCounters.merge(snapshotId, 1, Integer::sum);
+		if (count >= AUTOFLUSH_THRESHOLD) {
+			entityManager.flush();
+			updateCounters.put(snapshotId, 0);  // Reset contador
+			logger.trace("SNAPSHOT STORE: Autoflush triggered for snapshot {} after {} updates", 
+			            snapshotId, count);
 		}
-		
-		return snapshot;
 	}
 	
 	/**
-	 * Guarda un snapshot en el caché.
+	 * Limpia el contador de updates después de finalizar operación.
+	 * 
+	 * @param snapshotId el ID del snapshot
 	 */
-	private void putSnapshot(NetworkSnapshot snapshot) {
-		snapshotCache.put(snapshot.getId(), snapshot);
-	}
-	
-	/**
-	 * Elimina un snapshot del caché.
-	 */
-	private void removeFromCache(Long snapshotId) {
-		snapshotCache.remove(snapshotId);
+	private void clearUpdateCounter(Long snapshotId) {
+		updateCounters.remove(snapshotId);
 	}
 	
 	// ============================================================================
@@ -120,24 +132,10 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		snapshot.setStartTime(LocalDateTime.now());
 		snapshotRepository.save(snapshot);
 		
-		// Guardar en caché
-		putSnapshot(snapshot);
-		
 		logger.info("SNAPSHOT STORE: Created snapshot {} for network {}", 
 		           snapshot.getId(), network.getId());
 		
 		return snapshot.getId();
-	}
-	
-	@Override
-	public void saveSnapshot(Long snapshotId) {
-		try {
-			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshotRepository.save(snapshot);
-			logger.debug("SNAPSHOT STORE: Saved snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
-			logger.error("SNAPSHOT STORE: Error saving snapshot {}: {}", snapshotId, e.getMessage());
-		}
 	}
 	
 	@Override
@@ -148,9 +146,6 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		
 		// Eliminar snapshot
 		snapshotRepository.deleteBySnapshotID(snapshotId);
-		
-		// Eliminar del caché
-		removeFromCache(snapshotId);
 		
 		logger.info("SNAPSHOT STORE: Deleted snapshot {}", snapshotId);
 	}
@@ -175,11 +170,10 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			} else {
 				// Para snapshots fallidos: eliminar completamente
 				snapshotRepository.delete(snapshot);
-				removeFromCache(snapshotId);
 				logger.info("SNAPSHOT STORE: Cleaned and removed failed snapshot {}", snapshotId);
 			}
 			
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error cleaning snapshot {}: {}", snapshotId, e.getMessage());
 		}
 	}
@@ -222,7 +216,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getPreviousSnapshotId();
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting previous snapshot ID for {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
@@ -237,7 +231,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			snapshotRepository.save(snapshot);
 			logger.debug("SNAPSHOT STORE: Set previous snapshot {} for snapshot {}", 
 			           previousSnapshotId, snapshotId);
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error setting previous snapshot ID for {}: {}", 
 			           snapshotId, e.getMessage());
 		}
@@ -247,54 +241,21 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	// SNAPSHOT METADATA
 	// ============================================================================
 	
+	/**
+	 * Genera SnapshotMetadata desde NetworkSnapshot.
+	 * 
+	 * IMPORTANTE: NetworkSnapshot es la fuente de verdad.
+	 * Este método construye el DTO SnapshotMetadata on-demand.
+	 * 
+	 * NOTA: Lee directamente desde BD para garantizar datos frescos.
+	 * JPA level-1 cache puede hacer esto eficiente dentro de la transacción.
+	 */
 	@Override
 	public SnapshotMetadata getSnapshotMetadata(Long snapshotId) {
 		try {
-			// Traer siempre de la BD, evitando el caché
-			Optional<NetworkSnapshot> optSnapshot = snapshotRepository.findById(snapshotId);
-			if (!optSnapshot.isPresent()) {
-				throw new MetadataRecordStoreException("Snapshot: " + snapshotId + " not found.");
-			}
-			NetworkSnapshot snapshot = optSnapshot.get();
-			
-			SnapshotMetadata metadata = new SnapshotMetadata(snapshotId);
-			
-			// Información básica
-			metadata.setSize(snapshot.getSize() != null ? snapshot.getSize() : 0);
-			metadata.setValidSize(snapshot.getValidSize());
-			metadata.setTransformedSize(snapshot.getTransformedSize());
-			
-			// Timestamp de creación
-			if (snapshot.getStartTime() != null) {
-				metadata.setCreatedAt(snapshot.getStartTime().toInstant(java.time.ZoneOffset.UTC).toEpochMilli());
-			}
-			
-			// Información de la red
-			if (snapshot.getNetwork() != null) {
-				metadata.setOrigin(snapshot.getNetwork().getOriginURL());
-				metadata.setNetworkAcronym(snapshot.getNetwork().getAcronym());
-				metadata.setMetadataPrefix(snapshot.getNetwork().getMetadataPrefix());
-
-				metadata.setNetwork(snapshot.getNetwork());
-			}
-			
-		    // Populate rule definitions from the associated validator
-			if (snapshot.getNetwork().getValidator() != null) {
-				snapshot.getNetwork().getValidator().getRules().forEach(rule -> {
-					SnapshotMetadata.RuleDefinition ruleDef = new SnapshotMetadata.RuleDefinition(
-							rule.getId(),
-							rule.getName(),
-							rule.getDescription(),
-							rule.getQuantifier().name(),
-							rule.getMandatory()
-					);
-					metadata.getRuleDefinitions().put(rule.getId(), ruleDef);
-				});
-			}
-			
-			return metadata;
-			
-		} catch (MetadataRecordStoreException e) {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			return new SnapshotMetadata(snapshot);
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting snapshot metadata for {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
@@ -306,7 +267,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getNetwork().getValidator();
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting validator for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
@@ -322,23 +283,10 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getStatus();
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting status for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
-		}
-	}
-	
-	@Override
-	public void updateSnapshotStatus(Long snapshotId, SnapshotStatus status) {
-		try {
-			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshot.setStatus(status);
-			// No guardamos inmediatamente - se guarda en saveSnapshot()
-			logger.debug("SNAPSHOT STORE: Updated status to {} for snapshot {}", status, snapshotId);
-		} catch (MetadataRecordStoreException e) {
-			logger.error("SNAPSHOT STORE: Error updating status for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
 		}
 	}
 	
@@ -347,28 +295,15 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getIndexStatus();
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting index status for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
 		}
 	}
 	
-	@Override
-	public void updateSnapshotIndexStatus(Long snapshotId, SnapshotIndexStatus status) {
-		try {
-			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshot.setIndexStatus(status);
-			// No guardamos inmediatamente - se guarda en saveSnapshot()
-			logger.debug("SNAPSHOT STORE: Updated index status to {} for snapshot {}", status, snapshotId);
-		} catch (MetadataRecordStoreException e) {
-			logger.error("SNAPSHOT STORE: Error updating index status for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
-		}
-	}
-	
 	// ============================================================================
-	// SNAPSHOT TIMESTAMPS
+	// SNAPSHOT TIMESTAMPS (GETTERS ONLY - Use batch methods for updates)
 	// ============================================================================
 	
 	@Override
@@ -376,46 +311,22 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getStartTime();
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting start datestamp for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
-	@Override
-	public void updateSnapshotStartDatestamp(Long snapshotId, LocalDateTime datestamp) {
-		try {
-			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshot.setStartTime(datestamp);
-			logger.debug("SNAPSHOT STORE: Updated start datestamp for snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
-			logger.error("SNAPSHOT STORE: Error updating start datestamp for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
-		}
-	}
-	
+
 	@Override
 	public LocalDateTime getSnapshotEndDatestamp(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getEndTime();
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting end datestamp for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
-		}
-	}
-	
-	@Override
-	public void updateSnapshotEndDatestamp(Long snapshotId, LocalDateTime datestamp) {
-		try {
-			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshot.setEndTime(datestamp);
-			logger.debug("SNAPSHOT STORE: Updated end datestamp for snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
-			logger.error("SNAPSHOT STORE: Error updating end datestamp for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
 		}
 	}
 	
@@ -424,7 +335,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getLastIncrementalTime();
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting last incremental datestamp for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
@@ -432,16 +343,18 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	}
 	
 	@Override
+	@Transactional
 	public void updateSnapshotLastIncrementalDatestamp(Long snapshotId, LocalDateTime datestamp) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setLastIncrementalTime(datestamp);
-			logger.debug("SNAPSHOT STORE: Updated last incremental datestamp for snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
+			logger.debug("SNAPSHOT STORE: Updated last incremental datestamp for snapshot {} to {}", 
+			            snapshotId, datestamp);
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error updating last incremental datestamp for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 		}
-	}
+	}	
 	
 	// ============================================================================
 	// SNAPSHOT COUNTERS
@@ -452,7 +365,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getSize();
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error getting size for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 			return null;
@@ -460,88 +373,270 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	}
 	
 	@Override
-	public synchronized void incrementSnapshotSize(Long snapshotId) {
+	public Integer getSnapshotValidSize(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			return snapshot.getValidSize();
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error getting valid size for snapshot {}: {}", 
+			           snapshotId, e.getMessage());
+			return null;
+		}
+	}
+	
+	@Override
+	public Integer getSnapshotTransformedSize(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			return snapshot.getTransformedSize();
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error getting transformed size for snapshot {}: {}", 
+			           snapshotId, e.getMessage());
+			return null;
+		}
+	}
+	
+	@Override
+	public void incrementSnapshotSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.incrementSize();
+			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Incremented size for snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error incrementing size for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 		}
 	}
 	
 	@Override
-	public synchronized void incrementValidSize(Long snapshotId) {
+	public void incrementValidSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.incrementValidSize();
+			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Incremented valid size for snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error incrementing valid size for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 		}
 	}
 	
 	@Override
-	public synchronized void decrementValidSize(Long snapshotId) {
+	public void decrementValidSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.decrementValidSize();
+			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Decremented valid size for snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error decrementing valid size for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 		}
 	}
 	
 	@Override
-	public synchronized void incrementTransformedSize(Long snapshotId) {
+	public void incrementTransformedSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.incrementTransformedSize();
+			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Incremented transformed size for snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error incrementing transformed size for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 		}
 	}
 	
 	@Override
-	public synchronized void decrementTransformedSize(Long snapshotId) {
+	public void decrementTransformedSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.decrementTransformedSize();
+			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Decremented transformed size for snapshot {}", snapshotId);
-		} catch (MetadataRecordStoreException e) {
+		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error decrementing transformed size for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
 		}
 	}
 	
 	@Override
-	public void resetSnapshotValidationCounts(Long snapshotId) throws MetadataRecordStoreException {
-		NetworkSnapshot snapshot = getSnapshot(snapshotId);
-		snapshot.setValidSize(0);
-		snapshot.setTransformedSize(0);
-		snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
-		snapshot.setIndexStatus(SnapshotIndexStatus.UNKNOWN);
-		snapshotRepository.save(snapshot);
-		logger.info("SNAPSHOT STORE: Reset validation counts for snapshot {}", snapshotId);
+	@Transactional
+	public void resetSnapshotValidationCounts(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setValidSize(0);
+			snapshot.setTransformedSize(0);
+			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
+			snapshot.setIndexStatus(SnapshotIndexStatus.UNKNOWN);
+			logger.info("SNAPSHOT STORE: Reset validation counts for snapshot {}", snapshotId);
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error resetting validation counts for snapshot {}: {}", 
+			           snapshotId, e.getMessage());
+		}
+	}
+	
+	// @Override
+	// public void updateSnapshotCounts(Long snapshotId, Integer size, Integer validSize, Integer transformedSize) {
+	// 	try {
+	// 		NetworkSnapshot snapshot = getSnapshot(snapshotId);
+	// 		snapshot.setSize(size);
+	// 		snapshot.setValidSize(validSize);
+	// 		snapshot.setTransformedSize(transformedSize);
+	// 		logger.debug("SNAPSHOT STORE: Updated counts for snapshot {}: size={}, valid={}, transformed={}", 
+	// 		           snapshotId, size, validSize, transformedSize);
+	// 	} catch (SnapshotStoreException e) {
+	// 		logger.error("SNAPSHOT STORE: Error updating counts for snapshot {}: {}", 
+	// 		           snapshotId, e.getMessage());
+	// 	}
+	// }
+	
+	// ============================================================================
+	// BATCH UPDATE METHODS - Simplified API (Fase 2)
+	// ============================================================================
+	
+	@Override
+	@Transactional
+	public void startHarvesting(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setStatus(SnapshotStatus.HARVESTING);
+			snapshot.setStartTime(LocalDateTime.now());
+			logger.info("SNAPSHOT STORE: Started harvesting for snapshot {}", snapshotId);
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error starting harvesting for snapshot {}: {}", 
+			           snapshotId, e.getMessage());
+		}
 	}
 	
 	@Override
-	public void updateSnapshotCounts(Long snapshotId, Integer size, Integer validSize, Integer transformedSize) {
+	@Transactional
+	public void updateHarvesting(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshot.setSize(size);
-			snapshot.setValidSize(validSize);
-			snapshot.setTransformedSize(transformedSize);
-			logger.debug("SNAPSHOT STORE: Updated counts for snapshot {}: size={}, valid={}, transformed={}", 
-			           snapshotId, size, validSize, transformedSize);
-		} catch (MetadataRecordStoreException e) {
-			logger.error("SNAPSHOT STORE: Error updating counts for snapshot {}: {}", 
+			snapshot.setStatus(SnapshotStatus.HARVESTING);
+			snapshot.setEndTime(LocalDateTime.now());
+			logger.info("SNAPSHOT STORE: Updated harvesting status for snapshot {}", snapshotId);
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error updating harvesting for snapshot {}: {}", 
 			           snapshotId, e.getMessage());
+		}
+	}
+	
+	@Override
+	@Transactional
+	public void finishHarvesting(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
+			snapshot.setEndTime(LocalDateTime.now());
+			logger.info("SNAPSHOT STORE: Finished harvesting for snapshot {}", snapshotId);
+			// JPA dirty checking persiste automáticamente al final de la transacción
+			clearUpdateCounter(snapshotId);
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error finishing harvesting for snapshot {}: {}", 
+			           snapshotId, e.getMessage());
+		}
+	}
+	
+	@Override
+	@Transactional
+	public void startValidation(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setStatus(SnapshotStatus.VALID); // No hay estado VALIDATING, usa VALID directamente
+			logger.info("SNAPSHOT STORE: Started validation for snapshot {}", snapshotId);
+			// JPA dirty checking persiste automáticamente al final de la transacción
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error starting validation for snapshot {}: {}", 
+			           snapshotId, e.getMessage());
+		}
+	}
+	
+	@Override
+	@Transactional
+	public void finishValidation(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setStatus(SnapshotStatus.VALID);
+			snapshot.setEndTime(LocalDateTime.now());
+			logger.info("SNAPSHOT STORE: Finished validation for snapshot {}", snapshotId);
+			// JPA dirty checking persiste automáticamente al final de la transacción
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error finishing validation for snapshot {}: {}", 
+			           snapshotId, e.getMessage());
+		}
+	}
+	
+	@Override
+	@Transactional
+	public void markAsIndexed(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setIndexStatus(SnapshotIndexStatus.INDEXED);
+			logger.info("SNAPSHOT STORE: Marked snapshot {} as indexed", snapshotId);
+			// JPA dirty checking persiste automáticamente al final de la transacción
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error marking snapshot {} as indexed: {}", 
+			           snapshotId, e.getMessage());
+		}
+	}
+	
+	@Override
+	@Transactional
+	public void markAsFailed(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_ERROR); // Usa error de harvesting
+			snapshot.setEndTime(LocalDateTime.now());
+			logger.info("SNAPSHOT STORE: Marked snapshot {} as failed", snapshotId);
+			// JPA dirty checking persiste automáticamente al final de la transacción
+			clearUpdateCounter(snapshotId);
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error marking snapshot {} as failed: {}", 
+			           snapshotId, e.getMessage());
+		}
+	}
+	
+	@Override
+	@Transactional
+	public void markAsDeleted(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setDeleted(true);
+			logger.info("SNAPSHOT STORE: Marked snapshot {} as deleted", snapshotId);
+			// JPA dirty checking persiste automáticamente al final de la transacción
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error marking snapshot {} as deleted: {}", 
+			           snapshotId, e.getMessage());
+		}
+	}
+	
+	@Override
+	@Transactional
+	public void markAsRetrying(Long snapshotId) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setStatus(SnapshotStatus.RETRYING);
+			logger.info("SNAPSHOT STORE: Marked snapshot {} as retrying", snapshotId);
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error marking snapshot {} as retrying: {}", 
+			           snapshotId, e.getMessage());
+		}
+	}
+	
+	@Override
+	public void flush(Long snapshotId) {
+		// Forzar flush del EntityManager
+		// Con @Transactional, JPA dirty checking ya persistió los cambios
+		// Este método es principalmente para documentar puntos de flush explícitos
+		snapshotRepository.flush();
+		
+		if (snapshotId != null) {
+			logger.debug("SNAPSHOT STORE: Flushed snapshot {}", snapshotId);
+		} else {
+			logger.debug("SNAPSHOT STORE: Flushed all pending changes");
 		}
 	}
 }
