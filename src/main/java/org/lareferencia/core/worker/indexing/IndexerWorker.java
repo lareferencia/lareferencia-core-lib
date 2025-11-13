@@ -22,26 +22,24 @@ package org.lareferencia.core.worker.indexing;
 
 import java.io.IOException;
 import java.text.NumberFormat;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.hadoop.thirdparty.org.checkerframework.checker.units.qual.A;
+import org.apache.jena.atlas.iterator.Iter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.filter2.predicate.Operators.In;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
-import org.apache.solr.client.solrj.response.QueryResponse;
-import org.lareferencia.core.domain.OAIBitstream;
+import org.checkerframework.checker.units.qual.N;
 import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.repository.parquet.RecordValidation;
-import org.lareferencia.core.repository.jpa.OAIBitstreamRepository;
 import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
 import org.lareferencia.core.service.management.SnapshotLogService;
-import org.lareferencia.core.service.validation.IValidationStatisticsService;
 import org.lareferencia.core.metadata.IMDFormatTransformer;
-import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.metadata.IMetadataStore;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.MDFormatTranformationException;
@@ -53,10 +51,8 @@ import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
 import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.date.DateHelper;
-import org.lareferencia.core.util.IRecordFingerprintHelper;
-import org.lareferencia.core.worker.BaseBatchWorker;
+import org.lareferencia.core.worker.BaseIteratorWorker;
 import org.lareferencia.core.worker.BaseWorker;
-import org.lareferencia.core.worker.IPaginator;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -71,7 +67,7 @@ import lombok.Setter;
  * 
  * @author LA Referencia Team
  */
-public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
+public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkRunningContext> {
 
 	@Autowired
 	private ISnapshotStore snapshotStore;
@@ -96,11 +92,6 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
-
-	List<RecordValidation> recordsToProcess;
-	Integer currentRecordIndex = 0;
-	Integer totalRecords = 0;
-	Integer pageSize = 1000;
 
 	@Getter
 	@Setter
@@ -170,7 +161,7 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 			if (snapshotId != null) { // solo si existe un lgk
 
 				snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
-
+				
 				logger.debug("Executing index deletion: " + runningContext.getNetwork().getAcronym());
 				logInfo("Executing index deletion: "+ runningContext.toString() +" (" + this.targetSchemaName + ")");
 				delete(runningContext.getNetwork().getAcronym());
@@ -181,17 +172,16 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 
 				// establece el transformador para indexación
 				try {
-					recordsToProcess = parquetRepository.getRecordValidationListBySnapshotAndStatus(snapshotId, RecordStatus.VALID);	
-					totalRecords = recordsToProcess.size();
 
+					Iterator<RecordValidation> iterator = parquetRepository.getLightweightIterator(snapshotMetadata, RecordStatus.VALID);	
+					this.setIterator(iterator, snapshotMetadata.getValidSize());
+					
 					metadataTransformer = trfService.getMDTransformer(runningContext.getNetwork().getMetadataStoreSchema(), targetSchemaName);
 
 					metadataTransformer.setParameter("networkAcronym", runningContext.getNetwork().getAcronym());
 					metadataTransformer.setParameter("networkName", runningContext.getNetwork().getName());
-					metadataTransformer.setParameter("institutionName",
-							runningContext.getNetwork().getInstitutionName());
-					metadataTransformer.setParameter("institutionAcronym",
-							runningContext.getNetwork().getInstitutionAcronym());
+					metadataTransformer.setParameter("institutionName",runningContext.getNetwork().getInstitutionName());
+					metadataTransformer.setParameter("institutionAcronym",runningContext.getNetwork().getInstitutionAcronym());
 
 					// Set parameters from network attributes
 					if (indexNetworkAttributes)
@@ -204,9 +194,8 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 							+ " error: " + e.getMessage());
 					error();
 				} catch (IOException e) {
-					logError("I/O ERROR at indexing: " + runningContext.toString() + " " 
-							+ runningContext.getNetwork().getMetadataStoreSchema() + " >> " + targetSchemaName 
-							+ " error: " + e.getMessage());
+					logError("Error getting lightweight iterator for indexing: " + runningContext.toString() + ": "
+							+ e.getMessage());
 					error();
 				}
 
@@ -222,38 +211,12 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 	public void prePage() {
 		stringBuffer = new StringBuffer();
 	}
-
-	@Override
-	public void run() {
-
-		preRun();
-
-		if (currentRecordIndex == 0)
-			prePage();
-
-		recordsToProcess.forEach( record -> {
-			currentRecordIndex += 1;
-			processItem(record);
-
-			if ( currentRecordIndex % pageSize == 0 ) {
-				logger.debug("Indexing progress " + runningContext.getNetwork().getAcronym() + "::" + this.targetSchemaName 
-						+ " :: " + percentajeFormat.format(this.getCompletionRate()) 
-						+ " (" + currentRecordIndex + " / " + totalRecords + " records indexed)" );
-
-				postPage();
-				prePage();
-			}
-		});
-
-		postRun();
-	}
 	
 
 	public void processItem(RecordValidation record) {
 
 		try {
 
-		
 			OAIRecordMetadata metadata = new OAIRecordMetadata( record.getIdentifier(), 
 							metadataStore.getMetadata(snapshotMetadata, record.getPublishedMetadataHash()) ); 
 
@@ -306,8 +269,6 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 
 			// metadata como string
 			metadataTransformer.setParameter("metadata", metadata.toString());
-
-
 			
 			// if the record is valid or if it is a deleted record but indexDeletedRecords is true then index it
 			// indexDeletedRecords is used to index deleted records in the index, this is used by oaipmh providers but not by frontends
@@ -483,12 +444,7 @@ public class IndexerWorker extends BaseWorker<NetworkRunningContext> {
 				+ percentajeFormat.format(this.getCompletionRate()) + ")";
 	}
 
-	Double getCompletionRate() {
-		if ( totalRecords == 0 )
-			return 0.0;
-		else
-			return ( currentRecordIndex.doubleValue() / totalRecords.doubleValue() );
-	}
+	
 
 	
 }
