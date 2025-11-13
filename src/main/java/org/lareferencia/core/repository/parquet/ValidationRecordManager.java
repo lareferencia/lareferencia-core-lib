@@ -38,8 +38,6 @@ import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Types;
-import org.lareferencia.core.repository.parquet.RecordValidation;
-import org.lareferencia.core.repository.parquet.RuleFact;
 import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.PathUtils;
@@ -128,7 +126,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     private static final Logger logger = LogManager.getLogger(ValidationRecordManager.class);
     
     // Constantes de nombres de archivos
-    private static final String SNAPSHOT_DIR_PREFIX = "snapshot_";
     private static final String VALIDATION_SUBDIR = "validation";
     private static final String BATCH_FILE_PREFIX = "records_batch_";
     private static final String BATCH_FILE_SUFFIX = ".parquet";
@@ -152,7 +149,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         .required(PrimitiveType.PrimitiveTypeName.BINARY)
             .as(LogicalTypeAnnotation.stringType())
             .named("record_id")
-        .optional(PrimitiveType.PrimitiveTypeName.INT64)
+        .required(PrimitiveType.PrimitiveTypeName.INT64)
             .as(LogicalTypeAnnotation.timestampType(true, LogicalTypeAnnotation.TimeUnit.MILLIS))
             .named("datestamp")
         .required(PrimitiveType.PrimitiveTypeName.BOOLEAN)
@@ -204,7 +201,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         .required(PrimitiveType.PrimitiveTypeName.BINARY)
             .as(LogicalTypeAnnotation.stringType())
             .named("identifier")
-        .optional(PrimitiveType.PrimitiveTypeName.INT64)
+        .required(PrimitiveType.PrimitiveTypeName.INT64)
             .as(LogicalTypeAnnotation.timestampType(true, LogicalTypeAnnotation.TimeUnit.MILLIS))
             .named("datestamp")
         .required(PrimitiveType.PrimitiveTypeName.BOOLEAN)
@@ -233,7 +230,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     // Estado de LECTURA (SIN CACHE - readers se crean/cierran on-demand)
     private List<Path> batchFiles;
     private int currentBatchIndex = 0;
-    private long recordsRead = 0;
     
     // Cache temporal para iteración (solo durante un ciclo de iteración)
     private List<RecordValidation> currentBatchRecords = null;
@@ -299,13 +295,46 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     }
     
     /**
-     * Método de conveniencia para iterar sobre records de forma lazy.
-     * Equivalente a: ValidationRecordManager.forReading(...).iterator()
+     * Método de conveniencia para iterar sobre records de forma lazy (modo completo con ruleFacts).
+     * 
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de manager.
+     * Múltiples threads pueden iterar el mismo snapshot sin interferencia.
+     * 
+     * @param basePath ruta base
+     * @param snapshotMetadata metadata del snapshot
+     * @param hadoopConf configuración Hadoop
+     * @return iterator lazy sobre todos los records (completos, thread-safe)
+     * @throws IOException si falla
+     */
+    public static Iterator<RecordValidation> iterate(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
+            throws IOException {
+        // ✅ THREAD-SAFE: Crear NUEVA instancia para cada llamada
+        ValidationRecordManager manager = forReading(basePath, snapshotMetadata, hadoopConf);
+        return manager.iterator();
+    }
+    
+        /**
+     * Método de conveniencia para iterar sobre records de forma lazy (modo ligero sin ruleFacts).
+     * 
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de manager.
+     * Múltiples threads pueden iterar el mismo snapshot sin interferencia.
+     * 
+     * ÍNDICE LIGERO:
+     * - RecordValidation sin ruleFacts (solo campos esenciales)
+     * - ~35 bytes/record comprimido
+     * - Carga completa desde archivo validation_index.parquet
+     * 
+     * VENTAJAS vs modo completo:
+     * - Sin ruleFacts: más rápido y menos memoria
+     * - Ideal para queries, filtrados, estadísticas básicas
+     * - Usa proyección de columnas Parquet para eficiencia
      * 
      * Ejemplo de uso:
      * <pre>
-     * for (RecordValidation record : ValidationRecordManager.iterate(basePath, snapshotMetadata, hadoopConf)) {
-     *     // Procesar record sin cargar todo en memoria
+     * Iterator<RecordValidation> iterator = ValidationRecordManager.iterateLightweight(basePath, snapshotMetadata, hadoopConf);
+     * while (iterator.hasNext()) {
+     *     RecordValidation record = iterator.next();
+     *     // Procesar record sin ruleFacts
      *     processRecord(record);
      * }
      * </pre>
@@ -313,12 +342,18 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * @param basePath ruta base
      * @param snapshotMetadata metadata del snapshot
      * @param hadoopConf configuración Hadoop
-     * @return iterable lazy sobre todos los records
+     * @return iterator sobre todos los records (ligeros sin ruleFacts, thread-safe)
      * @throws IOException si falla
      */
-    public static Iterable<RecordValidation> iterate(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
+    public static Iterator<RecordValidation> iterateLightweight(String basePath, SnapshotMetadata snapshotMetadata, RecordStatus status, Configuration hadoopConf) 
             throws IOException {
-        return forReading(basePath, snapshotMetadata, hadoopConf);
+        // ✅ THREAD-SAFE: Crear NUEVA instancia para cada llamada
+        ValidationRecordManager manager = forReading(basePath, snapshotMetadata, hadoopConf);
+        
+        // Cargar índice ligero completo y convertir a iterator
+        List<RecordValidation> lightRecords = manager.loadLightweightIndex(status);
+        
+        return lightRecords.iterator();
     }
     
     // ============================================================================
@@ -627,10 +662,12 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * Lee siguiente record (automáticamente de todos los archivos batch).
      * SIN CACHE: cada batch se carga completo, se itera en memoria, luego se libera.
      * 
+     * PRIVADO: Solo usado internamente por el iterator.
+     * 
      * @return record o null si EOF (todos los archivos procesados)
      * @throws IOException si falla
      */
-    public RecordValidation readNext() throws IOException {
+    private RecordValidation readNext() throws IOException {
         while (true) {
             // Si no hay batch cargado o se agotó el actual, cargar siguiente
             if (currentBatchRecords == null || currentRecordIndex >= currentBatchRecords.size()) {
@@ -641,29 +678,9 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             
             // Retornar siguiente record del batch actual
             if (currentRecordIndex < currentBatchRecords.size()) {
-                recordsRead++;
                 return currentBatchRecords.get(currentRecordIndex++);
             }
         }
-    }
-    
-    /**
-     * Lee todos los records de los archivos batch.
-     * NOTA: Para datasets grandes, usar iterator() en su lugar para evitar cargar todo en memoria.
-     * 
-     * @return lista de records
-     * @throws IOException si falla
-     */
-    public List<RecordValidation> readAll() throws IOException {
-        List<RecordValidation> records = new ArrayList<>();
-        RecordValidation record;
-        
-        while ((record = readNext()) != null) {
-            records.add(record);
-        }
-        
-        logger.info("RECORDS MANAGER: Read {} records total", recordsRead);
-        return records;
     }
     
     // ============================================================================
@@ -681,24 +698,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     @Override
     public Iterator<RecordValidation> iterator() {
         return new RecordIterator();
-    }
-    
-    /**
-     * Reinicia el lector para permitir una nueva iteración desde el principio.
-     * Útil cuando se necesita iterar múltiples veces sobre el mismo dataset.
-     * 
-     * @throws IOException si falla al reinicializar
-     */
-    public void reset() throws IOException {
-        // Liberar batch actual en memoria
-        currentBatchRecords = null;
-        currentRecordIndex = 0;
-        
-        // Reiniciar contadores y estado
-        currentBatchIndex = 0;
-        recordsRead = 0;
-        
-        logger.debug("RECORDS MANAGER: Reset completed for snapshot {} (NO CACHE)", snapshotId);
     }
     
     /**
@@ -749,40 +748,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     }
     
     /**
-     * Cuenta el total de records sin cargarlos en memoria.
-     * Itera sobre todos los records pero solo cuenta, no los almacena.
-     * 
-     * @return número total de records en todos los archivos batch
-     */
-    public long countRecords() {
-        long count = 0;
-        for (@SuppressWarnings("unused") RecordValidation record : this) {
-            count++;
-        }
-        return count;
-    }
-    
-    /**
-     * Procesa records de forma streaming usando un Consumer.
-     * Permite procesar datasets grandes sin cargar todo en memoria.
-     * 
-     * Ejemplo de uso:
-     * <pre>
-     * manager.processRecords(record -> {
-     *     // Procesar cada record individualmente
-     *     System.out.println("Processing: " + record.getId());
-     * });
-     * </pre>
-     * 
-     * @param processor función que procesa cada record
-     */
-    public void processRecords(java.util.function.Consumer<RecordValidation> processor) {
-        for (RecordValidation record : this) {
-            processor.accept(record);
-        }
-    }
-    
-    /**
      * Convierte Group de Parquet a RecordValidation con RuleFacts anidados
      */
     private RecordValidation convertGroupToRecord(Group group) {
@@ -792,21 +757,14 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         record.setIdentifier(group.getString("identifier", 0));
         record.setRecordId(group.getString("record_id", 0));
         
-        // datestamp (opcional)
-        try {
-            int datestampIndex = group.getType().getFieldIndex("datestamp");
-            if (datestampIndex >= 0 && group.getFieldRepetitionCount(datestampIndex) > 0) {
-                long epochMillis = group.getLong("datestamp", 0);
-                record.setDatestamp(
-                    java.time.LocalDateTime.ofInstant(
-                        java.time.Instant.ofEpochMilli(epochMillis),
-                        java.time.ZoneId.systemDefault()
-                    )
-                );
-            }
-        } catch (Exception e) {
-            // Campo opcional, ignorar si no existe
-        }
+        // datestamp (REQUERIDO - tanto en SCHEMA como en INDEX_SCHEMA)
+        long epochMillis = group.getLong("datestamp", 0);
+        record.setDatestamp(
+            java.time.LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(epochMillis),
+                java.time.ZoneId.systemDefault()
+            )
+        );
         
         record.setRecordIsValid(group.getBoolean("record_is_valid", 0));
         record.setIsTransformed(group.getBoolean("is_transformed", 0));
@@ -917,7 +875,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      */
     public List<RecordValidation> loadLightweightIndex(RecordStatus status) throws IOException {
         String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
-        String indexPath = snapshotPath + "/" + INDEX_FILE_NAME;
+        String indexPath = snapshotPath + "/" + VALIDATION_SUBDIR + "/" + INDEX_FILE_NAME;
         Path path = new Path(indexPath);
         
         logger.info("RECORDS MANAGER: Loading lightweight index from {}", indexPath);
@@ -932,13 +890,20 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             
             Group group;
             while ((group = reader.read()) != null) {
-
                 boolean isValid = group.getBoolean("record_is_valid", 0);
 
-                if ( status == null || status == RecordStatus.UNTESTED ||  
-                    (status == RecordStatus.VALID && !isValid) ||
-                    (status == RecordStatus.INVALID && isValid)) {
-                    continue; // Filtrar según estado solicitado
+                // Filtrar según RecordStatus solicitado
+                // UNTESTED o null = retornar todos (sin filtro)
+                // VALID = solo records válidos (isValid == true)
+                // INVALID = solo records inválidos (isValid == false)
+                // DELETED = ignorado (no aplica para validación)
+                if (status != null && status != RecordStatus.UNTESTED) {
+                    if (status == RecordStatus.VALID && !isValid) {
+                        continue; // Pide VALID pero el record es inválido
+                    }
+                    if (status == RecordStatus.INVALID && isValid) {
+                        continue; // Pide INVALID pero el record es válido
+                    }
                 }
                 
                 RecordValidation indexRecord = new RecordValidation();
@@ -948,6 +913,19 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
                 indexRecord.setIdentifier(group.getString("identifier", 0));
                 indexRecord.setRecordIsValid(group.getBoolean("record_is_valid", 0));
                 indexRecord.setIsTransformed(group.getBoolean("is_transformed", 0));
+                
+                // datestamp (ahora requerido)
+                try {
+                    long epochMillis = group.getLong("datestamp", 0);
+                    indexRecord.setDatestamp(
+                        java.time.LocalDateTime.ofInstant(
+                            java.time.Instant.ofEpochMilli(epochMillis),
+                            java.time.ZoneId.systemDefault()
+                        )
+                    );
+                } catch (Exception e) {
+                    logger.warn("Error reading datestamp for record {}: {}", indexRecord.getRecordId(), e.getMessage());
+                }
                 
                 // published_metadata_hash (opcional)
                 try {
@@ -968,29 +946,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     }
     
     // ============================================================================
-    // UTILITIES
+    // UTILITIES & CLEANUP
     // ============================================================================
-    
-    /**
-     * Retorna número total de records escritos (todas las batches)
-     */
-    public long getTotalRecordsWritten() {
-        return totalRecordsWritten;
-    }
-    
-    /**
-     * Retorna número de archivos batch creados
-     */
-    public int getBatchCount() {
-        return batchNumber;
-    }
-    
-    /**
-     * Retorna número de records leídos (de todos los archivos batch)
-     */
-    public long getRecordsRead() {
-        return recordsRead;
-    }
     
     @Override
     public void close() throws IOException {
@@ -1021,8 +978,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         currentRecordIndex = 0;
         
         if (batchFiles != null && !batchFiles.isEmpty()) {
-            logger.info("RECORDS MANAGER: Closed (NO CACHE). Total records read: {} from {} batch files", 
-                        recordsRead, batchFiles.size());
+            logger.info("RECORDS MANAGER: Closed reader for {} batch files (NO CACHE)", batchFiles.size());
         }
     }
 }

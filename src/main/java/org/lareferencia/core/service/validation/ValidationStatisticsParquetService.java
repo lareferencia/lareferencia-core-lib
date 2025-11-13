@@ -39,7 +39,6 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -88,8 +87,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         return detailedDiagnose;
     }
 
-    @Autowired
-    private IRecordFingerprintHelper fingerprintHelper;
 
     /**
      * Constructs a new ValidationStatisticsParquetService instance.
@@ -98,28 +95,7 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         // Default constructor for Spring dependency injection
     }
 
-    // Constants similar to the original service
     
-    /**
-     * Field names used for faceting validation statistics queries.
-     */
-    public static final String[] FACET_FIELDS = { "record_is_valid", "record_is_transformed", "valid_rules", "invalid_rules", "institution_name", "repository_name" };
-    
-    /**
-     * Field name for snapshot identifier in statistics records.
-     */
-    public static final String SNAPSHOT_ID_FIELD = "snapshot_id";
-    
-    /**
-     * Suffix appended to rule names for invalid occurrence counts.
-     */
-    public static final String INVALID_RULE_SUFFIX = "_rule_invalid_occrs";
-    
-    /**
-     * Suffix appended to rule names for valid occurrence counts.
-     */
-    public static final String VALID_RULE_SUFFIX = "_rule_valid_occrs";
-
     /**
      * Initialize validation for snapshot (SIMPLIFIED)
      */
@@ -134,67 +110,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
     }
     
  
-    /**
-     * Builds a validation observation from validator result.
-     * 
-     * @param record the OAI record being validated
-     * @param validationResult the validation result to build observation from
-     * @return the validation statistics observation
-     */
-    public ValidationStatObservation buildObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult validationResult) {
-
-        logger.debug("Building validation result record ID: {}", record.getId().toString());
-
-        String id = fingerprintHelper.getStatsIDfromRecord(record, snapshotMetadata);
-        String identifier = record.getIdentifier();
-        Long snapshotID = snapshotMetadata.getSnapshotId();
-        String origin = snapshotMetadata.getOrigin();
-        String metadataPrefix = snapshotMetadata.getMetadataPrefix();
-        String networkAcronym = snapshotMetadata.getNetworkAcronym();
-        Boolean isTransformed = validationResult.isTransformed();
-        Boolean isValid = validationResult.isValid();
-
-        // Maps for occurrences
-        Map<String, List<String>> validOccurrencesByRuleID = new HashMap<>();
-        Map<String, List<String>> invalidOccurrencesByRuleID = new HashMap<>();
-        List<String> validRulesID = new ArrayList<>();
-        List<String> invalidRulesID = new ArrayList<>();
-
-        for (ValidatorRuleResult ruleResult : validationResult.getRulesResults()) {
-
-            String ruleID = ruleResult.getRule().getRuleId().toString();
-
-            List<String> invalidOccr = new ArrayList<>();
-            List<String> validOccr = new ArrayList<>();
-
-            if (detailedDiagnose) {
-                logger.debug("Detailed validation report - Rule ID: {}", ruleID);
-
-                for (ContentValidatorResult contentResult : ruleResult.getResults()) {
-                    if (contentResult.isValid())
-                        validOccr.add(contentResult.getReceivedValue());
-                    else
-                        invalidOccr.add(contentResult.getReceivedValue());
-                }
-
-                validOccurrencesByRuleID.put(ruleID, validOccr);
-                invalidOccurrencesByRuleID.put(ruleID, invalidOccr);
-            }
-
-            // Add valid and invalid rules
-            if (ruleResult.getValid())
-                validRulesID.add(ruleID);
-            else
-                invalidRulesID.add(ruleID);
-        }
-
-        return new ValidationStatObservation(
-                id, identifier, snapshotID, origin, null, metadataPrefix, networkAcronym,
-                null, null, isValid, isTransformed, validOccurrencesByRuleID,
-                invalidOccurrencesByRuleID, validRulesID, invalidRulesID
-        );
-    }
-
     public void addObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult validationResult) {
         
         Long snapshotId = snapshotMetadata.getSnapshotId();
@@ -209,11 +124,12 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
             validationResult.isTransformed()
         );
 
-        // Set datestamp based on transformation status
-        if ( !validationResult.isTransformed() ) // original record timestamp
-            recordValidation.setDatestamp(record.getDatestamp());
-        else // set now as timestamp if transformed
-            recordValidation.setDatestamp(LocalDateTime.now());
+
+        // Set published metadata hash
+        recordValidation.setPublishedMetadataHash(validationResult.getMetadataHash());
+
+        // set datestamp
+        recordValidation.setDatestamp(record.getDatestamp());
 
         // Create and add RuleFact objects directly to RecordValidation
         for (ValidatorRuleResult ruleResult : validationResult.getRulesResults()) {
@@ -245,10 +161,10 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         }
 
         try {
-            parquetRepository.saveRecordAndFacts(snapshotId, networkAcronym, recordValidation);
+            parquetRepository.saveRecordAndFacts(snapshotMetadata, recordValidation);
 
             logger.debug("Successfully added observation for record identifier: {} in snapshot {}", 
-                        record.getIdentifier(), snapshotId);
+                        record.getIdentifier(), snapshotMetadata.getSnapshotId());
         } catch (IOException e) {
             logger.error("Error adding observation for record identifier: {} in snapshot {}: {}", 
                         record.getIdentifier(), snapshotId, e.getMessage(), e);

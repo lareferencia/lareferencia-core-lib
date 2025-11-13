@@ -22,6 +22,7 @@ package org.lareferencia.core.worker.validation;
 
 import java.io.IOException;
 import java.text.NumberFormat;
+import java.time.LocalDateTime;
 import java.util.Iterator;
 
 import org.apache.logging.log4j.LogManager;
@@ -273,9 +274,10 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 			// store metadata if needed and set publishedMetadataHash
 			String publishedMetadataHash = record.getOriginalMetadataHash();
 
-			// Store metadata if transformed
+			// if transformed store the metadata, get hash and set datestamp as now
 			if ( wasTransformed ) {
 				publishedMetadataHash = metadataStoreService.storeAndReturnHash(snapshotMetadata, metadata.toString());
+				record.setDatestamp(LocalDateTime.now());
 			}
 			// store publishedMetadataHash in validation result
 			reusableValidationResult.setMetadataHash( publishedMetadataHash );

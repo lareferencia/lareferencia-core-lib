@@ -202,18 +202,18 @@ public class ValidationStatParquetRepository {
      * @param record datos del record con facts integrados
      * @throws IOException si hay error
      */
-    public void saveRecordAndFacts(Long snapshotId, String networkAcronym, RecordValidation record) throws IOException {
+    public void saveRecordAndFacts(SnapshotMetadata snapshotMetadata, RecordValidation record) throws IOException {
         
         if (record == null) {
-            logger.warn("SAVE: Null record for snapshot {}", snapshotId);
+            logger.warn("SAVE: Null record for snapshot {}", snapshotMetadata.getSnapshotId());
             return;
         }
         
         // Actualizar metadata acumulativa
-        updateStoredStats(snapshotId, record);
+        updateStoredStats(snapshotMetadata.getSnapshotId(), record);
         
         // Escribir record con facts integrados
-        writeRecord(snapshotId, record);
+        writeRecord(snapshotMetadata.getSnapshotId(), record);
     }
     
     /**
@@ -601,11 +601,8 @@ public class ValidationStatParquetRepository {
         ValidationRecordManager recordsManager = recordsManagers.remove(snapshotId);
         if (recordsManager != null) {
             recordsManager.close();
-            logger.info("RecordsManager closed: {} total records in {} batches", 
-                        recordsManager.getTotalRecordsWritten(), recordsManager.getBatchCount());
+            logger.info("RecordsManager closed");
         }
-        
-        logger.info("SNAPSHOT FINALIZED: {} (manager closed and data persisted)", snapshotId);
     }
     
    
@@ -917,6 +914,64 @@ public class ValidationStatParquetRepository {
         } catch (IOException e) {
             throw new RuntimeException("Error retrieving record validation for snapshot " + snapshotId + " and identifier " + identifier, e);
         }
+    }
+
+    /**
+     * Retorna un iterator directo para streaming lazy sobre records de un snapshot (modo completo).
+     * 
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de ValidationRecordManager internamente.
+     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin interferencia.
+     * 
+     * El manager interno es manejado automáticamente - no necesita cerrar.
+     * 
+     * Ejemplo de uso:
+     * <pre>
+     * Iterator<RecordValidation> iterator = repository.getIterator(snapshotMetadata);
+     * while (iterator.hasNext()) {
+     *     RecordValidation record = iterator.next();
+     *     processRecord(record);
+     * }
+     * </pre>
+     * 
+     * @param snapshotMetadata metadata del snapshot
+     * @return iterator lazy sobre records completos (nueva instancia de manager interna)
+     * @throws IOException si hay error
+     */
+    public Iterator<RecordValidation> getIterator(SnapshotMetadata snapshotMetadata) throws IOException {
+        logger.debug("GET ITERATOR: snapshot={}, network={} (NEW INSTANCE - FULL MODE)", 
+                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+        
+        // Delegar al ValidationRecordManager para crear iterator completo
+        return ValidationRecordManager.iterate(basePath, snapshotMetadata, hadoopConf);
+    }
+
+    /**
+     * Retorna un iterator directo para streaming lazy sobre records de un snapshot (modo ligero).
+     * 
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de ValidationRecordManager internamente.
+     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin interferencia.
+     * 
+     * El manager interno es manejado automáticamente - no necesita cerrar.
+     * 
+     * Ejemplo de uso:
+     * <pre>
+     * Iterator<RecordValidation> iterator = repository.getLightweightIterator(snapshotMetadata);
+     * while (iterator.hasNext()) {
+     *     RecordValidation record = iterator.next();
+     *     processRecord(record); // Sin ruleFacts
+     * }
+     * </pre>
+     * 
+     * @param snapshotMetadata metadata del snapshot
+     * @return iterator lazy sobre records ligeros (nueva instancia de manager interna)
+     * @throws IOException si hay error
+     */
+    public Iterator<RecordValidation> getLightweightIterator(SnapshotMetadata snapshotMetadata, RecordStatus status) throws IOException {
+        logger.debug("GET LIGHTWEIGHT ITERATOR: snapshot={}, network={} (NEW INSTANCE - LIGHT MODE)", 
+                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetworkAcronym());
+        
+        // Delegar al ValidationRecordManager para crear iterator ligero de forma simple
+        return ValidationRecordManager.iterateLightweight(basePath, snapshotMetadata, status, hadoopConf);
     }
 
         
