@@ -52,7 +52,6 @@ import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.date.DateHelper;
 import org.lareferencia.core.worker.BaseIteratorWorker;
-import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -249,17 +248,18 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 			} // end of content filtering
 
 			// fingerprint del registro
-			metadataTransformer.setParameter("fingerprint", snapshotMetadata.getNetworkAcronym() + "_"
+			metadataTransformer.setParameter("fingerprint", runningContext.getNetwork().getAcronym() + "_"
 					+ record.getRecordId() );
 
 			// identifier del record
 			metadataTransformer.setParameter("identifier", record.getIdentifier());
 
 			// metadata como string
-			metadataTransformer.setParameter("record_id", record.getRecordId());
+			metadataTransformer.setParameter("record_id", getCurrentRecordUniqueID(snapshotId).toString());
 
 			// metadata como string
-			metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(record.getDatestamp()));
+			if (record.getDatestamp() != null)
+				metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(record.getDatestamp()));
 
 			// if the record is invalid, deleted or untested then set the deleted parameter to true
 			// this parameter is used to filter out deleted records in oai providers
@@ -331,6 +331,8 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 	public void postRun() {
 
 		try {
+			postPage();
+
 			this.sendUpdateToSolr("<commit/>");
 
 			if (executeIndexing)

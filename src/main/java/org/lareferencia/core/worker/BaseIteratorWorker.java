@@ -189,4 +189,16 @@ public abstract class BaseIteratorWorker<I,C extends IRunningContext> extends Ba
         this.recordIterator = iterator;
         this.totalRecords = totalRecords;
     }
+
+    @Override
+    public Long getCurrentRecordUniqueID(Long snapshotId) {
+        if (currentRecordIndex == null) {
+            return null;
+        }
+        // Calcula ID único combinando snapshotId + sequence
+        // snapshotId en bits 27-62 (37 bits = 137 billones de snapshots)
+        // currentRecordIndex en bits 0-26 (27 bits = 134 millones máximo)
+
+        return (snapshotId << 27) | (currentRecordIndex & 0x7FFFFFFFL);
+    }
 }

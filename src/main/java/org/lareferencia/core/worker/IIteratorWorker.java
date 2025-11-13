@@ -22,6 +22,8 @@ package org.lareferencia.core.worker;
 
 import java.util.Iterator;
 
+import com.codahale.metrics.Snapshot;
+
 /**
  * Interface for workers that process data in batches.
  * <p>
@@ -59,5 +61,13 @@ public interface IIteratorWorker<I,C extends IRunningContext> extends IWorker<C>
 	 * @param totalRecords the total number of records to process
 	 */
     void setIterator(Iterator<I> iterator, Integer totalRecords);
+
+	/**
+	 * Gets the unique ID of the current record being processed.
+	 * 
+	 * @param snapshotId the snapshot ID to use in generating the unique ID
+	 * @return the unique ID of the current record being processed
+	 */
+	Long getCurrentRecordUniqueID(Long snapshotId);
 
 }
