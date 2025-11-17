@@ -70,7 +70,7 @@ import java.util.NoSuchElementException;
  * 
  * ESTRATEGIA DE BATCHING (ESCRITURA):
  * - Buffer interno: Acumula registros en memoria
- * - Flush automático: Cuando alcanza umbral (10,000 registros)
+ * - Flush automático: Cuando alcanza umbral (configurable mediante `parquet.validation.records-per-file`, por defecto 100000)
  * - Flush manual: Mediante flush() para garantizar persistencia
  * - Archivos múltiples: Cada flush crea un archivo batch_XXXXX.parquet
  * 
@@ -132,7 +132,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     private static final String INDEX_FILE_NAME = "validation_index.parquet";
     
     // Umbrales para flush automático (escritura)
-    private static final int FLUSH_THRESHOLD_RECORDS = 10000;  // Flush cada 10k records
+    private static final int DEFAULT_FLUSH_THRESHOLD_RECORDS = 100000;
     
     /**
      * ESQUEMA CON RULE FACTS ANIDADOS:
@@ -146,9 +146,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         .required(PrimitiveType.PrimitiveTypeName.BINARY)
             .as(LogicalTypeAnnotation.stringType())
             .named("identifier")
-        .required(PrimitiveType.PrimitiveTypeName.BINARY)
-            .as(LogicalTypeAnnotation.stringType())
-            .named("record_id")
         .required(PrimitiveType.PrimitiveTypeName.INT64)
             .as(LogicalTypeAnnotation.timestampType(true, LogicalTypeAnnotation.TimeUnit.MILLIS))
             .named("datestamp")
@@ -197,9 +194,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     private static final MessageType INDEX_SCHEMA = Types.buildMessage()
         .required(PrimitiveType.PrimitiveTypeName.BINARY)
             .as(LogicalTypeAnnotation.stringType())
-            .named("record_id")
-        .required(PrimitiveType.PrimitiveTypeName.BINARY)
-            .as(LogicalTypeAnnotation.stringType())
             .named("identifier")
         .required(PrimitiveType.PrimitiveTypeName.INT64)
             .as(LogicalTypeAnnotation.timestampType(true, LogicalTypeAnnotation.TimeUnit.MILLIS))
@@ -217,7 +211,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     private final Long snapshotId;
     private final SnapshotMetadata snapshotMetadata;
     private final Configuration hadoopConf;
-    
+    private final int flushThreshold;  // Configurable flush threshold (records per file)
+
     // Estado de ESCRITURA
     private ParquetWriter<Group> currentWriter;
     private long recordsInCurrentBatch = 0;
@@ -235,19 +230,24 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     private List<RecordValidation> currentBatchRecords = null;
     private int currentRecordIndex = 0;
     
-    private ValidationRecordManager(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) {
+    private ValidationRecordManager(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf, int flushThreshold) {
         if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
             throw new IllegalArgumentException("SnapshotMetadata and snapshotId cannot be null");
         }
-        
+
         this.basePath = basePath;
         this.snapshotMetadata = snapshotMetadata;
         this.snapshotId = snapshotMetadata.getSnapshotId();
         this.hadoopConf = hadoopConf;
+        this.flushThreshold = flushThreshold;
         this.currentWriter = null;
         this.batchFiles = null;
         this.currentBatchRecords = null;
         this.indexBuffer = new ArrayList<>();
+    }
+
+    private ValidationRecordManager(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) {
+        this(basePath, snapshotMetadata, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
     }
     
     // ============================================================================
@@ -255,20 +255,35 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     // ============================================================================
     
     /**
-     * Crea un manager para ESCRITURA con buffer interno.
+     * Crea un manager para ESCRITURA con flush threshold personalizado.
+     *
+     * @param basePath ruta base (ej: /data/validation-stats)
+     * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
+     * @param hadoopConf configuración Hadoop
+     * @param flushThreshold número de registros antes de hacer flush automático
+     * @return manager listo para escritura
+     * @throws IOException si falla
+     */
+    public static ValidationRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf, int flushThreshold)
+            throws IOException {
+        logger.info("RECORDS MANAGER: Creating writer for snapshot {} (network: {}) (flushThreshold={})",
+            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym(), flushThreshold);
+        return new ValidationRecordManager(basePath, snapshotMetadata, hadoopConf, flushThreshold);
+    }
+
+    /**
+     * Crea un manager para ESCRITURA con buffer interno (default threshold).
      * Gestiona automáticamente múltiples archivos batch según performance.
-     * 
+     *
      * @param basePath ruta base (ej: /data/validation-stats)
      * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
      * @param hadoopConf configuración Hadoop
      * @return manager listo para escritura
      * @throws IOException si falla
      */
-    public static ValidationRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
+    public static ValidationRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf)
             throws IOException {
-        logger.info("RECORDS MANAGER: Creating writer for snapshot {} (network: {})", 
-            snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
-        return new ValidationRecordManager(basePath, snapshotMetadata, hadoopConf);
+        return forWriting(basePath, snapshotMetadata, hadoopConf, DEFAULT_FLUSH_THRESHOLD_RECORDS);
     }
     
     /**
@@ -287,7 +302,17 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      * @return manager listo para lectura
      * @throws IOException si falla
      */
-    public static ValidationRecordManager forReading(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf) 
+    /**
+     * Crea un manager para LECTURA que lee TODOS los archivos batch de un snapshot.
+     * Busca automáticamente todos los records_batch_*.parquet
+     *
+     * @param basePath ruta base (ej: /data/validation-stats)
+     * @param snapshotMetadata metadata del snapshot (contiene snapshotId y networkAcronym)
+     * @param hadoopConf configuración Hadoop
+     * @return manager listo para lectura
+     * @throws IOException si falla
+     */
+    public static ValidationRecordManager forReading(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf)
             throws IOException {
         ValidationRecordManager manager = new ValidationRecordManager(basePath, snapshotMetadata, hadoopConf);
         manager.initializeReader();
@@ -417,8 +442,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         // Crear primer writer o verificar si necesita flush automático
         if (currentWriter == null) {
             createNewBatchWriter();
-        } else if (recordsInCurrentBatch >= FLUSH_THRESHOLD_RECORDS) {
-            logger.info("RECORDS MANAGER: Auto-flush triggered at {} records", recordsInCurrentBatch);
+        } else if (flushThreshold > 0 && recordsInCurrentBatch >= flushThreshold) {
+            logger.info("RECORDS MANAGER: Auto-flush triggered at {} records (threshold={})", recordsInCurrentBatch, flushThreshold);
             flush();
             // Crear nuevo writer inmediatamente después del auto-flush
             createNewBatchWriter();
@@ -428,7 +453,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         
         // Campos requeridos (sin id - recordId es la PK)
         group.append("identifier", record.getIdentifier().trim());
-        group.append("record_id", record.getRecordId().trim());
         
         // datestamp (opcional pero recomendado)
         if (record.getDatestamp() != null) {
@@ -492,7 +516,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         // Agregar al buffer del índice ligero en paralelo (solo campos esenciales, sin ruleFacts)
         RecordValidation lightRecord = new RecordValidation(
             record.getIdentifier(),
-            record.getRecordId(),
             record.getDatestamp(),
             record.getRecordIsValid(),
             record.getIsTransformed(),
@@ -501,7 +524,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         );
         indexBuffer.add(lightRecord);
         
-        if (totalRecordsWritten % 10000 == 0) {
+        if (flushThreshold > 0 && totalRecordsWritten % flushThreshold == 0) {
             logger.debug("RECORDS MANAGER: Written {} records total ({} in current batch)", 
                         totalRecordsWritten, recordsInCurrentBatch);
         }
@@ -559,7 +582,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             for (RecordValidation indexRecord : indexBuffer) {
                 Group group = new SimpleGroup(INDEX_SCHEMA);
                 
-                group.append("record_id", indexRecord.getRecordId().trim());
                 group.append("identifier", indexRecord.getIdentifier().trim());
                 
                 // datestamp (opcional)
@@ -755,7 +777,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         
         // Campos requeridos (sin id - recordId es la PK)
         record.setIdentifier(group.getString("identifier", 0));
-        record.setRecordId(group.getString("record_id", 0));
         
         // datestamp (REQUERIDO - tanto en SCHEMA como en INDEX_SCHEMA)
         long epochMillis = group.getLong("datestamp", 0);
@@ -909,7 +930,6 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
                 RecordValidation indexRecord = new RecordValidation();
                 
                 // Solo campos del índice ligero (sin id, sin ruleFacts)
-                indexRecord.setRecordId(group.getString("record_id", 0));
                 indexRecord.setIdentifier(group.getString("identifier", 0));
                 indexRecord.setRecordIsValid(group.getBoolean("record_is_valid", 0));
                 indexRecord.setIsTransformed(group.getBoolean("is_transformed", 0));

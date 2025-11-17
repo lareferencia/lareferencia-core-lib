@@ -93,7 +93,7 @@ public class OAIRecordParquetRepository {
     @Value("${store.basepath:/tmp/data/}")
     private String basePath;
 
-    @Value("${parquet.catalog.records-per-file:10000}")
+    @Value("${parquet.catalog.records-per-file:100000}")
     private int recordsPerFile;
 
     @Value("${parquet.compression:SNAPPY}")
@@ -107,7 +107,7 @@ public class OAIRecordParquetRepository {
 
     private Configuration hadoopConf;
     
-    // MANAGER PERSISTENTE: Se reutiliza entre llamadas para aprovechar buffer de 10k
+    // MANAGER PERSISTENTE: Se reutiliza entre llamadas para aprovechar buffer configurable (recordsPerFile)
     private final Map<Long, OAIRecordManager> recordManagers = new ConcurrentHashMap<>();
 
     @PostConstruct
@@ -122,8 +122,8 @@ public class OAIRecordParquetRepository {
         
         try {
             Files.createDirectories(Paths.get(basePath));
-            logger.info("OAI RECORD REPOSITORY INITIALIZED: basePath={}, compression={}, pageSize={}", 
-                       basePath, compressionCodec, pageSize);
+            logger.info("OAI RECORD REPOSITORY INITIALIZED: basePath={}, compression={}, pageSize={}, recordsPerFile={}", 
+                       basePath, compressionCodec, pageSize, recordsPerFile);
         } catch (IOException e) {
             logger.error("Failed to create base path: {}", basePath, e);
         }

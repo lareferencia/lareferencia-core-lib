@@ -75,7 +75,7 @@ import java.util.NoSuchElementException;
  * 
  * ESTRATEGIA DE BATCHING (ESCRITURA):
  * - Buffer interno: Acumula registros en memoria
- * - Flush automático: Cuando alcanza umbral (10,000 registros por defecto)
+ * - Flush automático: Cuando alcanza umbral (configurable mediante `parquet.catalog.records-per-file`, por defecto 100000)
  * - Flush manual: Mediante flush() para garantizar persistencia
  * - Archivos múltiples: Cada flush crea un archivo oai_records_batch_XXXXX.parquet
  * 
@@ -124,7 +124,7 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
     private static final Logger logger = LogManager.getLogger(OAIRecordManager.class);
     
     // Umbrales para flush automático (escritura) - valor por defecto
-    private static final int DEFAULT_FLUSH_THRESHOLD_RECORDS = 10000;
+    private static final int DEFAULT_FLUSH_THRESHOLD_RECORDS = 100000;
     
     // Subdirectorio para catálogo de registros OAI
     private static final String CATALOG_SUBDIR = "catalog";
@@ -337,7 +337,7 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
         recordsInCurrentBatch++;
         totalRecordsWritten++;
         
-        if (totalRecordsWritten % 10000 == 0) {
+        if (flushThreshold > 0 && totalRecordsWritten % flushThreshold == 0) {
             logger.debug("OAI RECORD MANAGER: Written {} records total ({} in current batch)", 
                         totalRecordsWritten, recordsInCurrentBatch);
         }

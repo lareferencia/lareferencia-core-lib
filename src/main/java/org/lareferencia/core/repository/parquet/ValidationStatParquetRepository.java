@@ -75,6 +75,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * COMPATIBILIDAD:
  * - repositoryName e institutionName retornan null (eliminados de storage)
  * - API externa 100% compatible
+ *
+ * CONFIG:
+ * - Use property `parquet.validation.records-per-file` to configure how many
+ *   records are written per Parquet batch file (default: 100000)
  */
 @Repository
 public class ValidationStatParquetRepository {
@@ -83,6 +87,10 @@ public class ValidationStatParquetRepository {
 
     @Value("${store.basepath:/tmp/data/}")
     private String basePath;
+
+    // Configurable number of validation records per Parquet batch file
+    @Value("${parquet.validation.records-per-file:100000}")
+    private int validationRecordsPerFile;
 
     @Autowired
     ISnapshotStore snapshotStore;
@@ -100,7 +108,7 @@ public class ValidationStatParquetRepository {
         
         try {
             Files.createDirectories(Paths.get(basePath));
-            logger.info("NEW ARCHITECTURE INITIALIZED: basePath={}", basePath);
+            logger.info("NEW ARCHITECTURE INITIALIZED: basePath={}, validationRecordsPerFile={}", basePath, validationRecordsPerFile);
         } catch (IOException e) {
             logger.error("Failed to create base path: {}", basePath, e);
         }
@@ -164,7 +172,8 @@ public class ValidationStatParquetRepository {
             }
 
             // Crear manager persistente para escritura (usa basePath original, no snapshotDir)
-            ValidationRecordManager recordsManager = ValidationRecordManager.forWriting(basePath, snapshotMetadata, hadoopConf);
+            // Pass the configured flush threshold (records per file)
+            ValidationRecordManager recordsManager = ValidationRecordManager.forWriting(basePath, snapshotMetadata, hadoopConf, validationRecordsPerFile);
             recordsManagers.put(snapshotId, recordsManager);
             logger.info("Created RecordsManager for snapshot {}", snapshotId);
 
@@ -339,8 +348,8 @@ public class ValidationStatParquetRepository {
                     filteredRecords++;
                 }
                 
-                // Log de progreso cada 10k records
-                if (totalRecords % 10000 == 0) {
+                // Log de progreso cada validationRecordsPerFile records
+                if (validationRecordsPerFile > 0 && totalRecords % validationRecordsPerFile == 0) {
                     logger.debug("BUILD STATS: Processed {} records, {} matched filters", 
                                totalRecords, filteredRecords);
                 }

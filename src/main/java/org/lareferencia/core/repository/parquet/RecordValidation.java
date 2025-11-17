@@ -65,11 +65,10 @@ public class RecordValidation {
     private String identifier;
     
     /**
-     * Referencia al ID en OAIRecord (catálogo).
-     * Permite vincular validación con catálogo sin duplicar todos los datos.
-     * Es el hash MD5 del identifier.
+     * Nota: recordId no se almacena en campo separado; se calcula como MD5 del
+     * identifier cuando se solicita. Evitamos almacenar duplicados y eliminar
+     * el setter para mantener la inmutabilidad implícita de este valor.
      */
-    private String recordId;
     
     /**
      * Datestamp del record (fecha de última modificación según OAI-PMH).
@@ -105,8 +104,6 @@ public class RecordValidation {
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
         this.ruleFacts = new ArrayList<>();
-        // recordId se calcula desde identifier si no se proporciona
-        this.recordId = org.lareferencia.core.repository.parquet.OAIRecord.generateIdFromIdentifier(identifier);
     }
     
     public RecordValidation(String identifier, 
@@ -115,20 +112,18 @@ public class RecordValidation {
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
         this.ruleFacts = ruleFacts != null ? ruleFacts : new ArrayList<>();
-        // recordId se calcula desde identifier si no se proporciona
-        this.recordId = org.lareferencia.core.repository.parquet.OAIRecord.generateIdFromIdentifier(identifier);
     }
     
     /**
-     * Constructor completo con todos los campos.
+     * Constructor completo con todos los campos (sin almacenar recordId).
+     * recordId será calculado a partir de `identifier` cuando se solicite.
      */
-    public RecordValidation(String identifier, String recordId,
+    public RecordValidation(String identifier,
                            LocalDateTime datestamp,
                            Boolean recordIsValid, Boolean isTransformed,
                            String publishedMetadataHash,
                            List<RuleFact> ruleFacts) {
         this.identifier = identifier;
-        this.recordId = recordId != null ? recordId : org.lareferencia.core.repository.parquet.OAIRecord.generateIdFromIdentifier(identifier);
         this.datestamp = datestamp;
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
@@ -147,12 +142,10 @@ public class RecordValidation {
     }
     
     public String getRecordId() {
-        return recordId;
+        if (this.identifier == null) return null;
+        return OAIRecord.generateIdFromIdentifier(this.identifier);
     }
-    
-    public void setRecordId(String recordId) {
-        this.recordId = recordId;
-    }
+    // No se provee setter para recordId (se calcula desde identifier)
     
     public LocalDateTime getDatestamp() {
         return datestamp;
@@ -204,8 +197,8 @@ public class RecordValidation {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RecordValidation that = (RecordValidation) o;
-        return Objects.equals(recordId, that.recordId) &&
-               Objects.equals(identifier, that.identifier) &&
+     return Objects.equals(getRecordId(), that.getRecordId()) &&
+         Objects.equals(identifier, that.identifier) &&
                Objects.equals(datestamp, that.datestamp) &&
                Objects.equals(recordIsValid, that.recordIsValid) &&
                Objects.equals(isTransformed, that.isTransformed) &&
@@ -215,14 +208,14 @@ public class RecordValidation {
 
     @Override
     public int hashCode() {
-        return Objects.hash(recordId, identifier, datestamp, recordIsValid, isTransformed, 
+        return Objects.hash(getRecordId(), identifier, datestamp, recordIsValid, isTransformed,
                           publishedMetadataHash, ruleFacts);
     }
 
     @Override
     public String toString() {
         return "RecordValidation{" +
-                "recordId='" + recordId + '\'' +
+                "recordId='" + getRecordId() + '\'' +
                 ", identifier='" + identifier + '\'' +
                 ", datestamp=" + datestamp +
                 ", recordIsValid=" + recordIsValid +
