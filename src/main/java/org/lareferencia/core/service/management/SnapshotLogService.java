@@ -159,6 +159,8 @@ public class SnapshotLogService {
 	/**
 	 * Adds a log entry for a specific snapshot.
 	 * Appends the message to the snapshot.log file with timestamp.
+	 * Message will be sanitized by removing any line breaks so each stored entry
+	 * remains on a single line in the log file.
 	 *
 	 * @param snapshotId the ID of the snapshot
 	 * @param message the log message to add
@@ -176,7 +178,10 @@ public class SnapshotLogService {
 			
 			// Formatear mensaje con timestamp
 			String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-			String logEntry = String.format("[%s] %s%n", timestamp, message);
+			// Sanitizar el mensaje eliminando saltos de línea para garantizar
+			// que cada entrada ocupe una sola línea en el archivo de log.
+			String safeMessage = message.replaceAll("[\\r\\n]+", " ").trim();
+			String logEntry = String.format("[%s] %s%n", timestamp, safeMessage);
 			
 			// Append al archivo (crea si no existe)
 			Files.writeString(logFile, logEntry, StandardCharsets.UTF_8, 
