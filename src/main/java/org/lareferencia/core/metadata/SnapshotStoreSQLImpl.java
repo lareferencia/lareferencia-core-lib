@@ -68,9 +68,6 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	private NetworkSnapshotRepository snapshotRepository;
 	
 	@Autowired
-	private OAIRecordRepository recordRepository;
-	
-	@Autowired
 	private EntityManager entityManager;
 	
 	// Contador de updates para autoflush por snapshot
@@ -132,7 +129,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		snapshot.setStartTime(LocalDateTime.now());
 		snapshotRepository.save(snapshot);
 		
-		logger.info("SNAPSHOT STORE: Created snapshot {} for network {}", 
+		logger.debug("SNAPSHOT STORE: Created snapshot {} for network {}", 
 		           snapshot.getId(), network.getId());
 		
 		return snapshot.getId();
@@ -140,14 +137,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	
 	@Override
 	public void deleteSnapshot(Long snapshotId) {	
-	
-		// Eliminar records (delegado al RecordStore en el futuro)
-		recordRepository.deleteBySnapshotID(snapshotId);
 		
 		// Eliminar snapshot
 		snapshotRepository.deleteBySnapshotID(snapshotId);
 		
-		logger.info("SNAPSHOT STORE: Deleted snapshot {}", snapshotId);
+		logger.debug("SNAPSHOT STORE: Deleted snapshot {}", snapshotId);
 	}
 			
 	
@@ -157,10 +151,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	public void cleanSnapshotData(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			
-			// Eliminar records (delegado al RecordStore en el futuro)
-			recordRepository.deleteBySnapshotID(snapshotId);
-			
+				
 			// Para snapshots válidos: marcar como deleted
 			if (snapshot.getStatus().equals(SnapshotStatus.VALID) || 
 			    snapshot.getStatus().equals(SnapshotStatus.HARVESTING_FINISHED_VALID)) {

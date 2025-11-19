@@ -24,7 +24,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.repository.jpa.NetworkRepository;
-import org.lareferencia.core.repository.jpa.OAIBitstreamRepository;
 import org.lareferencia.core.service.validation.IValidationStatisticsService;
 import org.lareferencia.core.service.validation.ValidationStatisticsException;
 import org.lareferencia.core.metadata.ISnapshotStore;
@@ -34,6 +33,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import lombok.Getter;
 import lombok.Setter;
+import org.lareferencia.core.repository.parquet.OAIRecordParquetRepository;
+import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
 
 /**
  * Worker that cleans network snapshot data or deletes an entire network.
@@ -60,7 +61,10 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	private ISnapshotStore snapshotStore;
 	
 	@Autowired
-	private OAIBitstreamRepository bitstreamRepository;
+	private OAIRecordParquetRepository oaiRecordRepo;
+	
+	@Autowired
+	private ValidationStatParquetRepository validationRepo;
 	
 	/**
 	 * Flag indicating whether to delete the entire network or just clean snapshot data.
@@ -104,10 +108,12 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 					
 					try {
 						cleanSnapshotStatsData(snapshotId);
+						oaiRecordRepo.deleteCatalogForSnapshot(snapshotId);
+						validationRepo.deleteParquetForSnapshot(snapshotId);
 						snapshotStore.cleanSnapshotData(snapshotId);
 
-					} catch (ValidationStatisticsException e) {
-						logger.error("Error cleanning snapshot" + e.getMessage());
+					} catch (Exception e) {  // Broadened to catch IOException too
+						logger.error("Error cleaning snapshot " + snapshotId + ": " + e.getMessage(), e);
 					}
 				
 				}
@@ -121,18 +127,17 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), true) ) {
 				try {
 					cleanSnapshotStatsData(snapshotId);
+					oaiRecordRepo.deleteCatalogForSnapshot(snapshotId);
+					validationRepo.deleteParquetForSnapshot(snapshotId);
 					snapshotStore.cleanSnapshotData(snapshotId);
 					snapshotStore.deleteSnapshot(snapshotId);
 
-				} catch (ValidationStatisticsException e) {
-					logger.error("Error cleanning snapshot" + e.getMessage());
+				} catch (Exception e) {  // Broadened to catch IOException too
+					logger.error("Error deleting snapshot " + snapshotId + ": " + e.getMessage(), e);
 				}
 			}
 			
-			// borra el bitstream de cosechas
-			logger.debug("Deleting bitstreams");
-			bitstreamRepository.deleteByNetworkID(network.getId());
-			
+
 			networkRepository.deleteByNetworkID(network.getId());
 			logger.debug("Network/Repository deleted: " +network.getName()); 
 		}

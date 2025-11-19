@@ -26,8 +26,10 @@ import jakarta.annotation.PreDestroy;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.PathUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
@@ -93,7 +95,7 @@ public class OAIRecordParquetRepository {
     @Value("${store.basepath:/tmp/data/}")
     private String basePath;
 
-    @Value("${parquet.catalog.records-per-file:100000}")
+    @Value("${parquet.catalog.records-per-file:10000}")
     private int recordsPerFile;
 
     @Value("${parquet.compression:SNAPPY}")
@@ -109,6 +111,9 @@ public class OAIRecordParquetRepository {
     
     // MANAGER PERSISTENTE: Se reutiliza entre llamadas para aprovechar buffer configurable (recordsPerFile)
     private final Map<Long, OAIRecordManager> recordManagers = new ConcurrentHashMap<>();
+
+    @Autowired
+    private ISnapshotStore snapshotStore;
 
     @PostConstruct
     public void init() {
@@ -137,7 +142,7 @@ public class OAIRecordParquetRepository {
         recordManagers.forEach((snapshotId, manager) -> {
             try {
                 manager.close();
-                logger.info("SHUTDOWN: Closed manager for snapshot {}", snapshotId);
+                logger.debug("SHUTDOWN: Closed manager for snapshot {}", snapshotId);
             } catch (IOException e) {
                 logger.error("SHUTDOWN: Error closing manager for snapshot {}", snapshotId, e);
             }
@@ -174,7 +179,7 @@ public class OAIRecordParquetRepository {
             OAIRecordManager manager = OAIRecordManager.forWriting(basePath, snapshotMetadata, hadoopConf, flushThreshold);
             recordManagers.put(snapshotId, manager);
             
-            logger.info("SNAPSHOT INITIALIZED: snapshot={}, network={}, path={}, flushThreshold={}", 
+            logger.debug("SNAPSHOT INITIALIZED: snapshot={}, network={}, path={}, flushThreshold={}", 
                        snapshotId, snapshotMetadata.getNetwork().getAcronym(), snapshotDir, flushThreshold);
             
         } catch (IOException e) {
@@ -238,7 +243,7 @@ public class OAIRecordParquetRepository {
         OAIRecordManager manager = recordManagers.remove(snapshotId);
         if (manager != null) {
             manager.close();
-            logger.info("SNAPSHOT FINALIZED: {} (manager closed, {} records written in {} batches)", 
+            logger.debug("SNAPSHOT FINALIZED: {} (manager closed, {} records written in {} batches)", 
                        snapshotId, manager.getTotalRecordsWritten(), manager.getBatchCount());
         } else {
             logger.warn("FINALIZE: No active manager found for snapshot {}", snapshotId);
@@ -308,6 +313,28 @@ public class OAIRecordParquetRepository {
                 throw e;
             }
         }
+    }
+
+    /**
+     * Deletes the Parquet catalog files for a specific snapshot.
+     * Called from NetworkCleanWorker during cleanup.
+     * 
+     * @param snapshotId ID of snapshot to clean
+     * @throws IOException if deletion fails
+     */
+    public void deleteCatalogForSnapshot(Long snapshotId) throws IOException {
+        logger.info("Deleting catalog for snapshot {}", snapshotId);
+        
+        SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotId);
+        if (metadata == null) {
+            logger.warn("No metadata found for snapshot {}, skipping catalog delete", snapshotId);
+            return;
+        }
+        
+        try (OAIRecordManager manager = OAIRecordManager.forReading(basePath, metadata, hadoopConf)) {
+            manager.deleteCatalogFiles();
+        }
+        logger.info("Catalog deletion completed for snapshot {}", snapshotId);
     }
 
     /**

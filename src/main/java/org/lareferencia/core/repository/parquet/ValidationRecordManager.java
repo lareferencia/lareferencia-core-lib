@@ -616,16 +616,22 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      */
     private void initializeReader() throws IOException {
         String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
-        String snapshotDir = snapshotPath + "/" + VALIDATION_SUBDIR;
-        Path snapshotDirPath = new Path(snapshotDir);
+        String validationDir = snapshotPath + "/" + VALIDATION_SUBDIR;
+        Path validationPath = new Path(validationDir);
         
         FileSystem fs = FileSystem.get(hadoopConf);
         
-        // Buscar todos los archivos records_batch_*.parquet
+        if (!fs.exists(validationPath)) {
+            logger.warn("RECORDS MANAGER: Validation directory does not exist for snapshot {}: {}", snapshotId, validationPath);
+            batchFiles = new ArrayList<>();
+            return;
+        }
+        
+        // Filter only batch files
         PathFilter batchFilter = path -> path.getName().startsWith(BATCH_FILE_PREFIX) 
                                        && path.getName().endsWith(BATCH_FILE_SUFFIX);
         
-        FileStatus[] batchStatuses = fs.listStatus(snapshotDirPath, batchFilter);
+        FileStatus[] batchStatuses = fs.listStatus(validationPath, batchFilter);
         
         if (batchStatuses == null || batchStatuses.length == 0) {
             logger.warn("RECORDS MANAGER: No batch files found for snapshot {}", snapshotId);
@@ -633,8 +639,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             return;
         }
         
-        // Ordenar por nombre (batch_1, batch_2, batch_3, ...)
-        Arrays.sort(batchStatuses, Comparator.comparing(fs1 -> fs1.getPath().getName()));
+        // Ordenar por nombre
+        Arrays.sort(batchStatuses, Comparator.comparing(status -> status.getPath().getName()));
         
         batchFiles = new ArrayList<>();
         for (FileStatus status : batchStatuses) {
@@ -1000,5 +1006,39 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         if (batchFiles != null && !batchFiles.isEmpty()) {
             logger.info("RECORDS MANAGER: Closed reader for {} batch files (NO CACHE)", batchFiles.size());
         }
+    }
+    
+    /**
+     * Deletes only Parquet files from validation directory for this snapshot.
+     * Preserves validation_stats.json and other non-Parquet files.
+     * 
+     * @throws IOException if deletion fails
+     */
+    public void deleteParquetFiles() throws IOException {
+        String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        Path validationPath = new Path(snapshotPath + "/" + VALIDATION_SUBDIR);
+        FileSystem fs = FileSystem.get(hadoopConf);
+        
+        if (!fs.exists(validationPath)) {
+            logger.info("RECORDS MANAGER: Validation directory does not exist for snapshot {}: {}", snapshotId, validationPath);
+            return;
+        }
+        
+        // Filter only .parquet files
+        PathFilter parquetFilter = p -> p.getName().endsWith(".parquet");
+        FileStatus[] parquetFiles = fs.listStatus(validationPath, parquetFilter);
+        
+        int deletedCount = 0;
+        for (FileStatus file : parquetFiles) {
+            if (fs.delete(file.getPath(), false)) {
+                deletedCount++;
+                logger.debug("RECORDS MANAGER: Deleted {}", file.getPath().getName());
+            } else {
+                logger.warn("RECORDS MANAGER: Failed to delete {}", file.getPath().getName());
+            }
+        }
+        
+        logger.info("RECORDS MANAGER: Deleted {} parquet files from validation dir {}. Preserved validation_stats.json and other non-parquet files.", 
+                    deletedCount, validationPath);
     }
 }

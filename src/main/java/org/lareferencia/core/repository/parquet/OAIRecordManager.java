@@ -375,6 +375,12 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
         
         FileSystem fs = FileSystem.get(hadoopConf);
         
+        if (!fs.exists(catalogPath)) {
+            logger.warn("OAI RECORD MANAGER: Catalog directory does not exist for snapshot {}: {}", snapshotId, catalogPath);
+            batchFiles = new ArrayList<>();
+            return;
+        }
+        
         // Buscar todos los archivos oai_records_batch_*.parquet
         PathFilter batchFilter = path -> path.getName().startsWith(FILE_PREFIX) 
                                        && path.getName().endsWith(".parquet");
@@ -566,6 +572,39 @@ public final class OAIRecordManager implements AutoCloseable, Iterable<OAIRecord
      */
     public long getRecordsRead() {
         return recordsRead;
+    }
+    
+    /**
+     * Deletes all Parquet catalog files for this snapshot.
+     * Removes entire catalog/ directory contents.
+     * 
+     * @throws IOException if deletion fails
+     */
+    public void deleteCatalogFiles() throws IOException {
+        String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        Path catalogPath = new Path(snapshotPath + "/" + CATALOG_SUBDIR);
+        FileSystem fs = FileSystem.get(hadoopConf);
+        
+        if (!fs.exists(catalogPath)) {
+            logger.info("OAI RECORD MANAGER: Catalog directory does not exist for snapshot {}: {}", snapshotId, catalogPath);
+            return;
+        }
+        
+        // Count files before deletion
+        FileStatus[] statuses = fs.listStatus(catalogPath);
+        long fileCount = Arrays.stream(statuses)
+                               .filter(FileStatus::isFile)
+                               .filter(s -> s.getPath().getName().startsWith(FILE_PREFIX))
+                               .count();
+        
+        logger.info("OAI RECORD MANAGER: Deleting {} catalog files for snapshot {}", fileCount, snapshotId);
+        
+        boolean deleted = fs.delete(catalogPath, true);  // Recursive delete
+        if (deleted) {
+            logger.info("OAI RECORD MANAGER: Successfully deleted catalog directory for snapshot {}", snapshotId);
+        } else {
+            logger.warn("OAI RECORD MANAGER: Failed to delete catalog directory for snapshot {}", snapshotId);
+        }
     }
     
     @Override

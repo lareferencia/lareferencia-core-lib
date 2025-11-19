@@ -983,10 +983,25 @@ public class ValidationStatParquetRepository {
         return ValidationRecordManager.iterateLightweight(basePath, snapshotMetadata, status, hadoopConf);
     }
 
+    /**
+     * Deletes Parquet files from validation directory for a specific snapshot.
+     * Preserves validation_stats.json. Called from NetworkCleanWorker during cleanup.
+     * 
+     * @param snapshotId ID of snapshot to clean
+     * @throws IOException if deletion fails
+     */
+    public void deleteParquetForSnapshot(Long snapshotId) throws IOException {
+        logger.info("Deleting validation parquet files for snapshot {}", snapshotId);
         
-
-       
+        SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotId);
+        if (metadata == null) {
+            logger.warn("No metadata found for snapshot {}, skipping validation parquet delete", snapshotId);
+            return;
+        }
         
-        
-    
+        try (ValidationRecordManager manager = ValidationRecordManager.forReading(basePath, metadata, hadoopConf)) {
+            manager.deleteParquetFiles();
+        }
+        logger.info("Validation parquet deletion completed for snapshot {}", snapshotId);
+    }
 }

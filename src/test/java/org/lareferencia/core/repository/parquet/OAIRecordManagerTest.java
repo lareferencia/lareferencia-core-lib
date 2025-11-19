@@ -13,7 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class OAIRecordManagerTest {
 
@@ -62,5 +62,35 @@ public class OAIRecordManagerTest {
 
         assertTrue(file1, "Expect oai_records_batch_1.parquet to exist");
         assertTrue(file2, "Expect oai_records_batch_2.parquet to exist");
+    }
+
+    @Test
+    public void testDeleteCatalogFiles() throws Exception {
+        tempDir = Files.createTempDirectory("oai-delete-test-");
+        String basePath = tempDir.toAbsolutePath().toString();
+
+        SnapshotMetadata snapshotMetadata = new SnapshotMetadata(42L);
+        org.lareferencia.core.domain.Network n = new org.lareferencia.core.domain.Network();
+        n.setAcronym("TESTNET");
+        snapshotMetadata.setNetwork(n);
+
+        Configuration conf = new Configuration();
+        conf.set("fs.file.impl", org.apache.hadoop.fs.LocalFileSystem.class.getName());
+
+        // Create some catalog files first
+        String snapshotPath = org.lareferencia.core.util.PathUtils.getSnapshotPath(basePath, snapshotMetadata);
+        Path catalogDir = Path.of(snapshotPath + "/catalog");
+        Files.createDirectories(catalogDir);
+        Files.createFile(catalogDir.resolve("oai_records_batch_1.parquet"));
+        Files.createFile(catalogDir.resolve("oai_records_batch_2.parquet"));
+
+        assertEquals(2L, Files.list(catalogDir).count(), "Should have 2 batch files");
+
+        // Test deletion
+        try (OAIRecordManager manager = OAIRecordManager.forReading(basePath, snapshotMetadata, conf)) {
+            manager.deleteCatalogFiles();
+        }
+
+        assertFalse(Files.exists(catalogDir), "Catalog directory should be deleted");
     }
 }

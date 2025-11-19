@@ -23,22 +23,35 @@ package org.lareferencia.core.task;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.worker.management.NetworkCleanWorker;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import java.util.List;
+import org.lareferencia.core.repository.parquet.OAIRecordParquetRepository;
+import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
+import org.lareferencia.core.service.validation.IValidationStatisticsService;
+import org.lareferencia.core.metadata.ISnapshotStore;
+import org.lareferencia.core.repository.jpa.NetworkRepository;
 
 @DisplayName("NetworkCleanWorker Tests")
+@ExtendWith(MockitoExtension.class)
 class NetworkCleanWorkerTest {
 
-    private NetworkCleanWorker worker;
-
-    @BeforeEach
-    void setUp() {
-        worker = new NetworkCleanWorker();
-    }
+    @Mock private ISnapshotStore snapshotStore;
+    @Mock private IValidationStatisticsService validationStatisticsService;
+    @Mock private OAIRecordParquetRepository oaiRecordRepo;
+    @Mock private ValidationStatParquetRepository validationRepo;
+    @Mock private NetworkRepository networkRepository;
+    
+    @InjectMocks private NetworkCleanWorker worker;
 
     @Test
     @DisplayName("Should create NetworkCleanWorker instance")
@@ -137,6 +150,46 @@ class NetworkCleanWorkerTest {
         
         assertTrue(worker.isDeleteEntireNetwork());
         assertEquals("Delete", worker.toString());
+    }
+
+    @Test
+    @DisplayName("End-to-end partial cleanup calls repo delete methods")
+    void testPartialCleanupCallsRepos() throws Exception {
+        NetworkRunningContext context = createMockContext();
+        worker.setRunningContext(context);
+        worker.setDeleteEntireNetwork(false);
+        
+        List<Long> snapshotIds = List.of(1L, 2L);
+        when(snapshotStore.listSnapshotsIds(anyLong(), eq(false))).thenReturn(snapshotIds);
+        when(snapshotStore.findLastGoodKnownSnapshot(any())).thenReturn(999L);
+        when(snapshotStore.findLastHarvestingSnapshot(any())).thenReturn(888L);
+        
+        worker.run();
+        
+        verify(validationStatisticsService, times(2)).deleteValidationStatsObservationsBySnapshotID(anyLong());
+        verify(oaiRecordRepo, times(2)).deleteCatalogForSnapshot(anyLong());
+        verify(validationRepo, times(2)).deleteParquetForSnapshot(anyLong());
+        verify(snapshotStore, times(2)).cleanSnapshotData(anyLong());
+    }
+
+    @Test
+    @DisplayName("End-to-end full delete calls repo delete methods")
+    void testFullDeleteCallsRepos() throws Exception {
+        NetworkRunningContext context = createMockContext();
+        worker.setRunningContext(context);
+        worker.setDeleteEntireNetwork(true);
+        
+        List<Long> snapshotIds = List.of(1L, 2L);
+        when(snapshotStore.listSnapshotsIds(anyLong(), eq(true))).thenReturn(snapshotIds);
+        
+        worker.run();
+        
+        verify(validationStatisticsService, times(2)).deleteValidationStatsObservationsBySnapshotID(anyLong());
+        verify(oaiRecordRepo, times(2)).deleteCatalogForSnapshot(anyLong());
+        verify(validationRepo, times(2)).deleteParquetForSnapshot(anyLong());
+        verify(snapshotStore, times(2)).cleanSnapshotData(anyLong());
+        verify(snapshotStore, times(2)).deleteSnapshot(anyLong());
+        verify(networkRepository, times(1)).deleteByNetworkID(anyLong());
     }
 
     // Helper method
