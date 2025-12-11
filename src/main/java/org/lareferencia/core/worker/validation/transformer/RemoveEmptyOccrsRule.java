@@ -30,24 +30,30 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Transformer rule that removes empty or whitespace-only occurrences from a metadata field.
- * Cleans up fields by eliminating nodes that contain only whitespace or are empty.
+ * Transformer rule that removes empty or whitespace-only occurrences from a
+ * metadata field.
+ * Cleans up fields by eliminating nodes that contain only whitespace or are
+ * empty.
  */
+@ValidatorRuleMeta(name = "Remover ocurrencias vacías", help = "Transformer rule that removes empty or whitespace-only occurrences from a metadata field.")
 public class RemoveEmptyOccrsRule extends AbstractTransformerRule {
-	
+
 	/**
 	 * Name of the metadata field to remove empty occurrences from.
 	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
+	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover ocurrencias vacías.", order = 1)
 	String fieldName;
-	
+
 	/**
 	 * Constructs a new RemoveEmptyOccrsRule instance.
 	 */
@@ -58,7 +64,7 @@ public class RemoveEmptyOccrsRule extends AbstractTransformerRule {
 	 * Transforms the record by removing all empty or whitespace-only occurrences
 	 * from the specified field.
 	 *
-	 * @param record the OAI record being processed
+	 * @param record   the OAI record being processed
 	 * @param metadata the record's metadata containing the field to clean
 	 * @return true if any empty occurrences were removed, false otherwise
 	 */
@@ -66,27 +72,25 @@ public class RemoveEmptyOccrsRule extends AbstractTransformerRule {
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		boolean wasTransformed = false;
-		
+
 		List<Node> removeList = new ArrayList<Node>();
-		
+
 		// recorre las ocurrencias del campo de test
-		for ( Node node : metadata.getFieldNodes(fieldName) ) {
+		for (Node node : metadata.getFieldNodes(fieldName)) {
 
 			String occr = node.getFirstChild().getNodeValue();
 
-			if ( occr.trim().isEmpty() ) {
+			if (occr.trim().isEmpty()) {
 				removeList.add(node);
 				wasTransformed = true;
 			}
-			
+
 		}
-			
-		for (Node node: removeList) 
+
+		for (Node node : removeList)
 			metadata.removeNode(node);
-			
 
 		return wasTransformed;
 	}
-	
 
 }

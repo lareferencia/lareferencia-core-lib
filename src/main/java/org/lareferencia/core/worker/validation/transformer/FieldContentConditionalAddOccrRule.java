@@ -34,44 +34,52 @@ import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
 import org.lareferencia.core.worker.validation.QuantifierValues;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Transformation rule that conditionally adds field occurrences based on an expression.
+ * Transformation rule that conditionally adds field occurrences based on an
+ * expression.
  * <p>
- * Evaluates a conditional expression against metadata and adds a field value if true.
+ * Evaluates a conditional expression against metadata and adds a field value if
+ * true.
  * Can optionally remove duplicated occurrences after adding.
  * </p>
  * 
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
+@ValidatorRuleMeta(name = "Agregado condicional de ocurrencias de campo", help = "Evaluates a conditional expression against metadata and adds a field value if true.")
 public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule {
 
 	/** Expression evaluator for conditional logic. */
 	FieldExpressionEvaluator evaluator;
-	
+
 	/** Name of the field to which the value will be added. */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
+	@SchemaProperty(title = "Nombre del campo", description = "Campo donde se agregará el valor.", order = 1)
 	String fieldName;
-	
+
 	/** Value to be added to the field when condition is met. */
 	@Setter
 	@Getter
 	@JsonProperty("valueToAdd")
+	@SchemaProperty(title = "Valor a agregar", description = "El valor que se agregará si la condición es verdadera.", order = 2)
 	String valueToAdd;
-	
+
 	/** Conditional expression to evaluate for adding the field occurrence. */
 	@Setter
 	@Getter
 	@JsonProperty("conditionalExpression")
+	@SchemaProperty(title = "Expresión condicional", description = "Expresión para evaluar (ej: dc.type exists).", order = 3)
 	private String conditionalExpression;
-	
+
 	/** Default quantifier for expression evaluation. */
 	@JsonIgnore
 	protected QuantifierValues quantifier = QuantifierValues.ONE_OR_MORE;
@@ -89,9 +97,8 @@ public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule 
 	@Setter
 	@Getter
 	@JsonProperty("removeDuplicatedOccurrences")
+	@SchemaProperty(title = "¿Remover duplicados?", description = "Si es verdadero, remueve duplicados después de agregar.", defaultValue = "false", order = 4)
 	private Boolean removeDuplicatedOccurrences = false;
-
-
 
 	/**
 	 * Transforms a record by conditionally adding a field occurrence.
@@ -100,46 +107,42 @@ public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule 
 	 * Optionally removes duplicate occurrences after adding.
 	 * </p>
 	 * 
-	 * @param record the OAI record to transform
+	 * @param record   the OAI record to transform
 	 * @param metadata the record metadata to modify
 	 * @return true if the field was added, false otherwise
 	 */
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
-		boolean isExpressionValid = evaluator.evaluate(conditionalExpression, metadata);		
+		boolean isExpressionValid = evaluator.evaluate(conditionalExpression, metadata);
 		boolean wasTransformed = false;
-		
-		
-		if ( isExpressionValid ) {
+
+		if (isExpressionValid) {
 			wasTransformed = true;
 			metadata.addFieldOcurrence(fieldName, valueToAdd);
 		}
-		
-		
-		Set<String> occrSet  = new HashSet<String>();
+
+		Set<String> occrSet = new HashSet<String>();
 		List<Node> removeList = new ArrayList<Node>();
-		
-		if ( removeDuplicatedOccurrences ) {
+
+		if (removeDuplicatedOccurrences) {
 
 			// recorre las ocurrencias del campo de test
-			for ( Node node : metadata.getFieldNodes(fieldName) ) {
-	
+			for (Node node : metadata.getFieldNodes(fieldName)) {
+
 				String occr = node.getFirstChild().getNodeValue();
-	
-				if ( occrSet.contains(occr) )
+
+				if (occrSet.contains(occr))
 					removeList.add(node);
 				else
 					occrSet.add(occr);
 			}
-			
-			for (Node node: removeList) 
+
+			for (Node node : removeList)
 				metadata.removeNode(node);
 		}
 
 		return wasTransformed;
 	}
-
-	
 
 }

@@ -20,46 +20,26 @@
 
 package org.lareferencia.core.worker.validation;
 
-import lombok.Getter;
-import lombok.Setter;
-import lombok.ToString;
-
-import com.fasterxml.jackson.annotation.JsonProperty;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
 /**
- * Represents a translation rule for string transformation.
- * Maps a search pattern to its replacement value.
+ * Annotation to provide metadata for validator rule classes.
+ * Used for automatic JSON schema and form generation.
  */
-@Setter
-@Getter
-@ToString
-public class Translation {
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+public @interface ValidatorRuleMeta {
 
-	@SchemaProperty(title = "Buscar")
-	@JsonProperty("search")
-	String search;
+    /**
+     * Display name for the validation rule.
+     */
+    String name();
 
-	@SchemaProperty(title = "Reemplazo")
-	@JsonProperty("replace")
-	String replace;
-
-	/**
-	 * Constructs a new Translation with search and replace patterns.
-	 *
-	 * @param search  the search pattern
-	 * @param replace the replacement value
-	 */
-	public Translation(@JsonProperty("search") String search, @JsonProperty("replace") String replace) {
-		super();
-		this.search = search;
-		this.replace = replace;
-	}
-
-	/**
-	 * Constructs a new Translation with default values.
-	 */
-	public Translation() {
-		super();
-	}
-
+    /**
+     * Help text shown in the form UI.
+     */
+    String help() default "";
 }

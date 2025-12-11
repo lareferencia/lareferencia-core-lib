@@ -24,6 +24,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.lareferencia.core.worker.validation.AbstractValidatorFieldContentRule;
+import org.lareferencia.core.worker.validation.SchemaProperty;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -35,7 +37,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * Validator rule that checks if field values are in a controlled vocabulary.
  * <p>
  * Validates that field content matches one of the predefined allowed values.
- * Useful for enforcing controlled vocabularies, taxonomies, or enumerated lists.
+ * Useful for enforcing controlled vocabularies, taxonomies, or enumerated
+ * lists.
  * </p>
  * 
  * @author LA Referencia Team
@@ -43,6 +46,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  */
 @Getter
 @Setter
+@ValidatorRuleMeta(name = "Validación por valores controlados", help = "Esta regla es válida si el campo contiene ocurrencias con estos valores")
 public class ControlledValueFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
 	private static final int MAX_EXPECTED_LENGTH = 100;
@@ -50,10 +54,12 @@ public class ControlledValueFieldContentValidatorRule extends AbstractValidatorF
 	/**
 	 * List of allowed values for field content validation.
 	 */
+	@SchemaProperty(title = "Valores Controlados", type = "array", order = 2)
 	protected List<String> controlledValues;
 
 	/**
-	 * Creates a new controlled value validator with an empty list of allowed values.
+	 * Creates a new controlled value validator with an empty list of allowed
+	 * values.
 	 */
 	public ControlledValueFieldContentValidatorRule() {
 		super();
@@ -75,7 +81,9 @@ public class ControlledValueFieldContentValidatorRule extends AbstractValidatorF
 			result.setReceivedValue("NULL");
 			result.setValid(false);
 		} else {
-			result.setReceivedValue(content.length() > MAX_EXPECTED_LENGTH ? content.substring(0, MAX_EXPECTED_LENGTH) + "..." : content);
+			result.setReceivedValue(
+					content.length() > MAX_EXPECTED_LENGTH ? content.substring(0, MAX_EXPECTED_LENGTH) + "..."
+							: content);
 			result.setValid(this.controlledValues.contains(content));
 		}
 
@@ -84,7 +92,8 @@ public class ControlledValueFieldContentValidatorRule extends AbstractValidatorF
 
 	@Override
 	public String toString() {
-		return "ControlledValueContentValidationRule [controlledValues=" + controlledValues + ", id=" + ruleId + ", mandatory=" + mandatory + ", quantifier=" + quantifier + "]";
+		return "ControlledValueContentValidationRule [controlledValues=" + controlledValues + ", id=" + ruleId
+				+ ", mandatory=" + mandatory + ", quantifier=" + quantifier + "]";
 	}
 
 }

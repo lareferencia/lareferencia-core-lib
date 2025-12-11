@@ -27,6 +27,8 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 import java.util.HashSet;
@@ -40,27 +42,28 @@ import java.util.Set;
  * 
  * @author LA Referencia Team
  */
+@ValidatorRuleMeta(name = "Transformar oai identifier del registro", help = "Transformation rule that applies regex replacement to record identifiers.")
 public class IdentifierRegexRule extends AbstractTransformerRule {
 
 	/**
 	 * Regex pattern for searching in identifiers.
 	 */
 	@Getter
+	@SchemaProperty(title = "Expresión regular de búsqueda", description = "Patrón regex para buscar en el identificador.", order = 1)
 	String regexSearch;
 
 	@Setter
 	@Getter
+	@SchemaProperty(title = "Expresión de reemplazo", description = "Valor de reemplazo.", order = 2)
 	String regexReplace;
-
 
 	/**
 	 * Creates a new identifier regex rule.
 	 */
 	public IdentifierRegexRule() {
-		
-		
+
 	}
-	
+
 	/**
 	 * Sets the regex search pattern.
 	 * 
@@ -68,10 +71,9 @@ public class IdentifierRegexRule extends AbstractTransformerRule {
 	 */
 	public void setRegexSearch(String regexPattern) {
 		this.regexSearch = regexPattern;
-		//regexPredicate = Pattern.compile(regexPattern).asPredicate();
+		// regexPredicate = Pattern.compile(regexPattern).asPredicate();
 	}
 
-	
 	Set<String> existingValues = new HashSet<String>();
 	String occr = null;
 	String replace = null;
@@ -79,7 +81,7 @@ public class IdentifierRegexRule extends AbstractTransformerRule {
 	/**
 	 * Transforms the record identifier using regex replacement.
 	 * 
-	 * @param record the OAI record to transform
+	 * @param record   the OAI record to transform
 	 * @param metadata the metadata (not used in this rule)
 	 * @return true always, as transformation is always applied
 	 */
@@ -87,7 +89,7 @@ public class IdentifierRegexRule extends AbstractTransformerRule {
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		// set the new identifier value as the result of the regex replace
-		record.setIdentifier( record.getIdentifier().replaceAll(regexSearch, regexReplace) );
+		record.setIdentifier(record.getIdentifier().replaceAll(regexSearch, regexReplace));
 		return true;
 
 	}

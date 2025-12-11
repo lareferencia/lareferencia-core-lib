@@ -48,8 +48,10 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 @Getter
 @Setter
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
-public abstract class AbstractValidatorFieldContentRule extends AbstractValidatorRule implements IValidatorFieldContentRule {
+public abstract class AbstractValidatorFieldContentRule extends AbstractValidatorRule
+		implements IValidatorFieldContentRule {
 
+	@SchemaProperty(title = "Campo", description = "El nombre del campo oai_dc. Ej: dc.type", order = 1)
 	@JsonProperty("fieldname")
 	private String fieldname;
 
@@ -69,7 +71,6 @@ public abstract class AbstractValidatorFieldContentRule extends AbstractValidato
 	 */
 	public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
 
-		
 		ValidatorRuleResult result = new ValidatorRuleResult();
 
 		List<ContentValidatorResult> results = new ArrayList<ContentValidatorResult>();
@@ -85,16 +86,16 @@ public abstract class AbstractValidatorFieldContentRule extends AbstractValidato
 
 			// Se agrega a la lista de ocurrencias
 			results.add(occurrenceResult);
-			
+
 			// processed records invalid or valid ones
 			occurrencesCount += 1;
 
 			// Se suman las ocurrencias válidas
 			validOccurrencesCount += occurrenceResult.isValid() ? 1 : 0;
 		}
-		
+
 		// SI NO HAY OCCRS LO INDICA COMO UN VALOR DE RESULTADO
-		if ( occurrences.size() == 0 ) {
+		if (occurrences.size() == 0) {
 			ContentValidatorResult occurrenceResult = new ContentValidatorResult();
 			occurrenceResult.setReceivedValue("no_occurrences_found");
 			occurrenceResult.setValid(false);
@@ -105,34 +106,34 @@ public abstract class AbstractValidatorFieldContentRule extends AbstractValidato
 
 		switch (quantifier) {
 
-		case ONE_ONLY:
-			isRuleValid = validOccurrencesCount == 1;
-			break;
+			case ONE_ONLY:
+				isRuleValid = validOccurrencesCount == 1;
+				break;
 
-		case ONE_OR_MORE:
-			isRuleValid = validOccurrencesCount >= 1;
-			break;
+			case ONE_OR_MORE:
+				isRuleValid = validOccurrencesCount >= 1;
+				break;
 
-		case ZERO_OR_MORE:
-            // If we have at least one processed entry and if it's invalid
-            if (occurrencesCount > 0 && validOccurrencesCount == 0) {
-                isRuleValid = false;
-            } else {
-                isRuleValid = validOccurrencesCount >= 0;
-            }
-			break;
+			case ZERO_OR_MORE:
+				// If we have at least one processed entry and if it's invalid
+				if (occurrencesCount > 0 && validOccurrencesCount == 0) {
+					isRuleValid = false;
+				} else {
+					isRuleValid = validOccurrencesCount >= 0;
+				}
+				break;
 
-		case ZERO_ONLY:
-			isRuleValid = validOccurrencesCount == 0;
-			break;
+			case ZERO_ONLY:
+				isRuleValid = validOccurrencesCount == 0;
+				break;
 
-		case ALL:
-			isRuleValid = validOccurrencesCount == occurrences.size();
-			break;
+			case ALL:
+				isRuleValid = validOccurrencesCount == occurrences.size();
+				break;
 
-		default:
-			isRuleValid = false;
-			break;
+			default:
+				isRuleValid = false;
+				break;
 		}
 
 		result.setRule(this);

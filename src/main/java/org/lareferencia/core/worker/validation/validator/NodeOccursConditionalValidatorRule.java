@@ -26,7 +26,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractValidatorRule;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.lareferencia.core.worker.validation.ValidatorRuleResult;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 import org.w3c.dom.Node;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -35,52 +37,56 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 import lombok.Getter;
 import lombok.Setter;
 
-
 /**
- * Validator rule that conditionally checks for the existence of nodes based on an XPath expression.
- * Validates that nodes matching the expression exist or don't exist depending on configuration.
+ * Validator rule that conditionally checks for the existence of nodes based on
+ * an XPath expression.
+ * Validates that nodes matching the expression exist or don't exist depending
+ * on configuration.
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
+@ValidatorRuleMeta(name = "Validación de ocurrencias de nodos (Condicional)", help = "Esta regla es válida dependiendo del número de ocurrencias de un nodo")
 public class NodeOccursConditionalValidatorRule extends AbstractValidatorRule {
-	
-	private static Logger logger = LogManager.getLogger(NodeOccursConditionalValidatorRule.class);
-	
-	/**
-	 * Constructs a new node occurs conditional validator rule.
-	 */
-	public NodeOccursConditionalValidatorRule() {
-		super();
-	}
-	
-	/**
-	 * The XPath expression used to find nodes for validation.
-	 */
+
+    private static Logger logger = LogManager.getLogger(NodeOccursConditionalValidatorRule.class);
+
+    /**
+     * Constructs a new node occurs conditional validator rule.
+     */
+    public NodeOccursConditionalValidatorRule() {
+        super();
+    }
+
+    /**
+     * The XPath expression used to find nodes for validation.
+     */
     @Getter
-	@JsonProperty("xpathExpression")
+    @SchemaProperty(title = "XPATH expression para selector de nodos", description = "Expresión XPATH para la selección de nodos. Ej: //*[local-name()='element' and @name='datacite']/*[local-name()='element' and @name='titles']/*[local-name()='element' and @name='title']/*[local-name()='field' and @name='value']", uiType = "textarea", order = 1)
+    @JsonProperty("xpathExpression")
     String sourceXPathExpression;
 
-	
-	/**
-	 * Sets the XPath expression to evaluate for node existence validation.
-	 * 
-	 * @param xpathExpression the XPath expression to use
-	 */
+    /**
+     * Sets the XPath expression to evaluate for node existence validation.
+     * 
+     * @param xpathExpression the XPath expression to use
+     */
     public void setSourceXPathExpression(String xpathExpression) {
         this.sourceXPathExpression = xpathExpression;
-        //regexPredicate = Pattern.compile(regexPattern).asPredicate();
-    }	
+        // regexPredicate = Pattern.compile(regexPattern).asPredicate();
+    }
 
-	/**
-	 * Validates the metadata by checking for node occurrences matching the XPath expression.
-	 * <p>
-	 * Evaluates whether the number of matching nodes satisfies the configured quantifier
-	 * (ONE_ONLY, ONE_OR_MORE, ZERO_OR_MORE, ZERO_ONLY, or ALL).
-	 * </p>
-	 * 
-	 * @param metadata the record metadata to validate
-	 * @return the validation result with occurrence details
-	 */
-	public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
+    /**
+     * Validates the metadata by checking for node occurrences matching the XPath
+     * expression.
+     * <p>
+     * Evaluates whether the number of matching nodes satisfies the configured
+     * quantifier
+     * (ONE_ONLY, ONE_OR_MORE, ZERO_OR_MORE, ZERO_ONLY, or ALL).
+     * </p>
+     * 
+     * @param metadata the record metadata to validate
+     * @return the validation result with occurrence details
+     */
+    public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
         ValidatorRuleResult result = new ValidatorRuleResult();
 
         List<ContentValidatorResult> results = new ArrayList<ContentValidatorResult>();
@@ -88,59 +94,58 @@ public class NodeOccursConditionalValidatorRule extends AbstractValidatorRule {
 
         boolean isRuleValid = false;
 
-        List<Node> nodes = metadata.getFieldNodesByXPath(this.getSourceXPathExpression()); 
+        List<Node> nodes = metadata.getFieldNodesByXPath(this.getSourceXPathExpression());
         occurrencesCount = nodes.size();
-        
+
         for (Node node : nodes) {
-            
+
             ContentValidatorResult occurrenceResult = new ContentValidatorResult();
             occurrenceResult.setReceivedValue(node.getNodeName());
             occurrenceResult.setValid(true);
             results.add(occurrenceResult);
         }
-	    
+
         // SI NO HAY OCCRS LO INDICA COMO UN VALOR DE RESULTADO
-        if ( occurrencesCount == 0 ) {
+        if (occurrencesCount == 0) {
             ContentValidatorResult occurrenceResult = new ContentValidatorResult();
             occurrenceResult.setReceivedValue("no_occurrences_found");
             occurrenceResult.setValid(false);
             results.add(occurrenceResult);
         }
-        
 
         switch (quantifier) {
 
-        case ONE_ONLY:
-            isRuleValid = occurrencesCount == 1;
-            break;
+            case ONE_ONLY:
+                isRuleValid = occurrencesCount == 1;
+                break;
 
-        case ONE_OR_MORE:
-            isRuleValid = occurrencesCount >= 1;
-            break;
+            case ONE_OR_MORE:
+                isRuleValid = occurrencesCount >= 1;
+                break;
 
-        case ZERO_OR_MORE:
-            isRuleValid = occurrencesCount >= 0;
-            break;
+            case ZERO_OR_MORE:
+                isRuleValid = occurrencesCount >= 0;
+                break;
 
-        case ZERO_ONLY:
-            isRuleValid = occurrencesCount == 0;
-            break;
+            case ZERO_ONLY:
+                isRuleValid = occurrencesCount == 0;
+                break;
 
-        //TODO: verify if it makes sense - since the selector is the expression 
-        case ALL:
-            isRuleValid = occurrencesCount > 0;
-            break;
+            // TODO: verify if it makes sense - since the selector is the expression
+            case ALL:
+                isRuleValid = occurrencesCount > 0;
+                break;
 
-        default:
-            isRuleValid = false;
-            break;
+            default:
+                isRuleValid = false;
+                break;
         }
 
         result.setRule(this);
         result.setResults(results);
         result.setValid(isRuleValid);
-        return result;        
+        return result;
 
-	}
+    }
 
 }

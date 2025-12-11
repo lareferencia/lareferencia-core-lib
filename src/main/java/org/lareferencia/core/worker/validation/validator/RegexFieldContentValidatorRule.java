@@ -23,6 +23,8 @@ package org.lareferencia.core.worker.validation.validator;
 import java.util.regex.Pattern;
 
 import org.lareferencia.core.worker.validation.AbstractValidatorFieldContentRule;
+import org.lareferencia.core.worker.validation.SchemaProperty;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -31,10 +33,12 @@ import lombok.Setter;
 import lombok.ToString;
 
 /**
- * Validator rule that validates field content against a regular expression pattern.
+ * Validator rule that validates field content against a regular expression
+ * pattern.
  * Checks if the content matches the specified regex pattern.
  */
 @ToString(exclude = { "pattern" })
+@ValidatorRuleMeta(name = "Validación por expresiones regulares", help = "Esta regla es válida si el campo contiene ocurrencias que cumplen con la expresión regular")
 public class RegexFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
 	private static final int MAX_EXPECTED_LENGTH = 100;
@@ -50,6 +54,7 @@ public class RegexFieldContentValidatorRule extends AbstractValidatorFieldConten
 	 * The regular expression string used for validation.
 	 */
 	@Getter
+	@SchemaProperty(title = "Expresión regular", description = "Expresión regular que debe ser válida para la ocurrencia", uiType = "textarea", order = 2)
 	@JsonProperty("regexString")
 	private String regexString;
 
@@ -87,7 +92,9 @@ public class RegexFieldContentValidatorRule extends AbstractValidatorFieldConten
 			result.setReceivedValue("NULL");
 			result.setValid(false);
 		} else {
-			result.setReceivedValue(content.length() > MAX_EXPECTED_LENGTH ? content.substring(0, MAX_EXPECTED_LENGTH) + "..." : content);
+			result.setReceivedValue(
+					content.length() > MAX_EXPECTED_LENGTH ? content.substring(0, MAX_EXPECTED_LENGTH) + "..."
+							: content);
 			result.setValid(pattern.matcher(content).matches());
 		}
 

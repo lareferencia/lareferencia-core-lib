@@ -29,3 +29,6 @@ HELP.md
 .vscode/
 .DS_Store
 pom.xml.versionsBackup
+openspec/**
+.github/prompts/**
+AGENTS.md

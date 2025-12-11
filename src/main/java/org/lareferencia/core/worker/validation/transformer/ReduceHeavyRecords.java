@@ -26,6 +26,8 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -39,25 +41,29 @@ import lombok.Setter;
  * Transformer rule that reduces heavy records by removing specified fields.
  * Useful for handling oversized metadata records that exceed processing limits.
  */
+@ValidatorRuleMeta(name = "Remover campos específicos de registros pesados", help = "Transformer rule that reduces heavy records by removing specified fields.")
 public class ReduceHeavyRecords extends AbstractTransformerRule {
-	
+
 	/**
-	 * Maximum allowed record size (currently not actively used in transformation logic).
+	 * Maximum allowed record size (currently not actively used in transformation
+	 * logic).
 	 * Defaults to 1.
 	 */
 	@Setter
 	@Getter
 	@JsonProperty("maxRecordSize")
+	@SchemaProperty(title = "Tamaño máximo de registro", description = "Tamaño máximo permitido (actualmente no usado).", defaultValue = "1", order = 1)
 	int maxRecordSize = 1;
-	
+
 	/**
 	 * List of field names to remove from heavy records to reduce their size.
 	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldsToRemove")
+	@SchemaProperty(title = "Campos a remover", description = "Lista de campos a remover para reducir tamaño.", order = 2)
 	List<String> fieldsToRemove;
-	
+
 	/**
 	 * Constructs a new ReduceHeavyRecords instance.
 	 */
@@ -67,27 +73,24 @@ public class ReduceHeavyRecords extends AbstractTransformerRule {
 	/**
 	 * Transforms the record by removing all occurrences of the specified fields.
 	 *
-	 * @param record the OAI record being processed
+	 * @param record   the OAI record being processed
 	 * @param metadata the record's metadata from which fields will be removed
 	 * @return true if any fields were removed, false otherwise
 	 */
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-		
+
 		boolean wasTransformed = false;
-				
-		for ( String fieldName : fieldsToRemove ) {
-			
-			for ( Node node : metadata.getFieldNodes(fieldName) ) { 
+
+		for (String fieldName : fieldsToRemove) {
+
+			for (Node node : metadata.getFieldNodes(fieldName)) {
 				metadata.removeNode(node);
 				wasTransformed = true;
 			}
 		}
-	
-		
+
 		return wasTransformed;
 	}
-	 
-	
 
 }

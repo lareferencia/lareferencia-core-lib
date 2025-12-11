@@ -32,6 +32,8 @@ import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
 import org.lareferencia.core.worker.validation.Translation;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 /**
@@ -42,23 +44,27 @@ import org.w3c.dom.Node;
  * 
  * @author LA Referencia Team
  */
+@ValidatorRuleMeta(name = "Traducción de nombres de campo (múltiple)", help = "Applies a list of field name translations to the metadata.")
 public class FieldNameBulkTranslateRule extends AbstractTransformerRule {
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Listado de traducciones", description = "Lista de pares origen-destino para renombrar campos.", order = 1)
 	List<Translation> translationArray;
-	
+
 	/**
-	 * Creates a new bulk field name translation rule with an empty translation list.
+	 * Creates a new bulk field name translation rule with an empty translation
+	 * list.
 	 */
 	public FieldNameBulkTranslateRule() {
 		translationArray = new ArrayList<Translation>();
 	}
 
 	/**
-	 * Transforms the record by translating field names according to the translation array.
+	 * Transforms the record by translating field names according to the translation
+	 * array.
 	 * 
-	 * @param record the OAI record to transform
+	 * @param record   the OAI record to transform
 	 * @param metadata the metadata to transform
 	 * @return true if any field name was translated, false otherwise
 	 */
@@ -67,28 +73,25 @@ public class FieldNameBulkTranslateRule extends AbstractTransformerRule {
 
 		boolean wasTransformed = false;
 
-		
-		for ( Translation translation : translationArray ) {
-			
-		
+		for (Translation translation : translationArray) {
+
 			// ciclo de reemplazo
 			// recorre las ocurrencias del campo de nombre source creando instancias
 			// con nombre target
 			for (Node node : metadata.getFieldNodes(translation.getSearch())) {
-				
-					
+
 				// Agrega instancia target con el contenido a reemplazar
 				String occr = node.getFirstChild().getNodeValue();
 				metadata.addFieldOcurrence(translation.getReplace(), occr);
-	
+
 				// Remueve la actual
 				metadata.removeNode(node);
-		
+
 				// si entra al ciclo al menos una vez entonces transformó
 				wasTransformed = true;
 			}
 		}
-		
+
 		return wasTransformed;
 
 	}

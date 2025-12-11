@@ -27,6 +27,8 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -35,19 +37,22 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * Transformer rule that removes all occurrences of a field except the first one.
+ * Transformer rule that removes all occurrences of a field except the first
+ * one.
  * Useful for ensuring single-valued fields when duplicates exist.
  */
+@ValidatorRuleMeta(name = "Remover todas las ocurrencias excepto la primera", help = "Transformer rule that removes all occurrences of a field except the first one.")
 public class RemoveAllButFirstOccrRule extends AbstractTransformerRule {
-	
+
 	/**
 	 * Name of the metadata field to process, keeping only the first occurrence.
 	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
+	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual se mantendrá solo la primera ocurrencia.", order = 1)
 	String fieldName;
-	
+
 	/**
 	 * Constructs a new RemoveAllButFirstOccrRule instance.
 	 */
@@ -55,9 +60,10 @@ public class RemoveAllButFirstOccrRule extends AbstractTransformerRule {
 	}
 
 	/**
-	 * Transforms the record by removing all but the first occurrence of the specified field.
+	 * Transforms the record by removing all but the first occurrence of the
+	 * specified field.
 	 *
-	 * @param record the OAI record being processed
+	 * @param record   the OAI record being processed
 	 * @param metadata the record's metadata containing the field to transform
 	 * @return true if any occurrences were removed, false otherwise
 	 */
@@ -65,23 +71,22 @@ public class RemoveAllButFirstOccrRule extends AbstractTransformerRule {
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		boolean wasTransformed = false;
-		
+
 		List<Node> removeList = new ArrayList<Node>();
-		
+
 		int i = 0;
 		// recorre las ocurrencias del campo de test
-		for ( Node node : metadata.getFieldNodes(fieldName) ) {
+		for (Node node : metadata.getFieldNodes(fieldName)) {
 
-			if ( i!=0 ) {
+			if (i != 0) {
 				removeList.add(node);
 				wasTransformed = true;
 			}
 			i++;
 		}
-			
-		for (Node node: removeList) 
+
+		for (Node node : removeList)
 			metadata.removeNode(node);
-			
 
 		return wasTransformed;
 	}

@@ -30,6 +30,8 @@ import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
 import org.lareferencia.core.worker.validation.Translation;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 import java.io.*;
@@ -41,25 +43,31 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * Transformation rule that translates field content values based on a mapping table.
+ * Transformation rule that translates field content values based on a mapping
+ * table.
  * <p>
- * This rule reads values from a test field and writes translated values to a target field
- * (which can be the same field). It uses a configurable translation map that can support
- * case-sensitive or case-insensitive matching, and can handle prefix-based translations.
+ * This rule reads values from a test field and writes translated values to a
+ * target field
+ * (which can be the same field). It uses a configurable translation map that
+ * can support
+ * case-sensitive or case-insensitive matching, and can handle prefix-based
+ * translations.
  * <p>
  * Common use cases include:
  * </p>
  * <ul>
- *   <li>Vocabulary normalization (e.g., mapping variant subject terms to standard ones)</li>
- *   <li>Language code translation</li>
- *   <li>Resource type standardization</li>
- *   <li>License URI normalization</li>
+ * <li>Vocabulary normalization (e.g., mapping variant subject terms to standard
+ * ones)</li>
+ * <li>Language code translation</li>
+ * <li>Resource type standardization</li>
+ * <li>License URI normalization</li>
  * </ul>
  * 
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  * @see Translation
  */
+@ValidatorRuleMeta(name = "Traducción de valores de campos", help = "Esta regla traduce valores de campos basándose en una tabla de mapeo.")
 public class FieldContentTranslateRule extends AbstractTransformerRule {
 
 	private static Logger logger = LogManager.getLogger(FieldContentTranslateRule.class);
@@ -69,25 +77,30 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 	Map<String, String> translationMap;
 
 	@Getter
+	@SchemaProperty(title = "Listado de traducciones", description = "Si se encuentra una ocurrencia con alguno de los valores listado se reemplaza.", order = 5)
 	List<Translation> translationArray;
 
 	@Setter
 	@Getter
+	@SchemaProperty(title = "Campo de búsqueda", description = "El nombre del campo oai_dc donde se buscara el valor. Ej: dc.type", order = 1)
 	String testFieldName;
 
 	@Setter
 	@Getter
+	@SchemaProperty(title = "Campo de escritura", description = "El nombre del campo oai_dc que se creará con la ocurrencia de reemplazo Ej: dc.type", order = 2)
 	String writeFieldName;
 
 	@Setter
 	@Getter
+	@SchemaProperty(title = "¿Se reemplaza la ocurrencia encontrada?", description = "Indica si se eliminará la ocurrencia en el campo de búsqueda", defaultValue = "true", order = 3)
 	Boolean replaceOccurrence = true;
 
 	@Setter
 	@Getter
+	@SchemaProperty(title = "¿Evaluar como prefijo?", description = "Indica si el valor de búsqueda se evaluará como prefijo del contenido del campo de búsqueda.", defaultValue = "false", order = 4)
 	Boolean testValueAsPrefix = false;
-	
-	Set<String> existingValues = new HashSet<String>();	
+
+	Set<String> existingValues = new HashSet<String>();
 
 	/**
 	 * Creates a new field content translation rule.
@@ -149,11 +162,12 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 		}
 
 	}
-	
+
 	/**
-	 * Transforms the record by translating field values according to the translation map.
+	 * Transforms the record by translating field values according to the
+	 * translation map.
 	 * 
-	 * @param record the OAI record to transform
+	 * @param record   the OAI record to transform
 	 * @param metadata the metadata to transform
 	 * @return true if any value was transformed, false otherwise
 	 */
@@ -161,35 +175,35 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		boolean wasTransformed = false;
-	
+
 		// setup existing values
-		existingValues.clear();	
-		for (Node node : metadata.getFieldNodes(testFieldName)) 
-			existingValues.add( node.getFirstChild().getNodeValue() );
-		
-		
+		existingValues.clear();
+		for (Node node : metadata.getFieldNodes(testFieldName))
+			existingValues.add(node.getFirstChild().getNodeValue());
+
 		String occr = null;
 		String translatedOccr = null;
 
 		// recorre las ocurrencias del campo de test
-		for ( Node node : metadata.getFieldNodes(testFieldName) ) {
-		
+		for (Node node : metadata.getFieldNodes(testFieldName)) {
+
 			occr = node.getFirstChild().getNodeValue();
-			
-				// Busca el valor completo, no el prefijo
+
+			// Busca el valor completo, no el prefijo
 			if (!testValueAsPrefix) {
 
-				// if translation contains the value and the translated value does not yet exists
-				if (translationMap.containsKey(occr) && !existingValues.contains( translationMap.get(occr) )) {
+				// if translation contains the value and the translated value does not yet
+				// exists
+				if (translationMap.containsKey(occr) && !existingValues.contains(translationMap.get(occr))) {
 					translatedOccr = translationMap.get(occr);
-					wasTransformed |= !occr.equals(translatedOccr); 	
-					
-					if (replaceOccurrence) 
+					wasTransformed |= !occr.equals(translatedOccr);
+
+					if (replaceOccurrence)
 						metadata.removeNode(node);
-					
+
 					metadata.addFieldOcurrence(writeFieldName, translatedOccr);
 					existingValues.add(translatedOccr);
-					
+
 				}
 
 			} else { // Busca el prefijo
@@ -202,19 +216,17 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 					if (!found && occr.startsWith(testValue)) {
 						translatedOccr = translationMap.get(testValue);
 						wasTransformed = true;
-						
-						if (replaceOccurrence) 
+
+						if (replaceOccurrence)
 							metadata.removeNode(node);
-						
+
 						metadata.addFieldOcurrence(writeFieldName, translatedOccr);
 						existingValues.add(translatedOccr);
 
 					}
 				}
 			}
-			
-			
-			
+
 		}
 
 		return wasTransformed;

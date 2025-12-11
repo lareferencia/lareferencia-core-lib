@@ -24,7 +24,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractValidatorRule;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.lareferencia.core.worker.validation.ValidatorRuleResult;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -44,10 +46,12 @@ import lombok.Setter;
 @Getter
 @Setter
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
+@ValidatorRuleMeta(name = "Validación por expresiones de contenido", help = "Esta regla es válida si el contenido de los campos enunciados cumple la expresión booleana")
 public class FieldExpressionValidatorRule extends AbstractValidatorRule {
-	
+
 	private static Logger logger = LogManager.getLogger(FieldExpressionValidatorRule.class);
 
+	@SchemaProperty(title = "Expresión", description = "Es importante dejar espacios entre los paréntesis. Ej: ( dc.type=='info:eu-repo/semantics/article' AND dc.rights=%'info.+' ) OR ( dc.type=='info:eu-repo/semantics/bachelorThesis' )", uiType = "textarea", order = 1)
 	@JsonProperty("expression")
 	private String expression;
 
@@ -72,15 +76,16 @@ public class FieldExpressionValidatorRule extends AbstractValidatorRule {
 	public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
 
 		ValidatorRuleResult result = new ValidatorRuleResult();
-		
+
 		boolean isRuleValid = false;
-		
+
 		try {
 			isRuleValid = evaluator.evaluate(expression, metadata);
 		} catch (Exception | StackOverflowError e) {
-			logger.error( e + " oai_identifier:" + metadata.getIdentifier() + " msg:: " + e.getMessage() + "  regexp= " + expression ); 
+			logger.error(e + " oai_identifier:" + metadata.getIdentifier() + " msg:: " + e.getMessage() + "  regexp= "
+					+ expression);
 		}
-		
+
 		result.setRule(this);
 		result.setResults(evaluator.getEvaluationResults());
 		result.setValid(isRuleValid);

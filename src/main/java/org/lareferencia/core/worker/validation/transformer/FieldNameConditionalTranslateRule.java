@@ -28,29 +28,35 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 /**
- * Transformation rule that conditionally translates field names based on XPath expressions.
+ * Transformation rule that conditionally translates field names based on XPath
+ * expressions.
  * <p>
  * Renames fields matching the source XPath to the target field name.
  * </p>
  * 
  * @author LA Referencia Team
  */
+@ValidatorRuleMeta(name = "Traducción de nombres de campo (Condicional)", help = "Transformation rule that conditionally translates field names based on XPath expressions.")
 public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
 
 	static int MAX_NODE_COUNT = 100;
-	
+
 	/**
 	 * Target field name for the renamed fields.
 	 */
 	@Setter
 	@Getter
+	@SchemaProperty(title = "Nombre de campo destino", description = "El nuevo nombre del campo.", order = 2)
 	String targetFieldName;
 
-    @Getter
-    String sourceXPathExpression;
+	@Getter
+	@SchemaProperty(title = "Expresión XPath origen", description = "Expresión XPath para identificar campos a renombrar.", order = 1)
+	String sourceXPathExpression;
 
 	/**
 	 * Constructs a new field name conditional translate rule.
@@ -59,26 +65,25 @@ public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
 		super();
 	}
 
-    /**
-     * Sets the XPath expression for identifying source fields.
-     * 
-     * @param regexPattern the XPath expression pattern
-     */
-    public void setSourceXPathExpression(String regexPattern) {
-        this.sourceXPathExpression = regexPattern;
-        //regexPredicate = Pattern.compile(regexPattern).asPredicate();
-    }
+	/**
+	 * Sets the XPath expression for identifying source fields.
+	 * 
+	 * @param regexPattern the XPath expression pattern
+	 */
+	public void setSourceXPathExpression(String regexPattern) {
+		this.sourceXPathExpression = regexPattern;
+		// regexPredicate = Pattern.compile(regexPattern).asPredicate();
+	}
 
 	/**
 	 * Transforms the record by renaming fields that match the source XPath.
 	 * 
-	 * @param record the OAI record to transform
+	 * @param record   the OAI record to transform
 	 * @param metadata the metadata to transform
 	 * @return true if any field name was translated, false otherwise
 	 */
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-
 
 		boolean wasTransformed = false;
 
@@ -87,26 +92,26 @@ public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
 		// con nombre target
 		int i = 0;
 		for (Node node : metadata.getFieldNodesByXPath(this.getSourceXPathExpression())) {
-			
-			
-			//System.out.println(  metadata.toString() );
+
+			// System.out.println( metadata.toString() );
 
 			// Agrega instancia target con el contenido a reemplazar
 			String occr = node.getFirstChild().getNodeValue();
 			metadata.addFieldOcurrence(this.getTargetFieldName(), occr);
-			
-			//System.out.println(  metadata.toString() );
 
+			// System.out.println( metadata.toString() );
 
 			// Remueve la actual
 			metadata.removeNode(node);
 
-			//System.out.println(  metadata.toString() );
+			// System.out.println( metadata.toString() );
 
 			// si entra al ciclo al menos una vez entonces transformó
 			wasTransformed = true;
-			
-			i++; if ( i > MAX_NODE_COUNT ) break;
+
+			i++;
+			if (i > MAX_NODE_COUNT)
+				break;
 		}
 
 		return wasTransformed;

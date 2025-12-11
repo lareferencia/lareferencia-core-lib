@@ -35,12 +35,17 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 /**
- * Transformer rule that translates field content using regular expression search and replace.
- * Can copy translated content to a target field and optionally remove matching occurrences from the source.
+ * Transformer rule that translates field content using regular expression
+ * search and replace.
+ * Can copy translated content to a target field and optionally remove matching
+ * occurrences from the source.
  */
+@ValidatorRuleMeta(name = "Transformación de campo por reemplazo (regexp)", help = "Transformer rule that translates field content using regular expression search and replace.")
 public class RegexTranslateRule extends AbstractTransformerRule {
 
 	/**
@@ -48,6 +53,7 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	@Setter
 	@Getter
+	@SchemaProperty(title = "Campo de búsqueda", description = "El nombre del campo donde se buscará.", order = 1)
 	String sourceFieldName;
 
 	/**
@@ -55,12 +61,14 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	@Setter
 	@Getter
+	@SchemaProperty(title = "Campo de escritura", description = "El nombre del campo donde se escribirá el resultado.", order = 2)
 	String targetFieldName;
-	
+
 	/**
 	 * The regular expression pattern to search for in the field content.
 	 */
 	@Getter
+	@SchemaProperty(title = "Expresión regular de búsqueda", description = "Patrón regex para buscar en el contenido.", order = 3)
 	String regexSearch;
 
 	/**
@@ -68,25 +76,26 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	@Setter
 	@Getter
+	@SchemaProperty(title = "Expresión de reemplazo", description = "Valor de reemplazo (soporta grupos de captura).", order = 4)
 	String regexReplace;
-	
+
 	/**
 	 * Flag indicating whether to remove occurrences that match the regex pattern.
 	 */
 	@Setter
 	@Getter
+	@SchemaProperty(title = "¿Remover ocurrencia original?", description = "Si es verdadero, elimina la ocurrencia original si hubo coincidencia.", defaultValue = "false", order = 5)
 	Boolean removeMatchingOccurrences = false;
-	
-	//private Predicate<String> regexPredicate;
+
+	// private Predicate<String> regexPredicate;
 
 	/**
 	 * Constructs a new regex translate rule with default settings.
 	 */
 	public RegexTranslateRule() {
-		
-		
+
 	}
-	
+
 	/**
 	 * Sets the regular expression search pattern.
 	 * 
@@ -94,54 +103,51 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	public void setRegexSearch(String regexPattern) {
 		this.regexSearch = regexPattern;
-		//regexPredicate = Pattern.compile(regexPattern).asPredicate();
+		// regexPredicate = Pattern.compile(regexPattern).asPredicate();
 	}
 
-	
 	Set<String> existingValues = new HashSet<String>();
 	String occr = null;
 	String replace = null;
 
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-		
-		
+
 		// setup existing values
-		existingValues.clear();	
-		for (Node node : metadata.getFieldNodes(sourceFieldName)) 
-			existingValues.add( node.getFirstChild().getNodeValue() );
-		
+		existingValues.clear();
+		for (Node node : metadata.getFieldNodes(sourceFieldName))
+			existingValues.add(node.getFirstChild().getNodeValue());
 
 		boolean wasTransformed = false;
 
 		// ciclo de reemplazo
-		// recorre las ocurrencias del campo de nombre source y si la occrs matchea con el la expresion realiza los reemplazos 
+		// recorre las ocurrencias del campo de nombre source y si la occrs matchea con
+		// el la expresion realiza los reemplazos
 		// aplicando el pattern
-		for ( Node node : metadata.getFieldNodes(sourceFieldName) ) {
-			
+		for (Node node : metadata.getFieldNodes(sourceFieldName)) {
+
 			occr = node.getFirstChild().getNodeValue();
-			
-			//if ( regexPredicate.test(occr) ) {
-				
-				replace = occr.replaceFirst(regexSearch, regexReplace);
-	
-				// Agrega instancia target con el contenido a reemplazar
-				if ( !existingValues.contains(replace) ) {
-					
-					// Si esta marcada la opción remueve ocurrencia source
-					if ( removeMatchingOccurrences )
-						metadata.removeNode( node );
-		
-					metadata.addFieldOcurrence(this.getTargetFieldName(), replace );
-					existingValues.add(replace);
-					
-					// si entra al ciclo al menos una vez entonces transformó
-					wasTransformed = true;
-				}
-			
-			//}
+
+			// if ( regexPredicate.test(occr) ) {
+
+			replace = occr.replaceFirst(regexSearch, regexReplace);
+
+			// Agrega instancia target con el contenido a reemplazar
+			if (!existingValues.contains(replace)) {
+
+				// Si esta marcada la opción remueve ocurrencia source
+				if (removeMatchingOccurrences)
+					metadata.removeNode(node);
+
+				metadata.addFieldOcurrence(this.getTargetFieldName(), replace);
+				existingValues.add(replace);
+
+				// si entra al ciclo al menos una vez entonces transformó
+				wasTransformed = true;
+			}
+
+			// }
 		}
-		
 
 		return wasTransformed;
 	}

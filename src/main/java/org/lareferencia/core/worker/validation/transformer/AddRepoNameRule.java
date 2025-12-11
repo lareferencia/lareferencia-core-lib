@@ -29,59 +29,73 @@ import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.RepositoryNameHelper;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 
 /**
  * Transformation rule that adds repository and institution names to metadata.
  * <p>
  * Enriches records with repository name, institution name, and institution
- * acronym fields. Can append or replace existing values with configured prefixes.
+ * acronym fields. Can append or replace existing values with configured
+ * prefixes.
  * </p>
  * 
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
+@ValidatorRuleMeta(name = "Agregado de metatos de nombre repositorio", help = "Enriches records with repository name, institution name, and institution acronym fields.")
 public class AddRepoNameRule extends AbstractTransformerRule {
 
 	private RepositoryNameHelper repositoryNameHelper;
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Agregar nombre de repositorio", description = "Si es verdadero, agrega el nombre del repositorio.", defaultValue = "false", order = 1)
 	private Boolean doRepoNameAppend = false;
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Reemplazar nombre de repositorio", description = "Si es verdadero, reemplaza el valor existente.", defaultValue = "false", order = 2)
 	private Boolean doRepoNameReplace = false;
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Campo nombre de repositorio", description = "Campo donde se escribirá el nombre del repositorio.", defaultValue = "dc.source.none", order = 3)
 	private String repoNameField = "dc.source.none";
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Prefijo nombre de repositorio", description = "Prefijo para el nombre del repositorio.", defaultValue = "reponame:", order = 4)
 	private String repoNamePrefix = "reponame:";
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Agregar nombre de institución", description = "Si es verdadero, agrega el nombre de la institución.", defaultValue = "false", order = 5)
 	private Boolean doInstNameAppend = false;
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Reemplazar nombre de institución", description = "Si es verdadero, reemplaza el valor existente.", defaultValue = "false", order = 6)
 	private Boolean doInstNameReplace = false;
 
 	@Getter
 	@Setter
-	private String instNameField = "dc.source.none" ;
+	@SchemaProperty(title = "Campo nombre de institución", description = "Campo donde se escribirá el nombre de la institución.", defaultValue = "dc.source.none", order = 7)
+	private String instNameField = "dc.source.none";
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Prefijo nombre de institución", description = "Prefijo para el nombre de la institución.", defaultValue = "instname:", order = 8)
 	private String instNamePrefix = "instname:";
-	
+
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Campo acrónimo de institución", description = "Campo donde se escribirá el acrónimo de la institución.", defaultValue = "dc.source.none", order = 9)
 	private String instAcronField = "dc.source.none";
 
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Prefijo acrónimo de institución", description = "Prefijo para el acrónimo de la institución.", defaultValue = "instacron:", order = 10)
 	private String instAcronPrefix = "instacron:";
 
 	/**
@@ -98,12 +112,15 @@ public class AddRepoNameRule extends AbstractTransformerRule {
 
 		// Si está configurado agrega a la metadata el reponame y el instname
 		if (doRepoNameAppend) {
-			repositoryNameHelper.appendNameToMetadata(metadata, repoNameField, repoNamePrefix, snapshotMetadata.getNetwork().getName(), doRepoNameReplace);
+			repositoryNameHelper.appendNameToMetadata(metadata, repoNameField, repoNamePrefix,
+					snapshotMetadata.getNetwork().getName(), doRepoNameReplace);
 		}
 
 		if (doInstNameAppend) {
-			repositoryNameHelper.appendNameToMetadata(metadata, instNameField,  instNamePrefix, snapshotMetadata.getNetwork().getInstitutionName(), doInstNameReplace);
-			repositoryNameHelper.appendNameToMetadata(metadata, instAcronField, instAcronPrefix, snapshotMetadata.getNetwork().getInstitutionAcronym(), doInstNameReplace);
+			repositoryNameHelper.appendNameToMetadata(metadata, instNameField, instNamePrefix,
+					snapshotMetadata.getNetwork().getInstitutionName(), doInstNameReplace);
+			repositoryNameHelper.appendNameToMetadata(metadata, instAcronField, instAcronPrefix,
+					snapshotMetadata.getNetwork().getInstitutionAcronym(), doInstNameReplace);
 
 		}
 

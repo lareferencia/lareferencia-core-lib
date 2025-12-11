@@ -32,6 +32,8 @@ import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
 import org.lareferencia.core.worker.validation.IValidatorFieldContentRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 /**
@@ -46,19 +48,26 @@ import org.w3c.dom.Node;
  */
 @Getter
 @Setter
+@ValidatorRuleMeta(name = "Normalización de contenido de campo", help = "Transformation rule that normalizes field content by applying a validation rule and/or removing duplicates.")
 public class FieldContentNormalizeRule extends AbstractTransformerRule {
 
 	@Override
 	public String toString() {
-		return "FieldContentNormalizeRule [validationRule=" + validationRule + ", fieldName=" + fieldName + ", removeInvalidOccurrences=" + removeInvalidOccurrences
+		return "FieldContentNormalizeRule [validationRule=" + validationRule + ", fieldName=" + fieldName
+				+ ", removeInvalidOccurrences=" + removeInvalidOccurrences
 				+ ", removeDuplicatedOccurrences=" + removeDuplicatedOccurrences + "]";
 	}
 
+	@SchemaProperty(title = "Regla de validación", description = "Regla de validación a aplicar.", order = 1)
 	private IValidatorFieldContentRule validationRule;
 
+	@SchemaProperty(title = "Nombre del campo", description = "Campo a normalizar.", order = 2)
 	private String fieldName;
 
+	@SchemaProperty(title = "¿Remover ocurrencias inválidas?", description = "Si es verdadero, remueve las ocurrencias que no pasen la validación.", defaultValue = "false", order = 3)
 	private Boolean removeInvalidOccurrences = false;
+
+	@SchemaProperty(title = "¿Remover duplicados?", description = "Si es verdadero, remueve ocurrencias duplicadas.", defaultValue = "false", order = 4)
 	private Boolean removeDuplicatedOccurrences = false;
 
 	/**

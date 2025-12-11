@@ -28,6 +28,8 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -40,22 +42,24 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
+@ValidatorRuleMeta(name = "Transformación de campo removendo whitespaces", help = "Transformation rule that removes whitespace from field values.")
 public class FieldContentRemoveWhiteSpacesTranslateRule extends AbstractTransformerRule {
 
-	/**
-	 * Name of the field to process for removing whitespace.
-	 */
+    /**
+     * Name of the field to process for removing whitespace.
+     */
     @Setter
     @Getter
     @JsonProperty("fieldName")
+    @SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover espacios en blanco.", order = 1)
     String fieldName;
 
-	/**
-	 * Constructs a new field content whitespace removal rule.
-	 */
-	public FieldContentRemoveWhiteSpacesTranslateRule() {
-		super();
-	}
+    /**
+     * Constructs a new field content whitespace removal rule.
+     */
+    public FieldContentRemoveWhiteSpacesTranslateRule() {
+        super();
+    }
 
     @Override
     public String toString() {
@@ -75,7 +79,7 @@ public class FieldContentRemoveWhiteSpacesTranslateRule extends AbstractTransfor
             occr = node.getFirstChild().getNodeValue();
 
             int originalSize = occr.length();
-            //Replace every whitespace with nothing (removing whitespaces)
+            // Replace every whitespace with nothing (removing whitespaces)
             replace = occr.replaceAll("\\s", "");
 
             node.getFirstChild().setNodeValue(replace);

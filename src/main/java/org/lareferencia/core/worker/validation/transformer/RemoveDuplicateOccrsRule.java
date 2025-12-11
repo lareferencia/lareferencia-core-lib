@@ -29,6 +29,8 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.w3c.dom.Node;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -51,37 +53,40 @@ import lombok.Setter;
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
+@ValidatorRuleMeta(name = "Remover ocurrencias duplicadas en un campo", help = "Identifies and removes duplicate values within a specified field, keeping only the first occurrence.")
 public class RemoveDuplicateOccrsRule extends AbstractTransformerRule {
-	
+
 	/**
 	 * Name of the metadata field from which to remove duplicate occurrences.
 	 */
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
+	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover duplicados.", order = 1)
 	String fieldName;
-	
+
 	/**
 	 * Constructs a new RemoveDuplicateOccrsRule instance.
 	 */
 	public RemoveDuplicateOccrsRule() {
 	}
-	
+
 	/**
 	 * Internal set for tracking unique field values during transformation.
 	 */
-	Set<String> occrSet  = new HashSet<String>();
-	
+	Set<String> occrSet = new HashSet<String>();
+
 	/**
 	 * Internal list for collecting duplicate nodes to be removed.
 	 */
 	List<Node> removeList = new ArrayList<Node>();
 
 	/**
-	 * Transforms the record by removing duplicate occurrences from the specified field.
+	 * Transforms the record by removing duplicate occurrences from the specified
+	 * field.
 	 * Keeps only the first occurrence of each unique value.
 	 *
-	 * @param record the OAI record being processed
+	 * @param record   the OAI record being processed
 	 * @param metadata the record's metadata containing the field to deduplicate
 	 * @return true if any duplicates were removed, false otherwise
 	 */
@@ -89,26 +94,24 @@ public class RemoveDuplicateOccrsRule extends AbstractTransformerRule {
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		boolean wasTransformed = false;
-		
+
 		occrSet.clear();
 		removeList.clear();
-		
+
 		// recorre las ocurrencias del campo de test
-		for ( Node node : metadata.getFieldNodes(fieldName) ) {
+		for (Node node : metadata.getFieldNodes(fieldName)) {
 
 			String occr = node.getFirstChild().getNodeValue();
 
-			if ( occrSet.contains(occr) ) {
+			if (occrSet.contains(occr)) {
 				removeList.add(node);
 				wasTransformed = true;
-			}
-			else
+			} else
 				occrSet.add(occr);
 		}
-			
-		for (Node node: removeList) 
+
+		for (Node node : removeList)
 			metadata.removeNode(node);
-			
 
 		return wasTransformed;
 	}

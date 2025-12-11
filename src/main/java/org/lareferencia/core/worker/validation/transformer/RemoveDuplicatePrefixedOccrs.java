@@ -29,11 +29,16 @@ import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.util.RepositoryNameHelper;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
+import org.lareferencia.core.worker.validation.SchemaProperty;
 
 /**
- * Transformer rule that removes duplicate occurrences with a specific prefix from a metadata field.
- * Useful for cleaning repository names and other prefixed values that may appear multiple times.
+ * Transformer rule that removes duplicate occurrences with a specific prefix
+ * from a metadata field.
+ * Useful for cleaning repository names and other prefixed values that may
+ * appear multiple times.
  */
+@ValidatorRuleMeta(name = "Remover ocurrencias con prefijo repetido", help = "Transformer rule that removes duplicate occurrences with a specific prefix from a metadata field.")
 public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 
 	/**
@@ -42,7 +47,8 @@ public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 	 */
 	@Getter
 	@Setter
-	private String fieldName = "dc.source.none" ;
+	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover duplicados con prefijo.", defaultValue = "dc.source.none", order = 1)
+	private String fieldName = "dc.source.none";
 
 	/**
 	 * The prefix used to identify values to deduplicate.
@@ -50,10 +56,12 @@ public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 	 */
 	@Getter
 	@Setter
+	@SchemaProperty(title = "Prefijo", description = "Prefijo para identificar duplicados.", defaultValue = "instname:", order = 2)
 	private String prefix = "instname:";
-	
+
 	/**
-	 * Constructs a new RemoveDuplicatePrefixedOccrs instance with default field and prefix.
+	 * Constructs a new RemoveDuplicatePrefixedOccrs instance with default field and
+	 * prefix.
 	 */
 	public RemoveDuplicatePrefixedOccrs() {
 	}
@@ -62,7 +70,7 @@ public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 	 * Transforms the record by removing duplicate occurrences of prefixed values
 	 * from the specified field using RepositoryNameHelper.
 	 *
-	 * @param record the OAI record being processed
+	 * @param record   the OAI record being processed
 	 * @param metadata the record's metadata containing the field to deduplicate
 	 * @return true if any duplicates were removed, false otherwise
 	 */

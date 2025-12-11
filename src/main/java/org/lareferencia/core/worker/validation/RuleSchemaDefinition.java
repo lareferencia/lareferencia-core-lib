@@ -20,46 +20,38 @@
 
 package org.lareferencia.core.worker.validation;
 
+import java.util.List;
+import java.util.Map;
+
 import lombok.Getter;
 import lombok.Setter;
-import lombok.ToString;
-
-import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Represents a translation rule for string transformation.
- * Maps a search pattern to its replacement value.
+ * DTO representing a validator rule's JSON schema and form definition.
+ * Used for dynamic form generation in the frontend.
  */
-@Setter
 @Getter
-@ToString
-public class Translation {
+@Setter
+public class RuleSchemaDefinition {
 
-	@SchemaProperty(title = "Buscar")
-	@JsonProperty("search")
-	String search;
+    /**
+     * Display name for the rule.
+     */
+    private String name;
 
-	@SchemaProperty(title = "Reemplazo")
-	@JsonProperty("replace")
-	String replace;
+    /**
+     * Fully qualified class name of the rule.
+     */
+    private String className;
 
-	/**
-	 * Constructs a new Translation with search and replace patterns.
-	 *
-	 * @param search  the search pattern
-	 * @param replace the replacement value
-	 */
-	public Translation(@JsonProperty("search") String search, @JsonProperty("replace") String replace) {
-		super();
-		this.search = search;
-		this.replace = replace;
-	}
+    /**
+     * Angular JSON Schema Form layout definition.
+     * Contains mixed types: strings (field keys) and objects (UI config).
+     */
+    private List<Object> form;
 
-	/**
-	 * Constructs a new Translation with default values.
-	 */
-	public Translation() {
-		super();
-	}
-
+    /**
+     * JSON Schema definition for the rule properties.
+     */
+    private Map<String, Object> schema;
 }

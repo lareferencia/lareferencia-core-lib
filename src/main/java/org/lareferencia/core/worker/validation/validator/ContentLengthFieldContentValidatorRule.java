@@ -21,6 +21,8 @@
 package org.lareferencia.core.worker.validation.validator;
 
 import org.lareferencia.core.worker.validation.AbstractValidatorFieldContentRule;
+import org.lareferencia.core.worker.validation.SchemaProperty;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -40,13 +42,16 @@ import lombok.Setter;
  */
 @Getter
 @Setter
+@ValidatorRuleMeta(name = "Validación por longitud de contenido", help = "Esta regla es válida si el campo contiene ocurrencias de longitud entre un mínimo y un máximo")
 public class ContentLengthFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
-	
+
 	static int MAX_EXPECTED_LENGTH = 50;
 
+	@SchemaProperty(title = "Longitud mínima", description = "La longitud mínima aceptada", order = 2)
 	@JsonProperty("minLength")
 	private Integer minLength = 0;
 
+	@SchemaProperty(title = "Longitud máxima", description = "La longitud máxima aceptada", order = 3)
 	@JsonProperty("maxLength")
 	private Integer maxLength = Integer.MAX_VALUE;
 
@@ -65,8 +70,10 @@ public class ContentLengthFieldContentValidatorRule extends AbstractValidatorFie
 			result.setReceivedValue("NULL");
 			result.setValid(false);
 		} else {
-			
-			result.setReceivedValue(content.length() > MAX_EXPECTED_LENGTH ? content.substring(0, MAX_EXPECTED_LENGTH) + "..." : content  + " | " + new Integer(content.length()).toString());
+
+			result.setReceivedValue(
+					content.length() > MAX_EXPECTED_LENGTH ? content.substring(0, MAX_EXPECTED_LENGTH) + "..."
+							: content + " | " + new Integer(content.length()).toString());
 			result.setValid(content.length() >= minLength && content.length() <= maxLength);
 		}
 
@@ -75,7 +82,8 @@ public class ContentLengthFieldContentValidatorRule extends AbstractValidatorFie
 
 	@Override
 	public String toString() {
-		return "ContentLengthValidationRule [minLength=" + minLength + ", maxLength=" + maxLength + ", id=" + ruleId + ", mandatory=" + mandatory + ", quantifier=" + quantifier
+		return "ContentLengthValidationRule [minLength=" + minLength + ", maxLength=" + maxLength + ", id=" + ruleId
+				+ ", mandatory=" + mandatory + ", quantifier=" + quantifier
 				+ "]";
 	}
 

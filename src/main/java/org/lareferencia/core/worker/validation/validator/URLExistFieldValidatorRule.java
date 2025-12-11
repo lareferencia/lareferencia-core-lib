@@ -25,6 +25,7 @@ import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.worker.validation.AbstractValidatorFieldContentRule;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -35,33 +36,37 @@ import java.net.URL;
 import java.net.UnknownHostException;
 
 /**
- * Validation rule that checks if URLs in a metadata field exist and are accessible.
- * Performs HTTP HEAD requests to verify URL availability, following redirects automatically.
+ * Validation rule that checks if URLs in a metadata field exist and are
+ * accessible.
+ * Performs HTTP HEAD requests to verify URL availability, following redirects
+ * automatically.
  */
 @Getter
 @Setter
+@ValidatorRuleMeta(name = "Validación de existencia de enlaces", help = "Esta regla es válida si la URL apuntada por el metadato existe y es accesible")
 public class URLExistFieldValidatorRule extends AbstractValidatorFieldContentRule {
-	
+
 	private static Logger logger = LogManager.getLogger(URLExistFieldValidatorRule.class);
-	
+
 	/**
 	 * Constructs a new URLExistFieldValidatorRule instance.
 	 */
 	public URLExistFieldValidatorRule() {
 	}
-	
+
 	/**
 	 * Checks if the specified URL exists and returns HTTP 200 OK status.
-	 * Automatically follows HTTP redirects (301, 302, 303) to verify final destination.
+	 * Automatically follows HTTP redirects (301, 302, 303) to verify final
+	 * destination.
 	 *
 	 * @param url the URL to check for existence
 	 * @return true if the URL exists and is accessible (HTTP 200), false otherwise
 	 * @throws MalformedURLException if the URL format is invalid
-	 * @throws UnknownHostException if the host cannot be resolved
-	 * @throws IOException if an I/O error occurs during connection
+	 * @throws UnknownHostException  if the host cannot be resolved
+	 * @throws IOException           if an I/O error occurs during connection
 	 */
-	private boolean exists(String url) throws MalformedURLException, UnknownHostException, IOException  {
-	
+	private boolean exists(String url) throws MalformedURLException, UnknownHostException, IOException {
+
 		HttpsURLConnection.setFollowRedirects(true);
 		HttpURLConnection.setFollowRedirects(true);
 
@@ -79,64 +84,64 @@ public class URLExistFieldValidatorRule extends AbstractValidatorFieldContentRul
 			logger.debug("Verificando Redirect: " + redirectUrl + " :: " + responseCode);
 		}
 
-		return (responseCode == HttpURLConnection.HTTP_OK);	
+		return (responseCode == HttpURLConnection.HTTP_OK);
 	}
 
-	private HttpURLConnection getConnection(String url) throws MalformedURLException, UnknownHostException, IOException   {
-		
-		
+	private HttpURLConnection getConnection(String url)
+			throws MalformedURLException, UnknownHostException, IOException {
+
 		HttpURLConnection con;
 
-		 if ( url.startsWith("https") ) {
-	    	  con = (HttpsURLConnection) new URL(url).openConnection();
-	    	  con.setRequestMethod("HEAD");
-	      }
-	      else {
-	    	  con  = (HttpURLConnection)  new URL(url).openConnection();
-	    	  con.setRequestMethod("HEAD");
-	      }
-		 
-		  return con;
+		if (url.startsWith("https")) {
+			con = (HttpsURLConnection) new URL(url).openConnection();
+			con.setRequestMethod("HEAD");
+		} else {
+			con = (HttpURLConnection) new URL(url).openConnection();
+			con.setRequestMethod("HEAD");
+		}
+
+		return con;
 	}
 
 	@Override
 	public ContentValidatorResult validate(String content) {
-		
-			ContentValidatorResult result = new ContentValidatorResult();
-		
-			if (content == null) {
-				result.setReceivedValue("NULL");
-				result.setValid(false);
-			} else {
-				
-				boolean exists = false;
-				
-				try {
-				
-					exists = exists(content);
-					result.setReceivedValue( exists ? "OK" : "ERROR" );
-			
-				} catch (MalformedURLException e) {
-					result.setReceivedValue( "MalformedURL" );
-				} catch (UnknownHostException e) {
-					result.setReceivedValue( "UnknownHost" );
-				} catch (IOException e) {
-					result.setReceivedValue( "ConnectionError" );
-				} catch (Exception e) {
-					result.setReceivedValue( "UnknownError" );
-				}
-				
-				result.setValid(exists);
-			
+
+		ContentValidatorResult result = new ContentValidatorResult();
+
+		if (content == null) {
+			result.setReceivedValue("NULL");
+			result.setValid(false);
+		} else {
+
+			boolean exists = false;
+
+			try {
+
+				exists = exists(content);
+				result.setReceivedValue(exists ? "OK" : "ERROR");
+
+			} catch (MalformedURLException e) {
+				result.setReceivedValue("MalformedURL");
+			} catch (UnknownHostException e) {
+				result.setReceivedValue("UnknownHost");
+			} catch (IOException e) {
+				result.setReceivedValue("ConnectionError");
+			} catch (Exception e) {
+				result.setReceivedValue("UnknownError");
 			}
 
-			return result;
-		
+			result.setValid(exists);
+
+		}
+
+		return result;
+
 	}
 
 	@Override
 	public String toString() {
-		return "URLExistFieldValidatorRule [id=" + ruleId + ", field=" + getFieldname() + " , mandatory=" + mandatory + ", quantifier=" + quantifier + "]";
+		return "URLExistFieldValidatorRule [id=" + ruleId + ", field=" + getFieldname() + " , mandatory=" + mandatory
+				+ ", quantifier=" + quantifier + "]";
 	}
 
 }

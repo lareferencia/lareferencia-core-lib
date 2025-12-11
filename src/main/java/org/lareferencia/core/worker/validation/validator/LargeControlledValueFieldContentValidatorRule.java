@@ -22,20 +22,24 @@ package org.lareferencia.core.worker.validation.validator;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.lareferencia.core.worker.validation.SchemaProperty;
+import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 
 import java.io.*;
 import java.util.List;
 
 /**
- * Validator for large controlled value lists, supporting CSV-based value storage.
+ * Validator for large controlled value lists, supporting CSV-based value
+ * storage.
  */
 @JsonIgnoreProperties({ "controlledValues" })
+@ValidatorRuleMeta(name = "Validación por valores controlados (large)", help = "Esta regla es válida si el campo contiene ocurrencias con valores de una lista grande (CSV)")
 public class LargeControlledValueFieldContentValidatorRule extends ControlledValueFieldContentValidatorRule {
-	
-	private static Logger logger = LogManager.getLogger(LargeControlledValueFieldContentValidatorRule.class);
 
+	private static Logger logger = LogManager.getLogger(LargeControlledValueFieldContentValidatorRule.class);
 
 	private static final int MAX_PRINTED_LINES = 25;
 	private static final String CSV_SEPARATOR = ";";
@@ -50,6 +54,7 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 	/**
 	 * CSV string containing controlled values separated by semicolons.
 	 */
+	@SchemaProperty(title = "CSV Valores Controlados", description = "Texto con valores separados por ; sin espacios", uiType = "textarea", order = 2)
 	@JsonProperty("controlledValuesCSV")
 	private String controlledValuesCSV;
 
@@ -132,7 +137,7 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 
 		try {
 
-			logger.debug("\n\nCargando validador: valores controlados: " +filename);
+			logger.debug("\n\nCargando validador: valores controlados: " + filename);
 
 			BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(filename), "UTF8"));
 
@@ -145,7 +150,7 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 				this.controlledValues.add(line);
 
 				if (lineNumber++ < MAX_PRINTED_LINES)
-					logger.debug(filename + " : " +line);
+					logger.debug(filename + " : " + line);
 				else
 					System.out.print(".");
 
@@ -154,10 +159,10 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 
 			br.close();
 
-			logger.debug("\nFin Carga validador: valores controlados: " + filename +"\n\n");
+			logger.debug("\nFin Carga validador: valores controlados: " + filename + "\n\n");
 
 		} catch (FileNotFoundException e) {
-			logger.error("!!!!!! No se encontró el archivo de valores controlados:" +filename);
+			logger.error("!!!!!! No se encontró el archivo de valores controlados:" + filename);
 			e.printStackTrace();
 		} catch (IOException e) {
 			e.printStackTrace();
