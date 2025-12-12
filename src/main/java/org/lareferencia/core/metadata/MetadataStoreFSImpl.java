@@ -40,7 +40,8 @@ import org.springframework.beans.factory.annotation.Value;
 import jakarta.annotation.PostConstruct;
 
 /**
- * Simple file-based implementation of IMetadataStore using gzip-compressed XML files.
+ * Simple file-based implementation of IMetadataStore using gzip-compressed XML
+ * files.
  * 
  * ARCHITECTURE:
  * - Stores each metadata record as a compressed XML file
@@ -73,15 +74,15 @@ import jakarta.annotation.PostConstruct;
 public class MetadataStoreFSImpl implements IMetadataStore {
 
     private static final Logger logger = LogManager.getLogger(MetadataStoreFSImpl.class);
-    
+
     private static final String FILE_EXTENSION = ".xml.gz";
 
-	/**
-	 * Constructs a new file system-based metadata store.
-	 */
-	public MetadataStoreFSImpl() {
-		// Default constructor
-	}
+    /**
+     * Constructs a new file system-based metadata store.
+     */
+    public MetadataStoreFSImpl() {
+        // Default constructor
+    }
 
     @Value("${store.basepath:/tmp/data}")
     private String basePath;
@@ -97,9 +98,9 @@ public class MetadataStoreFSImpl implements IMetadataStore {
      */
     @PostConstruct
     public void init() {
-        logger.info("Initializing FileSystem-based metadata store");
+        logger.info("Active Metadata Store: FileSystem (FS)");
         logger.info("Base path: {}", basePath);
-        
+
         // Create base directory if it doesn't exist
         File baseDir = new File(basePath);
         if (!baseDir.exists()) {
@@ -121,11 +122,11 @@ public class MetadataStoreFSImpl implements IMetadataStore {
         if (hash == null || hash.length() < 3) {
             throw new IllegalArgumentException("Hash must be at least 3 characters long");
         }
-        
+
         String level1 = hash.substring(0, 1).toUpperCase();
         String level2 = hash.substring(1, 2).toUpperCase();
         String level3 = hash.substring(2, 3).toUpperCase();
-        
+
         return level1 + File.separator + level2 + File.separator + level3;
     }
 
@@ -143,7 +144,7 @@ public class MetadataStoreFSImpl implements IMetadataStore {
      * Gets the file path for a given hash and network
      * 
      * @param snapshotMetadata SnapshotMetadata containing network information
-     * @param hash The hash
+     * @param hash             The hash
      * @return File path
      */
     private File getFileForHash(SnapshotMetadata snapshotMetadata, String hash) {
@@ -156,7 +157,7 @@ public class MetadataStoreFSImpl implements IMetadataStore {
     /**
      * Writes compressed XML to file
      * 
-     * @param file File to write to
+     * @param file    File to write to
      * @param content XML content
      * @throws IOException If write fails
      */
@@ -169,9 +170,9 @@ public class MetadataStoreFSImpl implements IMetadataStore {
 
         // Write compressed content
         try (FileOutputStream fos = new FileOutputStream(file);
-             BufferedOutputStream bos = new BufferedOutputStream(fos);
-             GZIPOutputStream gzos = new GZIPOutputStream(bos)) {
-            
+                BufferedOutputStream bos = new BufferedOutputStream(fos);
+                GZIPOutputStream gzos = new GZIPOutputStream(bos)) {
+
             gzos.write(content.getBytes(StandardCharsets.UTF_8));
         }
     }
@@ -185,9 +186,9 @@ public class MetadataStoreFSImpl implements IMetadataStore {
      */
     private String readCompressed(File file) throws IOException {
         try (FileInputStream fis = new FileInputStream(file);
-             BufferedInputStream bis = new BufferedInputStream(fis);
-             GZIPInputStream gzis = new GZIPInputStream(bis)) {
-            
+                BufferedInputStream bis = new BufferedInputStream(fis);
+                GZIPInputStream gzis = new GZIPInputStream(bis)) {
+
             byte[] buffer = gzis.readAllBytes();
             return new String(buffer, StandardCharsets.UTF_8);
         }
@@ -198,27 +199,29 @@ public class MetadataStoreFSImpl implements IMetadataStore {
         try {
             // Calculate hash
             String hash = hashing.calculateHash(metadata);
-            
+
             // Get file path using SnapshotMetadata
             File file = getFileForHash(snapshotMetadata, hash);
-            
+
             // Only write if file doesn't exist (deduplication)
             if (!file.exists()) {
                 long startTime = System.currentTimeMillis();
                 writeCompressed(file, metadata);
                 long duration = System.currentTimeMillis() - startTime;
-                
-                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
-                logger.debug("Stored metadata with hash {} in {}ms (network: {})", 
-                    hash, duration, networkAcronym);
+
+                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym()
+                        : "UNKNOWN";
+                logger.debug("Stored metadata with hash {} in {}ms (network: {})",
+                        hash, duration, networkAcronym);
             } else {
-                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
-                logger.debug("Metadata with hash {} already exists, skipping (network: {})", 
-                    hash, networkAcronym);
+                String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym()
+                        : "UNKNOWN";
+                logger.debug("Metadata with hash {} already exists, skipping (network: {})",
+                        hash, networkAcronym);
             }
-            
+
             return hash;
-            
+
         } catch (Exception e) {
             logger.error("Error storing metadata", e);
             throw new RuntimeException("Failed to store metadata", e);
@@ -229,23 +232,23 @@ public class MetadataStoreFSImpl implements IMetadataStore {
     public String getMetadata(SnapshotMetadata snapshotMetadata, String hash) throws MetadataRecordStoreException {
         try {
             File file = getFileForHash(snapshotMetadata, hash);
-            
+
             String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
-            
+
             if (!file.exists()) {
-                throw new MetadataRecordStoreException("Metadata not found for hash: " + hash + 
-                    " (network: " + networkAcronym + ")");
+                throw new MetadataRecordStoreException("Metadata not found for hash: " + hash +
+                        " (network: " + networkAcronym + ")");
             }
-            
+
             long startTime = System.currentTimeMillis();
             String metadata = readCompressed(file);
             long duration = System.currentTimeMillis() - startTime;
-            
-            logger.debug("Retrieved metadata with hash {} in {}ms (network: {})", 
-                hash, duration, networkAcronym);
-            
+
+            logger.debug("Retrieved metadata with hash {} in {}ms (network: {})",
+                    hash, duration, networkAcronym);
+
             return metadata;
-            
+
         } catch (MetadataRecordStoreException e) {
             throw e;
         } catch (Exception e) {
@@ -257,16 +260,16 @@ public class MetadataStoreFSImpl implements IMetadataStore {
     @Override
     public Boolean cleanAndOptimizeStore() {
         logger.info("Starting cleanup and optimization of FS metadata store");
-        
+
         try {
             File baseDir = new File(basePath);
             long fileCount = countFiles(baseDir);
-            
+
             logger.info("Store contains {} files", fileCount);
             logger.info("No optimization needed for file-based storage");
-            
+
             return true;
-            
+
         } catch (Exception e) {
             logger.error("Error during cleanup and optimization", e);
             return false;
@@ -283,10 +286,10 @@ public class MetadataStoreFSImpl implements IMetadataStore {
         if (!dir.exists() || !dir.isDirectory()) {
             return 0;
         }
-        
+
         long count = 0;
         File[] files = dir.listFiles();
-        
+
         if (files != null) {
             for (File file : files) {
                 if (file.isDirectory()) {
@@ -296,7 +299,7 @@ public class MetadataStoreFSImpl implements IMetadataStore {
                 }
             }
         }
-        
+
         return count;
     }
 }

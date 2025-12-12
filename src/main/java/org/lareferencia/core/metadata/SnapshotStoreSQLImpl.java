@@ -60,23 +60,23 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Transactional
 public class SnapshotStoreSQLImpl implements ISnapshotStore {
-	
+
 	private static final Logger logger = LogManager.getLogger(SnapshotStoreSQLImpl.class);
 	private static final int AUTOFLUSH_THRESHOLD = 100; // Flush cada 100 updates
-	
+
 	@Autowired
 	private NetworkSnapshotRepository snapshotRepository;
-	
+
 	@Autowired
 	private EntityManager entityManager;
-	
+
 	// Contador de updates para autoflush por snapshot
 	private final Map<Long, Integer> updateCounters = new ConcurrentHashMap<>();
-	
+
 	// ============================================================================
 	// PRIVATE HELPERS
 	// ============================================================================
-	
+
 	/**
 	 * Obtiene un snapshot dado su ID
 	 * 
@@ -103,12 +103,12 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		int count = updateCounters.merge(snapshotId, 1, Integer::sum);
 		if (count >= AUTOFLUSH_THRESHOLD) {
 			entityManager.flush();
-			updateCounters.put(snapshotId, 0);  // Reset contador
-			logger.trace("SNAPSHOT STORE: Autoflush triggered for snapshot {} after {} updates", 
-			            snapshotId, count);
+			updateCounters.put(snapshotId, 0); // Reset contador
+			logger.trace("SNAPSHOT STORE: Autoflush triggered for snapshot {} after {} updates",
+					snapshotId, count);
 		}
 	}
-	
+
 	/**
 	 * Limpia el contador de updates después de finalizar operación.
 	 * 
@@ -117,44 +117,41 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	private void clearUpdateCounter(Long snapshotId) {
 		updateCounters.remove(snapshotId);
 	}
-	
+
 	// ============================================================================
 	// SNAPSHOT LIFECYCLE
 	// ============================================================================
-	
+
 	@Override
 	public Long createSnapshot(Network network) {
 		NetworkSnapshot snapshot = new NetworkSnapshot();
 		snapshot.setNetwork(network);
 		snapshot.setStartTime(LocalDateTime.now());
 		snapshotRepository.save(snapshot);
-		
-		logger.debug("SNAPSHOT STORE: Created snapshot {} for network {}", 
-		           snapshot.getId(), network.getId());
-		
+
+		logger.debug("SNAPSHOT STORE: Created snapshot {} for network {}",
+				snapshot.getId(), network.getId());
+
 		return snapshot.getId();
 	}
-	
+
 	@Override
-	public void deleteSnapshot(Long snapshotId) {	
-		
+	public void deleteSnapshot(Long snapshotId) {
+
 		// Eliminar snapshot
 		snapshotRepository.deleteBySnapshotID(snapshotId);
-		
+
 		logger.debug("SNAPSHOT STORE: Deleted snapshot {}", snapshotId);
 	}
-			
-	
-	
-	
+
 	@Override
 	public void cleanSnapshotData(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-				
+
 			// Para snapshots válidos: marcar como deleted
-			if (snapshot.getStatus().equals(SnapshotStatus.VALID) || 
-			    snapshot.getStatus().equals(SnapshotStatus.HARVESTING_FINISHED_VALID)) {
+			if (snapshot.getStatus().equals(SnapshotStatus.VALID) ||
+					snapshot.getStatus().equals(SnapshotStatus.HARVESTING_FINISHED_VALID)) {
 				snapshot.setDeleted(true);
 				snapshotRepository.save(snapshot);
 				logger.info("SNAPSHOT STORE: Cleaned and marked as deleted snapshot {}", snapshotId);
@@ -163,16 +160,16 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 				snapshotRepository.delete(snapshot);
 				logger.info("SNAPSHOT STORE: Cleaned and removed failed snapshot {}", snapshotId);
 			}
-			
+
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error cleaning snapshot {}: {}", snapshotId, e.getMessage());
 		}
 	}
-	
+
 	// ============================================================================
 	// SNAPSHOT QUERIES
 	// ============================================================================
-	
+
 	@Override
 	public List<Long> listSnapshotsIds(Long networkId, boolean includeDeleted) {
 		if (includeDeleted) {
@@ -181,57 +178,57 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			return snapshotRepository.findNonDeletedIdsByNetworkId(networkId);
 		}
 	}
-	
+
 	@Override
 	public Long findLastGoodKnownSnapshot(Network network) {
 		if (network == null || network.getId() == null) {
 			return null;
 		}
-		
+
 		NetworkSnapshot snapshot = snapshotRepository.findLastGoodKnowByNetworkID(network.getId());
 		return snapshot != null ? snapshot.getId() : null;
 	}
-	
+
 	@Override
 	public Long findLastHarvestingSnapshot(Network network) {
 		if (network == null || network.getId() == null) {
 			return null;
 		}
-		
+
 		NetworkSnapshot snapshot = snapshotRepository.findLastHarvestedByNetworkID(network.getId());
 		return snapshot != null ? snapshot.getId() : null;
 	}
-	
+
 	@Override
 	public Long getPreviousSnapshotId(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getPreviousSnapshotId();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting previous snapshot ID for {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting previous snapshot ID for {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	@Override
 	public void setPreviousSnapshotId(Long snapshotId, Long previousSnapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setPreviousSnapshotId(previousSnapshotId);
 			snapshotRepository.save(snapshot);
-			logger.debug("SNAPSHOT STORE: Set previous snapshot {} for snapshot {}", 
-			           previousSnapshotId, snapshotId);
+			logger.debug("SNAPSHOT STORE: Set previous snapshot {} for snapshot {}",
+					previousSnapshotId, snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error setting previous snapshot ID for {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error setting previous snapshot ID for {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	// ============================================================================
 	// SNAPSHOT METADATA
 	// ============================================================================
-	
+
 	/**
 	 * Genera SnapshotMetadata desde NetworkSnapshot.
 	 * 
@@ -247,64 +244,64 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return new SnapshotMetadata(snapshot);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting snapshot metadata for {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting snapshot metadata for {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	@Override
 	public Validator getValidator(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getNetwork().getValidator();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting validator for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting validator for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	// ============================================================================
 	// SNAPSHOT STATUS
 	// ============================================================================
-	
+
 	@Override
 	public SnapshotStatus getSnapshotStatus(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getStatus();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting status for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting status for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	@Override
 	public SnapshotIndexStatus getSnapshotIndexStatus(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getIndexStatus();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting index status for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting index status for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	// ============================================================================
 	// SNAPSHOT TIMESTAMPS (GETTERS ONLY - Use batch methods for updates)
 	// ============================================================================
-	
+
 	@Override
 	public LocalDateTime getSnapshotStartDatestamp(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getStartTime();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting start datestamp for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting start datestamp for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
@@ -315,78 +312,78 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getEndTime();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting end datestamp for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting end datestamp for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	@Override
 	public LocalDateTime getSnapshotLastIncrementalDatestamp(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getLastIncrementalTime();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting last incremental datestamp for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting last incremental datestamp for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void updateSnapshotLastIncrementalDatestamp(Long snapshotId, LocalDateTime datestamp) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setLastIncrementalTime(datestamp);
-			logger.debug("SNAPSHOT STORE: Updated last incremental datestamp for snapshot {} to {}", 
-			            snapshotId, datestamp);
+			logger.debug("SNAPSHOT STORE: Updated last incremental datestamp for snapshot {} to {}",
+					snapshotId, datestamp);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error updating last incremental datestamp for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error updating last incremental datestamp for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
-	}	
-	
+	}
+
 	// ============================================================================
 	// SNAPSHOT COUNTERS
 	// ============================================================================
-	
+
 	@Override
 	public Integer getSnapshotSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getSize();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting size for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting size for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	@Override
 	public Integer getSnapshotValidSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getValidSize();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting valid size for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting valid size for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	@Override
 	public Integer getSnapshotTransformedSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			return snapshot.getTransformedSize();
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error getting transformed size for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error getting transformed size for snapshot {}: {}",
+					snapshotId, e.getMessage());
 			return null;
 		}
 	}
-	
+
 	@Override
 	public void incrementSnapshotSize(Long snapshotId) {
 		try {
@@ -395,11 +392,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Incremented size for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error incrementing size for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error incrementing size for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	public void incrementValidSize(Long snapshotId) {
 		try {
@@ -408,11 +405,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Incremented valid size for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error incrementing valid size for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error incrementing valid size for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	public void decrementValidSize(Long snapshotId) {
 		try {
@@ -421,11 +418,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Decremented valid size for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error decrementing valid size for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error decrementing valid size for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	public void incrementTransformedSize(Long snapshotId) {
 		try {
@@ -434,11 +431,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Incremented transformed size for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error incrementing transformed size for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error incrementing transformed size for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	public void decrementTransformedSize(Long snapshotId) {
 		try {
@@ -447,11 +444,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			trackUpdateAndAutoFlush(snapshotId);
 			logger.trace("SNAPSHOT STORE: Decremented transformed size for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error decrementing transformed size for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error decrementing transformed size for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void resetSnapshotValidationCounts(Long snapshotId) {
@@ -463,30 +460,32 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			snapshot.setIndexStatus(SnapshotIndexStatus.UNKNOWN);
 			logger.info("SNAPSHOT STORE: Reset validation counts for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error resetting validation counts for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error resetting validation counts for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	// @Override
-	// public void updateSnapshotCounts(Long snapshotId, Integer size, Integer validSize, Integer transformedSize) {
-	// 	try {
-	// 		NetworkSnapshot snapshot = getSnapshot(snapshotId);
-	// 		snapshot.setSize(size);
-	// 		snapshot.setValidSize(validSize);
-	// 		snapshot.setTransformedSize(transformedSize);
-	// 		logger.debug("SNAPSHOT STORE: Updated counts for snapshot {}: size={}, valid={}, transformed={}", 
-	// 		           snapshotId, size, validSize, transformedSize);
-	// 	} catch (SnapshotStoreException e) {
-	// 		logger.error("SNAPSHOT STORE: Error updating counts for snapshot {}: {}", 
-	// 		           snapshotId, e.getMessage());
-	// 	}
+	// public void updateSnapshotCounts(Long snapshotId, Integer size, Integer
+	// validSize, Integer transformedSize) {
+	// try {
+	// NetworkSnapshot snapshot = getSnapshot(snapshotId);
+	// snapshot.setSize(size);
+	// snapshot.setValidSize(validSize);
+	// snapshot.setTransformedSize(transformedSize);
+	// logger.debug("SNAPSHOT STORE: Updated counts for snapshot {}: size={},
+	// valid={}, transformed={}",
+	// snapshotId, size, validSize, transformedSize);
+	// } catch (SnapshotStoreException e) {
+	// logger.error("SNAPSHOT STORE: Error updating counts for snapshot {}: {}",
+	// snapshotId, e.getMessage());
 	// }
-	
+	// }
+
 	// ============================================================================
 	// BATCH UPDATE METHODS - Simplified API (Fase 2)
 	// ============================================================================
-	
+
 	@Override
 	@Transactional
 	public void startHarvesting(Long snapshotId) {
@@ -496,11 +495,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			snapshot.setStartTime(LocalDateTime.now());
 			logger.info("SNAPSHOT STORE: Started harvesting for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error starting harvesting for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error starting harvesting for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void updateHarvesting(Long snapshotId) {
@@ -508,13 +507,13 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.HARVESTING);
 			snapshot.setEndTime(LocalDateTime.now());
-			logger.info("SNAPSHOT STORE: Updated harvesting status for snapshot {}", snapshotId);
+			logger.debug("SNAPSHOT STORE: Updated harvesting status for snapshot " + snapshot.getId());
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error updating harvesting for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error updating harvesting for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void finishHarvesting(Long snapshotId) {
@@ -526,11 +525,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			// JPA dirty checking persiste automáticamente al final de la transacción
 			clearUpdateCounter(snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error finishing harvesting for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error finishing harvesting for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void startValidation(Long snapshotId) {
@@ -540,11 +539,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			logger.info("SNAPSHOT STORE: Started validation for snapshot {}", snapshotId);
 			// JPA dirty checking persiste automáticamente al final de la transacción
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error starting validation for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error starting validation for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void finishValidation(Long snapshotId) {
@@ -555,11 +554,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			logger.info("SNAPSHOT STORE: Finished validation for snapshot {}", snapshotId);
 			// JPA dirty checking persiste automáticamente al final de la transacción
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error finishing validation for snapshot {}: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error finishing validation for snapshot {}: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void markAsIndexed(Long snapshotId) {
@@ -569,11 +568,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			logger.info("SNAPSHOT STORE: Marked snapshot {} as indexed", snapshotId);
 			// JPA dirty checking persiste automáticamente al final de la transacción
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error marking snapshot {} as indexed: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error marking snapshot {} as indexed: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void markAsFailed(Long snapshotId) {
@@ -585,11 +584,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			// JPA dirty checking persiste automáticamente al final de la transacción
 			clearUpdateCounter(snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error marking snapshot {} as failed: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error marking snapshot {} as failed: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void markAsDeleted(Long snapshotId) {
@@ -599,11 +598,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			logger.info("SNAPSHOT STORE: Marked snapshot {} as deleted", snapshotId);
 			// JPA dirty checking persiste automáticamente al final de la transacción
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error marking snapshot {} as deleted: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error marking snapshot {} as deleted: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	@Transactional
 	public void markAsRetrying(Long snapshotId) {
@@ -612,18 +611,18 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			snapshot.setStatus(SnapshotStatus.RETRYING);
 			logger.info("SNAPSHOT STORE: Marked snapshot {} as retrying", snapshotId);
 		} catch (SnapshotStoreException e) {
-			logger.error("SNAPSHOT STORE: Error marking snapshot {} as retrying: {}", 
-			           snapshotId, e.getMessage());
+			logger.error("SNAPSHOT STORE: Error marking snapshot {} as retrying: {}",
+					snapshotId, e.getMessage());
 		}
 	}
-	
+
 	@Override
 	public void flush(Long snapshotId) {
 		// Forzar flush del EntityManager
 		// Con @Transactional, JPA dirty checking ya persistió los cambios
 		// Este método es principalmente para documentar puntos de flush explícitos
 		snapshotRepository.flush();
-		
+
 		if (snapshotId != null) {
 			logger.debug("SNAPSHOT STORE: Flushed snapshot {}", snapshotId);
 		} else {
