@@ -28,11 +28,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PostConstruct;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
  * SQL-based implementation of the metadata store interface.
  */
 public class MetadataStoreSQLImpl implements IMetadataStore {
-	
+
+	private static final Logger logger = LogManager.getLogger(MetadataStoreSQLImpl.class);
+
 	/**
 	 * Constructs a new SQL-based metadata store.
 	 */
@@ -42,32 +49,38 @@ public class MetadataStoreSQLImpl implements IMetadataStore {
 
 	@Autowired
 	OAIMetadataRepository mdRepository;
-	
-	@Autowired 
+
+	@Autowired
 	IHashingHelper hashing;
+
+	@PostConstruct
+	public void init() {
+		logger.info("METADATA STORE: Initialized | Type: Relational Database (SQL)");
+	}
 
 	@Override
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public synchronized String storeAndReturnHash(SnapshotMetadata snapshotMetadata, String metadata) {
-		
+
 		String hash = hashing.calculateHash(metadata);
-		
-		if ( !mdRepository.checkIfExists(hash) ) {
+
+		if (!mdRepository.checkIfExists(hash)) {
 			OAIMetadata md = new OAIMetadata(metadata, hash);
 			mdRepository.saveAndFlush(md);
 		}
-			
+
 		return hash;
 	}
 
 	@Override
 	public String getMetadata(SnapshotMetadata snapshotMetadata, String hash) throws MetadataRecordStoreException {
-		
+
 		String metadata = mdRepository.getMetadata(hash);
-		
-		if ( metadata != null )
+
+		if (metadata != null)
 			return metadata;
-		else throw new MetadataRecordStoreException("Metadata with hash " + hash + " not found in store.");
+		else
+			throw new MetadataRecordStoreException("Metadata with hash " + hash + " not found in store.");
 	}
 
 	@Override
@@ -75,6 +88,5 @@ public class MetadataStoreSQLImpl implements IMetadataStore {
 		mdRepository.deleteOrphanMetadataEntries();
 		return true;
 	}
-
 
 }

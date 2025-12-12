@@ -57,8 +57,7 @@ public class MetadataStorePerNetworkH2Impl implements IMetadataStore {
 
     @PostConstruct
     public void init() {
-        logger.info("Active Metadata Store: H2 Database (Per-Network)");
-        logger.info("Base path: {}", basePath);
+        logger.info("METADATA STORE: Initialized | Type: H2 Database (Per-Network) | Base Path: {}", basePath);
 
         File baseDir = new File(basePath);
         if (!baseDir.exists()) {

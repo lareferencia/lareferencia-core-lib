@@ -53,17 +53,17 @@ import java.util.concurrent.ConcurrentHashMap;
  * FUNCIONALIDADES:
  * ================
  * 1. ESCRITURA:
- *    - initializeSnapshot(): Crea manager para escritura
- *    - saveRecord(): Guarda OAIRecord individual (buffered)
- *    - finalizeSnapshot(): Cierra manager y hace flush final
- *    - flush(): Fuerza escritura de buffer a disco
+ * - initializeSnapshot(): Crea manager para escritura
+ * - saveRecord(): Guarda OAIRecord individual (buffered)
+ * - finalizeSnapshot(): Cierra manager y hace flush final
+ * - flush(): Fuerza escritura de buffer a disco
  * 
  * 2. LECTURA:
- *    - getIterator(): Retorna NUEVA instancia de manager para lectura thread-safe
+ * - getIterator(): Retorna NUEVA instancia de manager para lectura thread-safe
  * 
  * 3. GESTIÓN:
- *    - deleteSnapshot(): Elimina directorio completo
- *    - cleanup(): Cierra todos los managers activos de escritura
+ * - deleteSnapshot(): Elimina directorio completo
+ * - cleanup(): Cierra todos los managers activos de escritura
  * 
  * CICLO DE VIDA TÍPICO:
  * =====================
@@ -74,15 +74,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * 4. finalizeSnapshot(snapshotId) → Cierra y flush final
  * 
  * LECTURA (THREAD-SAFE):
- * 1. Iterator<OAIRecord> iterator = getIterator(snapshotMetadata) → Nueva instancia de manager internamente
+ * 1. Iterator<OAIRecord> iterator = getIterator(snapshotMetadata) → Nueva
+ * instancia de manager internamente
  * 2. Procesar records con while/for
- * 3. Iterator es de uso seguro sin cerrar (manager interno manejado automáticamente)
+ * 3. Iterator es de uso seguro sin cerrar (manager interno manejado
+ * automáticamente)
  * 
  * THREAD SAFETY:
  * ==============
  * - ESCRITURA: Managers persistentes en ConcurrentHashMap, uno por snapshot
  * - LECTURA: Cada getIterator() crea NUEVA instancia de manager
- * - Múltiples threads pueden leer el MISMO snapshot concurrentemente sin interferencia
+ * - Múltiples threads pueden leer el MISMO snapshot concurrentemente sin
+ * interferencia
  * - Sincronización de escritura manejada por OAIRecordManager internamente
  * 
  * @author LA Referencia Team
@@ -108,8 +111,9 @@ public class OAIRecordParquetRepository {
     private boolean enableDictionary;
 
     private Configuration hadoopConf;
-    
-    // MANAGER PERSISTENTE: Se reutiliza entre llamadas para aprovechar buffer configurable (recordsPerFile)
+
+    // MANAGER PERSISTENTE: Se reutiliza entre llamadas para aprovechar buffer
+    // configurable (recordsPerFile)
     private final Map<Long, OAIRecordManager> recordManagers = new ConcurrentHashMap<>();
 
     @Autowired
@@ -119,16 +123,18 @@ public class OAIRecordParquetRepository {
     public void init() {
         hadoopConf = new Configuration();
         hadoopConf.set("fs.file.impl", org.apache.hadoop.fs.LocalFileSystem.class.getName());
-        
+
         // Aplicar configuración desde properties
         hadoopConf.set("parquet.compression", compressionCodec);
         hadoopConf.set("parquet.page.size", String.valueOf(pageSize));
         hadoopConf.set("parquet.enable.dictionary", String.valueOf(enableDictionary));
-        
+
         try {
             Files.createDirectories(Paths.get(basePath));
-            logger.info("OAI RECORD REPOSITORY INITIALIZED: basePath={}, compression={}, pageSize={}, recordsPerFile={}", 
-                       basePath, compressionCodec, pageSize, recordsPerFile);
+            logger.info("OAI RECORD PARQUET REPO: Initialized | BasePath: " + basePath +
+                    " | Compression: " + compressionCodec +
+                    " | PageSize: " + pageSize +
+                    " | RecordsPerFile: " + recordsPerFile);
         } catch (IOException e) {
             logger.error("Failed to create base path: {}", basePath, e);
         }
@@ -138,7 +144,7 @@ public class OAIRecordParquetRepository {
     public void cleanup() {
         // Cerrar todos los managers persistentes
         logger.info("REPOSITORY SHUTDOWN: Closing {} active managers", recordManagers.size());
-        
+
         recordManagers.forEach((snapshotId, manager) -> {
             try {
                 manager.close();
@@ -147,7 +153,7 @@ public class OAIRecordParquetRepository {
                 logger.error("SHUTDOWN: Error closing manager for snapshot {}", snapshotId, e);
             }
         });
-        
+
         recordManagers.clear();
         logger.info("REPOSITORY SHUTDOWN COMPLETE");
     }
@@ -165,23 +171,25 @@ public class OAIRecordParquetRepository {
      */
     public void initializeSnapshot(SnapshotMetadata snapshotMetadata) throws IOException {
         Long snapshotId = snapshotMetadata.getSnapshotId();
-        logger.info("INITIALIZE SNAPSHOT: snapshot={}, network={}", snapshotId, snapshotMetadata.getNetwork().getAcronym());
-        
+        logger.info("INITIALIZE SNAPSHOT: snapshot={}, network={}", snapshotId,
+                snapshotMetadata.getNetwork().getAcronym());
+
         try {
             // Crear directorio del snapshot usando PathUtils
             String snapshotDir = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
             Files.createDirectories(Paths.get(snapshotDir));
-            
+
             // Determinar flush threshold basado en configuración
             int flushThreshold = determineFlushThreshold(snapshotId);
-            
+
             // Crear manager para escritura con threshold configurado
-            OAIRecordManager manager = OAIRecordManager.forWriting(basePath, snapshotMetadata, hadoopConf, flushThreshold);
+            OAIRecordManager manager = OAIRecordManager.forWriting(basePath, snapshotMetadata, hadoopConf,
+                    flushThreshold);
             recordManagers.put(snapshotId, manager);
-            
-            logger.debug("SNAPSHOT INITIALIZED: snapshot={}, network={}, path={}, flushThreshold={}", 
-                       snapshotId, snapshotMetadata.getNetwork().getAcronym(), snapshotDir, flushThreshold);
-            
+
+            logger.debug("SNAPSHOT INITIALIZED: snapshot={}, network={}, path={}, flushThreshold={}",
+                    snapshotId, snapshotMetadata.getNetwork().getAcronym(), snapshotDir, flushThreshold);
+
         } catch (IOException e) {
             logger.error("INITIALIZATION FAILED: snapshot={}, error={}", snapshotId, e.getMessage());
             // Limpiar manager si falló
@@ -202,21 +210,22 @@ public class OAIRecordParquetRepository {
      * - Crea archivos batch_N.parquet automáticamente
      * 
      * @param snapshotId ID del snapshot
-     * @param record datos del record OAI
+     * @param record     datos del record OAI
      * @throws IOException si hay error
      */
     public void saveRecord(Long snapshotId, OAIRecord record) throws IOException {
-        
+
         if (record == null) {
             throw new IllegalArgumentException("Record cannot be null");
         }
-        
+
         // Obtener manager persistente (creado en initializeSnapshot)
         OAIRecordManager manager = recordManagers.get(snapshotId);
         if (manager == null) {
-            throw new IllegalStateException("Snapshot " + snapshotId + " not initialized. Call initializeSnapshot() first.");
+            throw new IllegalStateException(
+                    "Snapshot " + snapshotId + " not initialized. Call initializeSnapshot() first.");
         }
-        
+
         // Escribir record (synchronized internamente en el manager)
         manager.writeRecord(record);
     }
@@ -231,20 +240,21 @@ public class OAIRecordParquetRepository {
      * 
      * Debe llamarse cuando se termina de procesar completamente un snapshot.
      * 
-     * IMPORTANTE: Después de cerrar, cualquier nueva escritura requiere initializeSnapshot().
+     * IMPORTANTE: Después de cerrar, cualquier nueva escritura requiere
+     * initializeSnapshot().
      * 
      * @param snapshotId el ID del snapshot a finalizar
      * @throws IOException si hay error al cerrar el manager
      */
     public void finalizeSnapshot(Long snapshotId) throws IOException {
         logger.info("FINALIZE SNAPSHOT: Closing manager for snapshot {}", snapshotId);
-        
+
         // Cerrar manager
         OAIRecordManager manager = recordManagers.remove(snapshotId);
         if (manager != null) {
             manager.close();
-            logger.debug("SNAPSHOT FINALIZED: {} (manager closed, {} records written in {} batches)", 
-                       snapshotId, manager.getTotalRecordsWritten(), manager.getBatchCount());
+            logger.debug("SNAPSHOT FINALIZED: {} (manager closed, {} records written in {} batches)",
+                    snapshotId, manager.getTotalRecordsWritten(), manager.getBatchCount());
         } else {
             logger.warn("FINALIZE: No active manager found for snapshot {}", snapshotId);
         }
@@ -268,12 +278,12 @@ public class OAIRecordParquetRepository {
      */
     public void flush(Long snapshotId) throws IOException {
         logger.debug("FLUSH requested for snapshot {}", snapshotId);
-        
+
         OAIRecordManager manager = recordManagers.get(snapshotId);
         if (manager != null) {
             manager.flush();
-            logger.debug("FLUSH completed for snapshot {} ({} records written)", 
-                        snapshotId, manager.getTotalRecordsWritten());
+            logger.debug("FLUSH completed for snapshot {} ({} records written)",
+                    snapshotId, manager.getTotalRecordsWritten());
         } else {
             logger.warn("FLUSH: No active manager found for snapshot {}", snapshotId);
         }
@@ -299,14 +309,14 @@ public class OAIRecordParquetRepository {
         if (Files.exists(Paths.get(snapshotDir))) {
             try {
                 Files.walk(Paths.get(snapshotDir))
-                    .sorted(java.util.Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                        } catch (IOException e) {
-                            logger.error("Failed to delete: {}", path, e);
-                        }
-                    });
+                        .sorted(java.util.Comparator.reverseOrder())
+                        .forEach(path -> {
+                            try {
+                                Files.delete(path);
+                            } catch (IOException e) {
+                                logger.error("Failed to delete: {}", path, e);
+                            }
+                        });
                 logger.info("SNAPSHOT DELETED: {}", snapshotId);
             } catch (IOException e) {
                 logger.error("Failed to delete snapshot directory: {}", snapshotDir, e);
@@ -324,13 +334,13 @@ public class OAIRecordParquetRepository {
      */
     public void deleteCatalogForSnapshot(Long snapshotId) throws IOException {
         logger.info("Deleting catalog for snapshot {}", snapshotId);
-        
+
         SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotId);
         if (metadata == null) {
             logger.warn("No metadata found for snapshot {}, skipping catalog delete", snapshotId);
             return;
         }
-        
+
         try (OAIRecordManager manager = OAIRecordManager.forReading(basePath, metadata, hadoopConf)) {
             manager.deleteCatalogFiles();
         }
@@ -340,12 +350,15 @@ public class OAIRecordParquetRepository {
     /**
      * Retorna un iterator directo para streaming lazy sobre records de un snapshot.
      * 
-     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de OAIRecordManager internamente.
-     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin interferencia.
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de OAIRecordManager
+     * internamente.
+     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin
+     * interferencia.
      * 
      * El manager interno es manejado automáticamente - no necesita cerrar.
      * 
      * Ejemplo de uso:
+     * 
      * <pre>
      * Iterator&lt;OAIRecord&gt; iterator = repository.getIterator(snapshotMetadata);
      * while (iterator.hasNext()) {
@@ -359,8 +372,8 @@ public class OAIRecordParquetRepository {
      * @throws IOException si hay error
      */
     public Iterator<OAIRecord> getIterator(SnapshotMetadata snapshotMetadata) throws IOException {
-        logger.debug("GET ITERATOR: snapshot={}, network={} (NEW INSTANCE)", 
-                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
+        logger.debug("GET ITERATOR: snapshot={}, network={} (NEW INSTANCE)",
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
         // Crear NUEVA instancia de manager para cada llamada - garantiza thread safety
         OAIRecordManager manager = OAIRecordManager.forReading(basePath, snapshotMetadata, hadoopConf);
         return manager.iterator();
@@ -389,15 +402,14 @@ public class OAIRecordParquetRepository {
         if (manager == null) {
             return null;
         }
-        
+
         return Map.of(
-            "snapshotId", snapshotId,
-            "recordsWritten", manager.getTotalRecordsWritten(),
-            "batchCount", manager.getBatchCount(),
-            "isActive", true
-        );
+                "snapshotId", snapshotId,
+                "recordsWritten", manager.getTotalRecordsWritten(),
+                "batchCount", manager.getBatchCount(),
+                "isActive", true);
     }
-    
+
     /**
      * Retorna el flush threshold configurado.
      * 

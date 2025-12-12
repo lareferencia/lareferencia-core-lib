@@ -98,8 +98,10 @@ public class MetadataStoreFSImpl implements IMetadataStore {
      */
     @PostConstruct
     public void init() {
-        logger.info("Active Metadata Store: FileSystem (FS)");
-        logger.info("Base path: {}", basePath);
+        if (basePath == null)
+            throw new IllegalStateException("MetadataStoreFSImpl: store.basepath undefined");
+
+        logger.info("ACTIVE METADATA STORE: FileSystem (FS) | Base path: " + basePath);
 
         // Create base directory if it doesn't exist
         File baseDir = new File(basePath);

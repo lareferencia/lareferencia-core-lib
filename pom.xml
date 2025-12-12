@@ -39,6 +39,14 @@
 
 	<dependencies>
 
+
+		<!-- Fix for ANTLR mismatch: Hibernate 6 uses 4.13.0, Solr/Lucene uses 4.11.1. Enforce 4.13.0 -->
+		<dependency>
+			<groupId>org.antlr</groupId>
+			<artifactId>antlr4-runtime</artifactId>
+			<version>4.13.0</version>
+		</dependency>
+
 		<!-- OCLC Harvester LaReferencia version libs -->
 		<dependency>
 			<groupId>org.lareferencia</groupId>

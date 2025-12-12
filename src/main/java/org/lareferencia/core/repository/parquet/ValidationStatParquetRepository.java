@@ -78,7 +78,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * CONFIG:
  * - Use property `parquet.validation.records-per-file` to configure how many
- *   records are written per Parquet batch file (default: 100000)
+ * records are written per Parquet batch file (default: 100000)
  */
 @Repository
 public class ValidationStatParquetRepository {
@@ -97,18 +97,20 @@ public class ValidationStatParquetRepository {
 
     private Configuration hadoopConf;
     private final Map<Long, SnapshotValidationStats> snapshotStatsCache = new ConcurrentHashMap<>();
-    
-    // MANAGER PERSISTENTE: Se reutiliza entre llamadas para aprovechar buffer de 10k
+
+    // MANAGER PERSISTENTE: Se reutiliza entre llamadas para aprovechar buffer de
+    // 10k
     private final Map<Long, ValidationRecordManager> recordsManagers = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void init() {
         hadoopConf = new Configuration();
         hadoopConf.set("fs.file.impl", org.apache.hadoop.fs.LocalFileSystem.class.getName());
-        
+
         try {
             Files.createDirectories(Paths.get(basePath));
-            logger.info("NEW ARCHITECTURE INITIALIZED: basePath={}, validationRecordsPerFile={}", basePath, validationRecordsPerFile);
+            logger.info("VALIDATION PARQUET REPO: Initialized | BasePath: " + basePath + " | RecordsPerFile: "
+                    + validationRecordsPerFile);
         } catch (IOException e) {
             logger.error("Failed to create base path: {}", basePath, e);
         }
@@ -118,7 +120,7 @@ public class ValidationStatParquetRepository {
     public void cleanup() {
         // Cerrar todos los managers persistentes
         logger.info("REPOSITORY SHUTDOWN: Closing {} active managers", recordsManagers.size());
-        
+
         recordsManagers.forEach((snapshotId, manager) -> {
             try {
                 manager.close();
@@ -127,14 +129,14 @@ public class ValidationStatParquetRepository {
                 logger.error("Error closing RecordsManager for snapshot {}", snapshotId, e);
             }
         });
-        
+
         recordsManagers.clear();
         snapshotStatsCache.clear();
         logger.info("REPOSITORY SHUTDOWN COMPLETE");
     }
 
     /**
-    /**
+     * /**
      * Inicializa un snapshot para escritura.
      * 
      * CICLO DE VIDA:
@@ -142,14 +144,14 @@ public class ValidationStatParquetRepository {
      * 2. saveRecordAndFacts() × N → Escritura incremental record por record
      * 3. finalizeSnapshot() → Cierra managers y persiste metadata final
      * 
-     * @param snapshotId ID del snapshot
+     * @param snapshotId     ID del snapshot
      * @param networkAcronym acrónimo de la red
      * @throws IOException si hay error
      */
     public void initializeSnapshot(SnapshotMetadata snapshotMetadata) throws IOException {
         Long snapshotId = snapshotMetadata.getSnapshotId();
         logger.info("INITIALIZE SNAPSHOT: snapshot={}", snapshotId);
-        
+
         try {
             // Crear directorio del snapshot usando PathUtils
             String snapshotDir = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
@@ -160,32 +162,34 @@ public class ValidationStatParquetRepository {
             if (Files.exists(Paths.get(validationDir))) {
                 logger.info("Cleaning up previous validation data at: {}", validationDir);
                 Files.walk(Paths.get(validationDir))
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                            logger.debug("Deleted: {}", path);
-                        } catch (IOException e) {
-                            logger.error("Failed to delete {}", path, e);
-                        }
-                    });
+                        .sorted(Comparator.reverseOrder())
+                        .forEach(path -> {
+                            try {
+                                Files.delete(path);
+                                logger.debug("Deleted: {}", path);
+                            } catch (IOException e) {
+                                logger.error("Failed to delete {}", path, e);
+                            }
+                        });
             }
 
-            // Crear manager persistente para escritura (usa basePath original, no snapshotDir)
+            // Crear manager persistente para escritura (usa basePath original, no
+            // snapshotDir)
             // Pass the configured flush threshold (records per file)
-            ValidationRecordManager recordsManager = ValidationRecordManager.forWriting(basePath, snapshotMetadata, hadoopConf, validationRecordsPerFile);
+            ValidationRecordManager recordsManager = ValidationRecordManager.forWriting(basePath, snapshotMetadata,
+                    hadoopConf, validationRecordsPerFile);
             recordsManagers.put(snapshotId, recordsManager);
             logger.info("Created RecordsManager for snapshot {}", snapshotId);
 
             // create Snapshot Validation Stats
             SnapshotValidationStats snapshotStats = new SnapshotValidationStats(snapshotMetadata);
-            
-            // Escribir metadata usando basePath original 
+
+            // Escribir metadata usando basePath original
             SnapshotMetadataManager.writeValidationStats(basePath, snapshotStats);
             snapshotStatsCache.put(snapshotId, snapshotStats);
 
             logger.info("Snapshot {} initialized and ready for writes", snapshotId);
-            
+
         } catch (IOException e) {
             // Limpiar managers parcialmente creados en caso de error
             recordsManagers.remove(snapshotId);
@@ -206,25 +210,25 @@ public class ValidationStatParquetRepository {
      * - Auto-flush al alcanzar umbral
      * - Crea archivos batch_N.parquet automáticamente
      * 
-     * @param snapshotId ID del snapshot
+     * @param snapshotId     ID del snapshot
      * @param networkAcronym acrónimo de la red (para metadata)
-     * @param record datos del record con facts integrados
+     * @param record         datos del record con facts integrados
      * @throws IOException si hay error
      */
     public void saveRecordAndFacts(SnapshotMetadata snapshotMetadata, RecordValidation record) throws IOException {
-        
+
         if (record == null) {
             logger.warn("SAVE: Null record for snapshot {}", snapshotMetadata.getSnapshotId());
             return;
         }
-        
+
         // Actualizar metadata acumulativa
         updateStoredStats(snapshotMetadata.getSnapshotId(), record);
-        
+
         // Escribir record con facts integrados
         writeRecord(snapshotMetadata.getSnapshotId(), record);
     }
-    
+
     /**
      * Actualiza metadata de forma acumulativa (thread-safe)
      */
@@ -232,20 +236,19 @@ public class ValidationStatParquetRepository {
      * Actualiza metadata de forma acumulativa (thread-safe)
      */
     private synchronized void updateStoredStats(Long snapshotId, RecordValidation record) {
-        
+
         // Obtener metadata del cache (debe existir porque initializeSnapshot() la crea)
         SnapshotValidationStats stats = snapshotStatsCache.get(snapshotId);
         if (stats == null) {
             throw new IllegalStateException(
-                "Snapshot " + snapshotId + " not initialized. Call initializeSnapshot() first."
-            );
+                    "Snapshot " + snapshotId + " not initialized. Call initializeSnapshot() first.");
         }
-        
+
         updateStats(stats, record);
     }
 
     private synchronized void updateStats(SnapshotValidationStats snapshotStats, RecordValidation record) {
-        
+
         // update total count
         snapshotStats.incrementTotalRecords();
 
@@ -262,7 +265,7 @@ public class ValidationStatParquetRepository {
         if (record.getRecordIsValid() != null) {
             snapshotStats.updateFacet("record_is_valid", record.getRecordIsValid().toString());
         }
-        
+
         // Facet: record_is_transformed
         if (record.getIsTransformed() != null) {
             snapshotStats.updateFacet("record_is_transformed", record.getIsTransformed().toString());
@@ -271,7 +274,7 @@ public class ValidationStatParquetRepository {
         // update rule stats and facets
         if (record.getRuleFacts() != null) {
             for (RuleFact fact : record.getRuleFacts()) {
-                
+
                 Long ruleID = Long.valueOf(fact.getRuleId());
                 String ruleIdStr = ruleID.toString();
 
@@ -283,80 +286,83 @@ public class ValidationStatParquetRepository {
                     snapshotStats.incrementRuleInvalid(ruleID);
                     // Facet: invalid_rules
                     snapshotStats.updateFacet("invalid_rules", ruleIdStr);
-                }     
+                }
             }
         }
-    }   
+    }
 
     /**
      * Obtiene el SnapshotMetadata desde el cache o desde el archivo de metadata.
      * Método helper para los métodos que solo reciben snapshotId.
      */
     private SnapshotMetadata getSnapshotMetadata(Long snapshotId) throws IOException {
-       return snapshotStore.getSnapshotMetadata(snapshotId);
+        return snapshotStore.getSnapshotMetadata(snapshotId);
     }
 
     public SnapshotValidationStats getSnapshotStats(Long snapshotId) {
         return snapshotStatsCache.computeIfAbsent(snapshotId, id -> {
             try {
                 SnapshotValidationStats stats = SnapshotMetadataManager.readValidationStats(
-                    PathUtils.getSnapshotPath(basePath, getSnapshotMetadata(snapshotId)), getSnapshotMetadata(snapshotId)
-                );
+                        PathUtils.getSnapshotPath(basePath, getSnapshotMetadata(snapshotId)),
+                        getSnapshotMetadata(snapshotId));
 
                 if (stats != null) {
-                    snapshotStatsCache.put(id, stats);    
+                    snapshotStatsCache.put(id, stats);
                     return stats;
                 } else {
                     logger.warn("No stats found for snapshot {}", id);
                     return null;
                 }
                 // Cachear para futuras llamadas
-                
+
             } catch (IOException e) {
                 logger.error("Error loading SnapshotMetadata for snapshot {}", id, e);
                 return null;
             }
-        }); 
+        });
     }
 
-    // iterate over all records of a snapshot, create an empty snapshotValidationStats and update with each record
+    // iterate over all records of a snapshot, create an empty
+    // snapshotValidationStats and update with each record
     public SnapshotValidationStats buildStats(SnapshotMetadata metadata, List<String> fq) throws IOException {
-        
+
         SnapshotValidationStats stats = new SnapshotValidationStats(metadata);
         Long snapshotId = metadata.getSnapshotId();
 
         logger.debug("BUILD STATS: snapshot={}, filters={}", snapshotId, fq);
 
-        // Parsear filtros UNA SOLA VEZ (optimización: pre-parsea todos los strings/integers)
+        // Parsear filtros UNA SOLA VEZ (optimización: pre-parsea todos los
+        // strings/integers)
         ParsedFilters filters = parseFilters(fq);
-        logger.debug("BUILD STATS: Parsed filters -> isValid={}, isTransformed={}, invalidRules={}, validRules={}", 
-                    filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
+        logger.debug("BUILD STATS: Parsed filters -> isValid={}, isTransformed={}, invalidRules={}, validRules={}",
+                filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
 
         // ITERACIÓN LAZY: Procesar records sin cargar todo en memoria
-        try (ValidationRecordManager recordsManager = ValidationRecordManager.forReading(basePath, metadata, hadoopConf)) {
-            
+        try (ValidationRecordManager recordsManager = ValidationRecordManager.forReading(basePath, metadata,
+                hadoopConf)) {
+
             long totalRecords = 0;
             long filteredRecords = 0;
-            
+
             // Iterar sobre todos los records de forma lazy
             for (RecordValidation record : recordsManager) {
                 totalRecords++;
-                
+
                 // Aplicar filtros y actualizar stats solo si cumple criterios
                 if (matchesFilters(record, filters)) {
                     updateStats(stats, record);
                     filteredRecords++;
                 }
-                
+
                 // Log de progreso cada validationRecordsPerFile records
                 if (validationRecordsPerFile > 0 && totalRecords % validationRecordsPerFile == 0) {
-                    logger.debug("BUILD STATS: Processed {} records, {} matched filters", 
-                               totalRecords, filteredRecords);
+                    logger.debug("BUILD STATS: Processed {} records, {} matched filters",
+                            totalRecords, filteredRecords);
                 }
             }
-            
-            logger.info("BUILD STATS: Processed {} total records, {} matched filters (lazy iteration)", 
-                       totalRecords, filteredRecords);
+
+            logger.info("BUILD STATS: Processed {} total records, {} matched filters (lazy iteration)",
+                    totalRecords, filteredRecords);
         }
 
         return stats;
@@ -371,72 +377,73 @@ public class ValidationStatParquetRepository {
         Boolean isTransformed;
         Set<Integer> invalidRuleIds;
         Set<Integer> validRuleIds;
-        
+
         boolean isEmpty() {
-            return isValid == null && isTransformed == null 
-                   && invalidRuleIds == null && validRuleIds == null;
+            return isValid == null && isTransformed == null
+                    && invalidRuleIds == null && validRuleIds == null;
         }
     }
-    
+
     /**
      * Parsea filtros UNA SOLA VEZ convirtiendo strings a tipos nativos.
      * OPTIMIZACIÓN: Pre-parsea rule IDs a Sets de Integers para lookups O(1).
      */
     private ParsedFilters parseFilters(List<String> fq) {
         ParsedFilters filters = new ParsedFilters();
-        
+
         if (fq == null || fq.isEmpty()) {
             return filters;
         }
-        
+
         for (String filter : fq) {
             if (filter == null || filter.trim().isEmpty()) {
                 continue;
             }
-            
+
             // Formato esperado: "campo:valor"
             String[] parts = filter.split(":|@@", 2);
             if (parts.length != 2) {
                 logger.warn("BUILD STATS: Invalid filter format (expected field:value or field@@value): {}", filter);
                 continue;
             }
-            
+
             String key = parts[0].trim();
             String value = parts[1].trim().replaceAll("^\"|\"$|^'|'$", "");
-            
+
             switch (key) {
                 case "record_is_valid":
                     filters.isValid = Boolean.parseBoolean(value);
                     break;
-                    
+
                 case "record_is_transformed":
                     filters.isTransformed = Boolean.parseBoolean(value);
                     break;
-                    
+
                 case "invalid_rules":
                     if (filters.invalidRuleIds == null) {
                         filters.invalidRuleIds = new HashSet<>();
                     }
                     parseRuleIds(value, filters.invalidRuleIds);
                     break;
-                    
+
                 case "valid_rules":
                     if (filters.validRuleIds == null) {
                         filters.validRuleIds = new HashSet<>();
                     }
                     parseRuleIds(value, filters.validRuleIds);
                     break;
-                    
+
                 default:
                     logger.warn("BUILD STATS: Unknown filter key: {}", key);
             }
         }
-        
+
         return filters;
     }
-    
+
     /**
-     * Helper para parsear IDs de reglas (soporta múltiples valores separados por coma)
+     * Helper para parsear IDs de reglas (soporta múltiples valores separados por
+     * coma)
      */
     private void parseRuleIds(String value, Set<Integer> targetSet) {
         String[] ruleIds = value.split(",");
@@ -462,68 +469,66 @@ public class ValidationStatParquetRepository {
         if (filters.isEmpty()) {
             return true;
         }
-        
+
         if (filters.isValid != null) {
             if (!record.getRecordIsValid().equals(filters.isValid)) {
                 return false;
             }
         }
-        
+
         if (filters.isTransformed != null) {
             if (!record.getIsTransformed().equals(filters.isTransformed)) {
-                return false; 
+                return false;
             }
         }
-        
+
         // Si no hay filtros de reglas, ya pasó todos los criterios
         if (filters.invalidRuleIds == null && filters.validRuleIds == null) {
             return true;
         }
-        
+
         // Verificar que el record tenga RuleFacts
         if (record.getRuleFacts() == null || record.getRuleFacts().isEmpty()) {
             // Sin facts, no puede cumplir filtros de reglas → falla criterios 3 y/o 4
             return false;
         }
-        
-        // CRITERIO 3: invalid_rules (AND - debe tener AL MENOS UNA regla inválida especificada)
+
+        // CRITERIO 3: invalid_rules (AND - debe tener AL MENOS UNA regla inválida
+        // especificada)
         if (filters.invalidRuleIds != null) {
-            // Verificar intersección: ¿el record tiene alguna de las reglas inválidas requeridas?
+            // Verificar intersección: ¿el record tiene alguna de las reglas inválidas
+            // requeridas?
             boolean hasInvalidMatch = filters.invalidRuleIds.stream()
-                .anyMatch(requiredRuleId -> 
-                    record.getRuleFacts().stream()
-                        .anyMatch(fact -> 
-                            fact.getRuleId() != null 
-                            && fact.getRuleId().equals(requiredRuleId)
-                            && fact.getIsValid() != null 
-                            && !fact.getIsValid() // Debe ser inválida
-                        )
-                );
-            
+                    .anyMatch(requiredRuleId -> record.getRuleFacts().stream()
+                            .anyMatch(fact -> fact.getRuleId() != null
+                                    && fact.getRuleId().equals(requiredRuleId)
+                                    && fact.getIsValid() != null
+                                    && !fact.getIsValid() // Debe ser inválida
+                            ));
+
             if (!hasInvalidMatch) {
                 return false; // Falla criterio 3 → short-circuit
             }
         }
-        
-        // CRITERIO 4: valid_rules (AND - debe tener AL MENOS UNA regla válida especificada)
+
+        // CRITERIO 4: valid_rules (AND - debe tener AL MENOS UNA regla válida
+        // especificada)
         if (filters.validRuleIds != null) {
-            // Verificar intersección: ¿el record tiene alguna de las reglas válidas requeridas?
+            // Verificar intersección: ¿el record tiene alguna de las reglas válidas
+            // requeridas?
             boolean hasValidMatch = filters.validRuleIds.stream()
-                .anyMatch(requiredRuleId -> 
-                    record.getRuleFacts().stream()
-                        .anyMatch(fact -> 
-                            fact.getRuleId() != null 
-                            && fact.getRuleId().equals(requiredRuleId)
-                            && fact.getIsValid() != null 
-                            && fact.getIsValid() // Debe ser válida
-                        )
-                );
-            
+                    .anyMatch(requiredRuleId -> record.getRuleFacts().stream()
+                            .anyMatch(fact -> fact.getRuleId() != null
+                                    && fact.getRuleId().equals(requiredRuleId)
+                                    && fact.getIsValid() != null
+                                    && fact.getIsValid() // Debe ser válida
+                            ));
+
             if (!hasValidMatch) {
                 return false; // Falla criterio 4 → short-circuit
             }
         }
-        
+
         // Pasó TODOS los criterios (AND completo)
         return true;
     }
@@ -531,19 +536,19 @@ public class ValidationStatParquetRepository {
     /**
      * Escribe un record usando el manager persistente
      */
-    private void writeRecord(Long snapshotId, RecordValidation record) 
+    private void writeRecord(Long snapshotId, RecordValidation record)
             throws IOException {
-        
+
         // Obtener RecordsManager persistente (creado en initializeSnapshot)
         ValidationRecordManager recordsManager = recordsManagers.get(snapshotId);
         if (recordsManager == null) {
-            throw new IllegalStateException("RecordsManager not found for snapshot " + snapshotId + ". Call initializeSnapshot() first.");
+            throw new IllegalStateException(
+                    "RecordsManager not found for snapshot " + snapshotId + ". Call initializeSnapshot() first.");
         }
-        
+
         // Escribir record (ahora con facts integrados - synchronized internamente)
         recordsManager.writeRecord(record);
     }
-
 
     /**
      * Deletes validation data for a snapshot (metadata, records, rule facts).
@@ -575,10 +580,10 @@ public class ValidationStatParquetRepository {
         } else {
             logger.warn("VALIDATION DATA NOT FOUND: snapshot={}, path={}", snapshotId, validationDir);
         }
-        
+
         snapshotStatsCache.remove(snapshotId);
     }
-    
+
     /**
      * Cierra los writers de un snapshot específico y libera recursos.
      * 
@@ -589,23 +594,24 @@ public class ValidationStatParquetRepository {
      * 
      * Debe llamarse cuando se termina de procesar completamente un snapshot.
      * 
-     * IMPORTANTE: Después de cerrar, cualquier nueva escritura creará nuevos writers.
+     * IMPORTANTE: Después de cerrar, cualquier nueva escritura creará nuevos
+     * writers.
      * 
      * @param snapshotId el ID del snapshot a finalizar
      * @throws IOException si hay error al cerrar los writers
      */
     public void finalizeSnapshot(Long snapshotId) throws IOException {
         logger.info("FINALIZE SNAPSHOT: Closing writers for snapshot {}", snapshotId);
-        
+
         // Escribir metadata final (última versión con totales exactos)
         SnapshotValidationStats stats = snapshotStatsCache.get(snapshotId);
         if (stats != null) {
-            
+
             SnapshotMetadataManager.writeValidationStats(basePath, stats);
-            logger.info("Final metadata written: total={}, valid={} ",  
-                       stats.getTotalRecords(), stats.getValidRecords());
+            logger.info("Final metadata written: total={}, valid={} ",
+                    stats.getTotalRecords(), stats.getValidRecords());
         }
-        
+
         // Cerrar manager
         ValidationRecordManager recordsManager = recordsManagers.remove(snapshotId);
         if (recordsManager != null) {
@@ -613,8 +619,7 @@ public class ValidationStatParquetRepository {
             logger.info("RecordsManager closed");
         }
     }
-    
-   
+
     /**
      * Fuerza el flush de los buffers de escritura para un snapshot específico.
      * 
@@ -633,24 +638,24 @@ public class ValidationStatParquetRepository {
      */
     public void flush(Long snapshotId) throws IOException {
         logger.debug("FLUSH requested for snapshot {}", snapshotId);
-        
+
         ValidationRecordManager recordsManager = recordsManagers.get(snapshotId);
         if (recordsManager != null) {
             recordsManager.flush();
             logger.debug("Flushed RecordsManager for snapshot {}", snapshotId);
         }
-        
+
         logger.info("FLUSH COMPLETE for snapshot {}", snapshotId);
     }
-    
-    
+
     /**
      * Obtiene las estadísticas de validación en formato interno para un snapshot.
      * 
      * Primero intenta obtener desde caché en memoria. Si no está disponible,
      * lee desde el archivo JSON en disco y actualiza el caché.
      * 
-     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y networkAcronym)
+     * @param snapshotMetadata metadata del snapshot (necesita snapshotId y
+     *                         networkAcronym)
      * @return SnapshotValidationStats con las estadísticas, o null si no existen
      * @throws IOException si hay error al leer el archivo
      */
@@ -658,40 +663,41 @@ public class ValidationStatParquetRepository {
         if (snapshotMetadata == null || snapshotMetadata.getSnapshotId() == null) {
             throw new IllegalArgumentException("snapshotMetadata y snapshotId no pueden ser null");
         }
-        
+
         Long snapshotId = snapshotMetadata.getSnapshotId();
-        
-        logger.debug("GET SNAPSHOT VALIDATION STATS: snapshot={}, network={}", 
-            snapshotId, snapshotMetadata.getNetwork().getAcronym());
-        
+
+        logger.debug("GET SNAPSHOT VALIDATION STATS: snapshot={}, network={}",
+                snapshotId, snapshotMetadata.getNetwork().getAcronym());
+
         // Intentar obtener desde caché primero
         SnapshotValidationStats snapshotStats = snapshotStatsCache.get(snapshotId);
-        
+
         if (snapshotStats != null) {
-            logger.debug("SNAPSHOT VALIDATION STATS FROM CACHE: snapshot={}, totalRecords={}", 
-                        snapshotId, snapshotStats.getTotalRecords());
+            logger.debug("SNAPSHOT VALIDATION STATS FROM CACHE: snapshot={}, totalRecords={}",
+                    snapshotId, snapshotStats.getTotalRecords());
             return snapshotStats;
         }
-        
+
         // No está en caché, leer desde disco
         snapshotStats = SnapshotMetadataManager.readValidationStats(basePath, snapshotMetadata);
-        
+
         if (snapshotStats == null) {
-            logger.warn("SNAPSHOT VALIDATION STATS NOT FOUND: snapshot={}, network={}", 
-                snapshotId, snapshotMetadata.getNetwork().getAcronym());
+            logger.warn("SNAPSHOT VALIDATION STATS NOT FOUND: snapshot={}, network={}",
+                    snapshotId, snapshotMetadata.getNetwork().getAcronym());
             return null;
         }
-        
+
         // Actualizar caché para futuras consultas
         snapshotStatsCache.put(snapshotId, snapshotStats);
-        
-        logger.debug("SNAPSHOT VALIDATION STATS LOADED FROM DISK: snapshot={}, network={}, totalRecords={}", 
-                    snapshotId, snapshotMetadata.getNetwork().getAcronym(), snapshotStats.getTotalRecords());
+
+        logger.debug("SNAPSHOT VALIDATION STATS LOADED FROM DISK: snapshot={}, network={}, totalRecords={}",
+                snapshotId, snapshotMetadata.getNetwork().getAcronym(), snapshotStats.getTotalRecords());
         return snapshotStats;
     }
-    
+
     /**
-     * Calcula las ocurrencias (válidas e inválidas) para una regla específica en un snapshot.
+     * Calcula las ocurrencias (válidas e inválidas) para una regla específica en un
+     * snapshot.
      * 
      * IMPLEMENTACIÓN:
      * - Lee TODOS los archivos batch del snapshot usando ValidationRecordManager
@@ -705,62 +711,64 @@ public class ValidationStatParquetRepository {
      * - Solo lee campos necesarios: ruleFacts con occurrences
      * 
      * @param snapshotId ID del snapshot
-     * @param ruleId ID de la regla a analizar
-     * @param fq filtros opcionales (formato: "field@@value")
-     * @return mapa con dos entradas: "valid" y "invalid", cada una con Map<String, Integer> de valores a conteos
+     * @param ruleId     ID de la regla a analizar
+     * @param fq         filtros opcionales (formato: "field@@value")
+     * @return mapa con dos entradas: "valid" y "invalid", cada una con Map<String,
+     *         Integer> de valores a conteos
      * @throws IOException si hay error leyendo los archivos Parquet
      */
-    public Map<String, Map<String, Integer>> calculateRuleOccurrences(Long snapshotId, Integer ruleId, List<String> fq) 
+    public Map<String, Map<String, Integer>> calculateRuleOccurrences(Long snapshotId, Integer ruleId, List<String> fq)
             throws IOException {
         logger.info("CALCULATE RULE OCCURRENCES: snapshot={}, rule={}, filters={}", snapshotId, ruleId, fq);
-        
+
         // Parsear filtros si existen
         ParsedFilters filters = parseFilters(fq != null ? fq : Collections.emptyList());
-        logger.info("PARSED FILTERS: isValid={}, isTransformed={}, invalidRuleIds={}, validRuleIds={}", 
-                   filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
-        
+        logger.info("PARSED FILTERS: isValid={}, isTransformed={}, invalidRuleIds={}, validRuleIds={}",
+                filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
+
         // Mapas para acumular occurrences: valor -> count
         Map<String, Integer> validOccurrences = new HashMap<>();
         Map<String, Integer> invalidOccurrences = new HashMap<>();
-        
+
         long totalRecordsProcessed = 0;
         long recordsWithRule = 0;
         long recordsFilteredOut = 0;
-        
+
         // Obtener SnapshotMetadata para construir paths correctos
         SnapshotMetadata snapshotMetadata = getSnapshotMetadata(snapshotId);
-        
+
         // Leer todos los records usando ValidationRecordManager (streaming)
-        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
-            
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata,
+                hadoopConf)) {
+
             for (RecordValidation record : reader) {
                 totalRecordsProcessed++;
-                
+
                 // Aplicar filtros generales si existen
                 if (!matchesFilters(record, filters)) {
                     recordsFilteredOut++;
                     continue;
                 }
-                
+
                 // Buscar la regla específica en los RuleFacts del record
                 if (record.getRuleFacts() == null) {
                     continue;
                 }
-                
+
                 for (RuleFact fact : record.getRuleFacts()) {
                     if (fact.getRuleId() == null || !fact.getRuleId().equals(ruleId)) {
                         continue;
                     }
-                    
+
                     recordsWithRule++;
-                    
+
                     // Agregar valid occurrences
                     if (fact.getValidOccurrences() != null) {
                         for (String value : fact.getValidOccurrences()) {
                             validOccurrences.merge(value, 1, Integer::sum);
                         }
                     }
-                    
+
                     // Agregar invalid occurrences
                     if (fact.getInvalidOccurrences() != null) {
                         for (String value : fact.getInvalidOccurrences()) {
@@ -770,18 +778,20 @@ public class ValidationStatParquetRepository {
                 }
             }
         }
-        
-        logger.info("RULE OCCURRENCES CALCULATED: processed={} records, filteredOut={}, found={} with rule {}, valid occurrences={}, invalid occurrences={}", 
-                   totalRecordsProcessed, recordsFilteredOut, recordsWithRule, ruleId, validOccurrences.size(), invalidOccurrences.size());
-        
+
+        logger.info(
+                "RULE OCCURRENCES CALCULATED: processed={} records, filteredOut={}, found={} with rule {}, valid occurrences={}, invalid occurrences={}",
+                totalRecordsProcessed, recordsFilteredOut, recordsWithRule, ruleId, validOccurrences.size(),
+                invalidOccurrences.size());
+
         // Retornar resultado estructurado
         Map<String, Map<String, Integer>> result = new HashMap<>();
         result.put("valid", validOccurrences);
         result.put("invalid", invalidOccurrences);
-        
+
         return result;
     }
-    
+
     /**
      * Carga el índice ligero completo de un snapshot en memoria.
      * 
@@ -797,24 +807,27 @@ public class ValidationStatParquetRepository {
      * - Estadísticas sin necesidad de cargar ruleFacts completos
      * 
      * @param snapshotId ID del snapshot
-     * @param status Filtro por estado (VALID, INVALID, UNTESTED=todos, DELETED ignorado)
+     * @param status     Filtro por estado (VALID, INVALID, UNTESTED=todos, DELETED
+     *                   ignorado)
      * @return lista de RecordValidation ligeros filtrados
      * @throws IOException si hay error leyendo el índice
      */
-    public List<RecordValidation> getRecordValidationListBySnapshotAndStatus(Long snapshotId, RecordStatus status) throws IOException {
+    public List<RecordValidation> getRecordValidationListBySnapshotAndStatus(Long snapshotId, RecordStatus status)
+            throws IOException {
         logger.info("GET RECORD VALIDATION LIST: snapshot={}, status={}", snapshotId, status);
-        
+
         // Obtener SnapshotMetadata para construir paths correctos
         SnapshotMetadata snapshotMetadata = getSnapshotMetadata(snapshotId);
-        
-        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
+
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata,
+                hadoopConf)) {
             List<RecordValidation> indexRecords = reader.loadLightweightIndex(status);
-            logger.info("RECORD VALIDATION LIST LOADED: {} records for snapshot {} with status {}", 
-                       indexRecords.size(), snapshotId, status);
+            logger.info("RECORD VALIDATION LIST LOADED: {} records for snapshot {} with status {}",
+                    indexRecords.size(), snapshotId, status);
             return indexRecords;
         }
     }
-    
+
     /**
      * Consulta observaciones con paginación y filtrado.
      * 
@@ -833,9 +846,12 @@ public class ValidationStatParquetRepository {
      * 6. Retornar página + total procesados hasta el momento
      * 
      * EJEMPLOS:
-     * - Página 0, size 20: offset=0, limit=20 → índices [0-19] → detiene en record filtrado #20
-     * - Página 1, size 20: offset=20, limit=40 → índices [20-39] → detiene en record filtrado #40
-     * - Página 2, size 20: offset=40, limit=60 → índices [40-59] → detiene en record filtrado #60
+     * - Página 0, size 20: offset=0, limit=20 → índices [0-19] → detiene en record
+     * filtrado #20
+     * - Página 1, size 20: offset=20, limit=40 → índices [20-39] → detiene en
+     * record filtrado #40
+     * - Página 2, size 20: offset=40, limit=60 → índices [40-59] → detiene en
+     * record filtrado #60
      * 
      * PERFORMANCE:
      * - Página 0: procesa ~20 records (optimal)
@@ -843,47 +859,53 @@ public class ValidationStatParquetRepository {
      * - SIN recorrer los 13,400 records completos
      * 
      * @param snapshotId ID del snapshot
-     * @param fq filtros opcionales
-     * @param offset número de records filtrados a saltar (índice inicio, 0-based)
-     * @param limit número total de records filtrados para completar página (offset + pageSize)
-     * @return Map con "records" (List<RecordValidation>) y "totalFiltered" (Long = records procesados)
+     * @param fq         filtros opcionales
+     * @param offset     número de records filtrados a saltar (índice inicio,
+     *                   0-based)
+     * @param limit      número total de records filtrados para completar página
+     *                   (offset + pageSize)
+     * @return Map con "records" (List<RecordValidation>) y "totalFiltered" (Long =
+     *         records procesados)
      * @throws IOException si hay error
      */
-    public Map<String, Object> queryObservationsWithPagination(Long snapshotId, List<String> fq, int offset, int limit) 
+    public Map<String, Object> queryObservationsWithPagination(Long snapshotId, List<String> fq, int offset, int limit)
             throws IOException {
-        logger.info("QUERY OBSERVATIONS WITH PAGINATION: snapshot={}, offset={}, limit={}, filters={}", 
-                   snapshotId, offset, limit, fq);
-        
+        logger.info("QUERY OBSERVATIONS WITH PAGINATION: snapshot={}, offset={}, limit={}, filters={}",
+                snapshotId, offset, limit, fq);
+
         // Parsear filtros UNA SOLA VEZ
         ParsedFilters filters = parseFilters(fq != null ? fq : Collections.emptyList());
-        logger.debug("PAGINATION: Parsed filters -> isValid={}, isTransformed={}, invalidRules={}, validRules={}", 
-                    filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
-        
+        logger.debug("PAGINATION: Parsed filters -> isValid={}, isTransformed={}, invalidRules={}, validRules={}",
+                filters.isValid, filters.isTransformed, filters.invalidRuleIds, filters.validRuleIds);
+
         List<RecordValidation> pageRecords = new ArrayList<>();
         long totalRecordsProcessed = 0;
         long totalFilteredRecords = 0;
-        
+
         // Obtener SnapshotMetadata para construir paths correctos
         SnapshotMetadata snapshotMetadata = getSnapshotMetadata(snapshotId);
-        
+
         // STREAMING: Leer records de forma lazy
         // OPTIMIZACIÓN DE MEMORIA: Solo guardamos (add) los records de la página actual
         // PERO seguimos contando TODOS los filtrados para tener totalFiltered correcto
-        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata, hadoopConf)) {
-            
+        try (ValidationRecordManager reader = ValidationRecordManager.forReading(basePath, snapshotMetadata,
+                hadoopConf)) {
+
             for (RecordValidation record : reader) {
                 totalRecordsProcessed++;
-                
+
                 // Aplicar filtros
                 if (!matchesFilters(record, filters)) {
                     continue; // No pasa filtros, siguiente record
                 }
-                
-                // Record filtrado - incrementar contador (índice base 0: primer record filtrado = 0)
+
+                // Record filtrado - incrementar contador (índice base 0: primer record filtrado
+                // = 0)
                 long filteredIndex = totalFilteredRecords;
                 totalFilteredRecords++;
-                
-                // OPTIMIZACIÓN: Solo agregamos a la lista si está en el rango de la página actual
+
+                // OPTIMIZACIÓN: Solo agregamos a la lista si está en el rango de la página
+                // actual
                 // Esto ahorra memoria al no almacenar records fuera del rango [offset, limit)
                 // Página 0: offset=0, limit=20 → índices [0-19]
                 // Página 1: offset=20, limit=40 → índices [20-39]
@@ -895,45 +917,50 @@ public class ValidationStatParquetRepository {
                 // En ambos casos seguimos iterando para tener el total correcto
             }
         }
-        
-        logger.info("PAGINATION COMPLETED: processed={} records, filtered={}, returned={} for page", 
-                   totalRecordsProcessed, totalFilteredRecords, pageRecords.size());
-        
+
+        logger.info("PAGINATION COMPLETED: processed={} records, filtered={}, returned={} for page",
+                totalRecordsProcessed, totalFilteredRecords, pageRecords.size());
+
         // Retornar resultado con página y total REAL
         Map<String, Object> result = new HashMap<>();
         result.put("records", pageRecords);
         result.put("totalFiltered", totalFilteredRecords);
-        
+
         return result;
     }
 
     public RecordValidation getRecordValidationBySnapshotAndIdentifier(Long snapshotId, String identifier) {
 
         logger.info("GET RECORD VALIDATION BY IDENTIFIER: snapshot={}, identifier={}", snapshotId, identifier);
-        
-        
+
         try {
             // Obtener SnapshotMetadata para construir paths correctos
             SnapshotMetadata snapshotMetadata = getSnapshotMetadata(snapshotId);
-        
+
             return this.getRecordValidationListBySnapshotAndStatus(snapshotId, RecordStatus.UNTESTED).stream()
-                .filter(record -> identifier.equals(record.getIdentifier()))
-                .findFirst()
-                .orElse(null);
+                    .filter(record -> identifier.equals(record.getIdentifier()))
+                    .findFirst()
+                    .orElse(null);
         } catch (IOException e) {
-            throw new RuntimeException("Error retrieving record validation for snapshot " + snapshotId + " and identifier " + identifier, e);
+            throw new RuntimeException(
+                    "Error retrieving record validation for snapshot " + snapshotId + " and identifier " + identifier,
+                    e);
         }
     }
 
     /**
-     * Retorna un iterator directo para streaming lazy sobre records de un snapshot (modo completo).
+     * Retorna un iterator directo para streaming lazy sobre records de un snapshot
+     * (modo completo).
      * 
-     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de ValidationRecordManager internamente.
-     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin interferencia.
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de ValidationRecordManager
+     * internamente.
+     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin
+     * interferencia.
      * 
      * El manager interno es manejado automáticamente - no necesita cerrar.
      * 
      * Ejemplo de uso:
+     * 
      * <pre>
      * Iterator<RecordValidation> iterator = repository.getIterator(snapshotMetadata);
      * while (iterator.hasNext()) {
@@ -943,26 +970,31 @@ public class ValidationStatParquetRepository {
      * </pre>
      * 
      * @param snapshotMetadata metadata del snapshot
-     * @return iterator lazy sobre records completos (nueva instancia de manager interna)
+     * @return iterator lazy sobre records completos (nueva instancia de manager
+     *         interna)
      * @throws IOException si hay error
      */
     public Iterator<RecordValidation> getIterator(SnapshotMetadata snapshotMetadata) throws IOException {
-        logger.debug("GET ITERATOR: snapshot={}, network={} (NEW INSTANCE - FULL MODE)", 
-                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
-        
+        logger.debug("GET ITERATOR: snapshot={}, network={} (NEW INSTANCE - FULL MODE)",
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
+
         // Delegar al ValidationRecordManager para crear iterator completo
         return ValidationRecordManager.iterate(basePath, snapshotMetadata, hadoopConf);
     }
 
     /**
-     * Retorna un iterator directo para streaming lazy sobre records de un snapshot (modo ligero).
+     * Retorna un iterator directo para streaming lazy sobre records de un snapshot
+     * (modo ligero).
      * 
-     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de ValidationRecordManager internamente.
-     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin interferencia.
+     * THREAD-SAFE: Cada llamada crea una NUEVA instancia de ValidationRecordManager
+     * internamente.
+     * Múltiples threads pueden leer el mismo snapshot concurrentemente sin
+     * interferencia.
      * 
      * El manager interno es manejado automáticamente - no necesita cerrar.
      * 
      * Ejemplo de uso:
+     * 
      * <pre>
      * Iterator<RecordValidation> iterator = repository.getLightweightIterator(snapshotMetadata);
      * while (iterator.hasNext()) {
@@ -972,33 +1004,36 @@ public class ValidationStatParquetRepository {
      * </pre>
      * 
      * @param snapshotMetadata metadata del snapshot
-     * @return iterator lazy sobre records ligeros (nueva instancia de manager interna)
+     * @return iterator lazy sobre records ligeros (nueva instancia de manager
+     *         interna)
      * @throws IOException si hay error
      */
-    public Iterator<RecordValidation> getLightweightIterator(SnapshotMetadata snapshotMetadata, RecordStatus status) throws IOException {
-        logger.debug("GET LIGHTWEIGHT ITERATOR: snapshot={}, network={} (NEW INSTANCE - LIGHT MODE)", 
-                    snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
-        
+    public Iterator<RecordValidation> getLightweightIterator(SnapshotMetadata snapshotMetadata, RecordStatus status)
+            throws IOException {
+        logger.debug("GET LIGHTWEIGHT ITERATOR: snapshot={}, network={} (NEW INSTANCE - LIGHT MODE)",
+                snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
+
         // Delegar al ValidationRecordManager para crear iterator ligero de forma simple
         return ValidationRecordManager.iterateLightweight(basePath, snapshotMetadata, status, hadoopConf);
     }
 
     /**
      * Deletes Parquet files from validation directory for a specific snapshot.
-     * Preserves validation_stats.json. Called from NetworkCleanWorker during cleanup.
+     * Preserves validation_stats.json. Called from NetworkCleanWorker during
+     * cleanup.
      * 
      * @param snapshotId ID of snapshot to clean
      * @throws IOException if deletion fails
      */
     public void deleteParquetForSnapshot(Long snapshotId) throws IOException {
         logger.info("Deleting validation parquet files for snapshot {}", snapshotId);
-        
+
         SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotId);
         if (metadata == null) {
             logger.warn("No metadata found for snapshot {}, skipping validation parquet delete", snapshotId);
             return;
         }
-        
+
         try (ValidationRecordManager manager = ValidationRecordManager.forReading(basePath, metadata, hadoopConf)) {
             manager.deleteParquetFiles();
         }

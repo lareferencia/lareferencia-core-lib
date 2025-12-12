@@ -63,10 +63,11 @@ public class ValidatorRuleSchemaService {
 
     @PostConstruct
     public void init() {
-        logger.info("Initializing ValidatorRuleSchemaService - scanning validator and transformer classes");
+        logger.info("VALIDATOR RULE SERVICE: Initializing | Scanning validator and transformer classes...");
         this.cachedValidatorSchemas = scanAndBuildSchemas(IValidatorRule.class);
         this.cachedTransformerSchemas = scanAndBuildSchemas(ITransformerRule.class);
-        logger.info("Found {} validator rules and {} transformer rules", cachedValidatorSchemas.size(),
+        logger.info("VALIDATOR RULE SERVICE: Scan Complete | Validator Rules: {} | Transformer Rules: {}",
+                cachedValidatorSchemas.size(),
                 cachedTransformerSchemas.size());
     }
 
