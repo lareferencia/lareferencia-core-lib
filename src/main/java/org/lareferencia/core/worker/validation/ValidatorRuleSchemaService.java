@@ -27,7 +27,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
@@ -74,7 +73,10 @@ public class ValidatorRuleSchemaService {
     /**
      * Returns all validator rule schema definitions.
      */
-    public List<RuleSchemaDefinition> getAllRuleSchemas(Locale locale) {
+    /**
+     * Returns all validator rule schema definitions.
+     */
+    public List<RuleSchemaDefinition> getAllValidatorSchemas(Locale locale) {
         return buildLocalizedSchemas(cachedValidatorSchemas, locale);
     }
 
@@ -85,9 +87,6 @@ public class ValidatorRuleSchemaService {
         return buildLocalizedSchemas(cachedTransformerSchemas, locale);
     }
 
-    /**
-     * Returns schema definition for a specific class.
-     */
     /**
      * Returns schema definition for a specific class.
      */
@@ -125,6 +124,12 @@ public class ValidatorRuleSchemaService {
             for (BeanDefinition bd : candidates) {
                 try {
                     Class<?> clazz = Class.forName(bd.getBeanClassName());
+
+                    // Filter out class if it does not implement the interface
+                    if (!interfaceType.isAssignableFrom(clazz)) {
+                        continue;
+                    }
+
                     RuleSchemaDefinition schema = buildSchemaForClass(clazz);
                     if (schema != null) {
                         schemas.add(schema);
