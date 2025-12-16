@@ -59,11 +59,13 @@ public class ControlledValueFieldContentValidatorRule extends AbstractValidatorF
 
 	/**
 	 * Creates a new controlled value validator with an empty list of allowed
-	 * values.
+	 * values. Sets storeOccurrences=true because this rule benefits from 
+	 * storing the actual values received for debugging vocabulary mismatches.
 	 */
 	public ControlledValueFieldContentValidatorRule() {
 		super();
 		this.controlledValues = new ArrayList<String>();
+		this.storeOccurrences = true; // This rule needs occurrence details for debugging
 	}
 
 	/**

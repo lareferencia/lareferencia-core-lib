@@ -125,14 +125,14 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
     
     private static final Logger logger = LogManager.getLogger(ValidationRecordManager.class);
     
-    // Constantes de nombres de archivos
-    private static final String VALIDATION_SUBDIR = "validation";
-    private static final String BATCH_FILE_PREFIX = "records_batch_";
-    private static final String BATCH_FILE_SUFFIX = ".parquet";
-    private static final String INDEX_FILE_NAME = "validation_index.parquet";
+    // Constantes importadas de ParquetConstants para mantener compatibilidad interna
+    private static final String VALIDATION_SUBDIR = ParquetConstants.VALIDATION_SUBDIR;
+    private static final String BATCH_FILE_PREFIX = ParquetConstants.VALIDATION_BATCH_PREFIX;
+    private static final String BATCH_FILE_SUFFIX = ParquetConstants.PARQUET_SUFFIX;
+    private static final String INDEX_FILE_NAME = ParquetConstants.VALIDATION_INDEX_FILE;
     
     // Umbrales para flush automático (escritura)
-    private static final int DEFAULT_FLUSH_THRESHOLD_RECORDS = 100000;
+    private static final int DEFAULT_FLUSH_THRESHOLD_RECORDS = ParquetConstants.DEFAULT_FLUSH_THRESHOLD;
     
     /**
      * ESQUEMA CON RULE FACTS ANIDADOS:
@@ -266,7 +266,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      */
     public static ValidationRecordManager forWriting(String basePath, SnapshotMetadata snapshotMetadata, Configuration hadoopConf, int flushThreshold)
             throws IOException {
-        logger.info("RECORDS MANAGER: Creating writer for snapshot {} (network: {}) (flushThreshold={})",
+        logger.debug("RECORDS MANAGER: Creating writer for snapshot {} (network: {}) (flushThreshold={})",
             snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym(), flushThreshold);
         return new ValidationRecordManager(basePath, snapshotMetadata, hadoopConf, flushThreshold);
     }
@@ -399,7 +399,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         String batchPath = snapshotPath + "/" + VALIDATION_SUBDIR + "/" + BATCH_FILE_PREFIX + batchNumber + BATCH_FILE_SUFFIX;
         Path path = new Path(batchPath);
         
-        logger.info("RECORDS MANAGER: Creating batch file #{} at {}", batchNumber, batchPath);
+        logger.debug("RECORDS MANAGER: Creating batch file #{} at {}", batchNumber, batchPath);
         
         Configuration conf = new Configuration(hadoopConf);
         org.apache.parquet.hadoop.example.GroupWriteSupport.setSchema(SCHEMA, conf);
@@ -443,15 +443,34 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         if (currentWriter == null) {
             createNewBatchWriter();
         } else if (flushThreshold > 0 && recordsInCurrentBatch >= flushThreshold) {
-            logger.info("RECORDS MANAGER: Auto-flush triggered at {} records (threshold={})", recordsInCurrentBatch, flushThreshold);
+            logger.debug("RECORDS MANAGER: Auto-flush triggered at {} records (threshold={})", recordsInCurrentBatch, flushThreshold);
             flush();
             // Crear nuevo writer inmediatamente después del auto-flush
             createNewBatchWriter();
         }
         
+        // Crear Group y escribir a Parquet
+        Group group = createGroupFromRecord(record);
+        currentWriter.write(group);
+        recordsInCurrentBatch++;
+        totalRecordsWritten++;
+        
+        // Agregar al buffer del índice ligero (solo campos esenciales, sin ruleFacts)
+        indexBuffer.add(createLightweightRecord(record));
+        
+        if (flushThreshold > 0 && totalRecordsWritten % flushThreshold == 0) {
+            logger.debug("RECORDS MANAGER: Written {} records total ({} in current batch)", 
+                        totalRecordsWritten, recordsInCurrentBatch);
+        }
+    }
+
+    /**
+     * Crea un Group Parquet a partir de un RecordValidation.
+     */
+    private Group createGroupFromRecord(RecordValidation record) {
         Group group = new SimpleGroup(SCHEMA);
         
-        // Campos requeridos (sin id - recordId es la PK)
+        // Campos requeridos
         group.append("identifier", record.getIdentifier().trim());
         
         // datestamp (opcional pero recomendado)
@@ -472,62 +491,65 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         }
         
         // Agregar rule facts si existen
-        List<RuleFact> ruleFacts = record.getRuleFacts();
-        if (ruleFacts != null && !ruleFacts.isEmpty()) {
-            Group ruleFactsGroup = group.addGroup("rule_facts_list");
-            
-            for (RuleFact fact : ruleFacts) {
-                if (fact == null || fact.getRuleId() == null || fact.getIsValid() == null) {
-                    continue; // Skip invalid facts
-                }
-                
-                Group factGroup = ruleFactsGroup.addGroup("fact");
-                factGroup.append("rule_id", fact.getRuleId());
-                
-                // Agregar listas de occurrences con estructura LIST estándar de Parquet
-                if (fact.getValidOccurrences() != null && !fact.getValidOccurrences().isEmpty()) {
-                    Group validOccListWrapper = factGroup.addGroup("valid_occurrences");
-                    for (String occurrence : fact.getValidOccurrences()) {
-                        if (occurrence != null && !occurrence.isEmpty()) {
-                            Group listItem = validOccListWrapper.addGroup("list");
-                            listItem.append("element", occurrence);
-                        }
-                    }
-                }
-                
-                if (fact.getInvalidOccurrences() != null && !fact.getInvalidOccurrences().isEmpty()) {
-                    Group invalidOccListWrapper = factGroup.addGroup("invalid_occurrences");
-                    for (String occurrence : fact.getInvalidOccurrences()) {
-                        if (occurrence != null && !occurrence.isEmpty()) {
-                            Group listItem = invalidOccListWrapper.addGroup("list");
-                            listItem.append("element", occurrence);
-                        }
-                    }
-                }
-                
-                factGroup.append("is_valid", fact.getIsValid());
-            }
+        addRuleFactsToGroup(group, record.getRuleFacts());
+        
+        return group;
+    }
+
+    /**
+     * Agrega RuleFacts a un Group Parquet.
+     */
+    private void addRuleFactsToGroup(Group group, List<RuleFact> ruleFacts) {
+        if (ruleFacts == null || ruleFacts.isEmpty()) {
+            return;
         }
         
-        currentWriter.write(group);
-        recordsInCurrentBatch++;
-        totalRecordsWritten++;
+        Group ruleFactsGroup = group.addGroup("rule_facts_list");
         
-        // Agregar al buffer del índice ligero en paralelo (solo campos esenciales, sin ruleFacts)
-        RecordValidation lightRecord = new RecordValidation(
+        for (RuleFact fact : ruleFacts) {
+            if (fact == null || fact.getRuleId() == null || fact.getIsValid() == null) {
+                continue;
+            }
+            
+            Group factGroup = ruleFactsGroup.addGroup("fact");
+            factGroup.append("rule_id", fact.getRuleId());
+            
+            addOccurrencesToFact(factGroup, "valid_occurrences", fact.getValidOccurrences());
+            addOccurrencesToFact(factGroup, "invalid_occurrences", fact.getInvalidOccurrences());
+            
+            factGroup.append("is_valid", fact.getIsValid());
+        }
+    }
+
+    /**
+     * Agrega lista de occurrences a un fact Group.
+     */
+    private void addOccurrencesToFact(Group factGroup, String fieldName, List<String> occurrences) {
+        if (occurrences == null || occurrences.isEmpty()) {
+            return;
+        }
+        
+        Group occListWrapper = factGroup.addGroup(fieldName);
+        for (String occurrence : occurrences) {
+            if (occurrence != null && !occurrence.isEmpty()) {
+                Group listItem = occListWrapper.addGroup("list");
+                listItem.append("element", occurrence);
+            }
+        }
+    }
+
+    /**
+     * Crea una versión ligera del record (sin ruleFacts) para el índice.
+     */
+    private RecordValidation createLightweightRecord(RecordValidation record) {
+        return new RecordValidation(
             record.getIdentifier(),
             record.getDatestamp(),
             record.getRecordIsValid(),
             record.getIsTransformed(),
             record.getPublishedMetadataHash(),
-            null // ruleFacts = null para índice ligero
+            null
         );
-        indexBuffer.add(lightRecord);
-        
-        if (flushThreshold > 0 && totalRecordsWritten % flushThreshold == 0) {
-            logger.debug("RECORDS MANAGER: Written {} records total ({} in current batch)", 
-                        totalRecordsWritten, recordsInCurrentBatch);
-        }
     }
     
     /**
@@ -540,7 +562,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
      */
     public synchronized void flush() throws IOException {
         if (currentWriter != null && recordsInCurrentBatch > 0) {
-            logger.info("RECORDS MANAGER: Flushing batch #{} with {} records", batchNumber, recordsInCurrentBatch);
+            logger.debug("RECORDS MANAGER: Flushing batch #{} with {} records", batchNumber, recordsInCurrentBatch);
             currentWriter.close();
             currentWriter = null;
             recordsInCurrentBatch = 0;
@@ -564,7 +586,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         String indexPath = snapshotPath + "/" + VALIDATION_SUBDIR + "/" + INDEX_FILE_NAME;
         Path path = new Path(indexPath);
         
-        logger.info("RECORDS MANAGER: Writing lightweight index with {} records to {}", 
+        logger.debug("RECORDS MANAGER: Writing lightweight index with {} records to {}", 
                    indexBuffer.size(), indexPath);
         
         Configuration conf = new Configuration(hadoopConf);
@@ -604,7 +626,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             }
         }
         
-        logger.info("RECORDS MANAGER: Index file written successfully ({} records)", indexBuffer.size());
+        logger.debug("RECORDS MANAGER: Index file written successfully ({} records)", indexBuffer.size());
     }
     
     // ============================================================================
@@ -647,7 +669,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             batchFiles.add(status.getPath());
         }
         
-        logger.info("RECORDS MANAGER: Found {} batch files for snapshot {}", batchFiles.size(), snapshotId);
+        logger.debug("RECORDS MANAGER: Found {} batch files for snapshot {}", batchFiles.size(), snapshotId);
     }
     
     /**
@@ -905,7 +927,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         String indexPath = snapshotPath + "/" + VALIDATION_SUBDIR + "/" + INDEX_FILE_NAME;
         Path path = new Path(indexPath);
         
-        logger.info("RECORDS MANAGER: Loading lightweight index from {}", indexPath);
+        logger.debug("RECORDS MANAGER: Loading lightweight index from {}", indexPath);
         
         List<RecordValidation> indexRecords = new ArrayList<>();
         
@@ -967,7 +989,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             }
         }
         
-        logger.info("RECORDS MANAGER: Loaded {} index records", indexRecords.size());
+        logger.debug("RECORDS MANAGER: Loaded {} index records", indexRecords.size());
         return indexRecords;
     }
     
@@ -980,7 +1002,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         // Cerrar writer si está activo (flush final de datos pendientes)
         if (currentWriter != null) {
             if (recordsInCurrentBatch > 0) {
-                logger.info("RECORDS MANAGER: Final flush - closing batch #{} with {} records", 
+                logger.debug("RECORDS MANAGER: Final flush - closing batch #{} with {} records", 
                            batchNumber, recordsInCurrentBatch);
                 currentWriter.close();
             } else {
@@ -988,13 +1010,13 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
                 currentWriter.close();
             }
             currentWriter = null;
-            logger.info("RECORDS MANAGER: Closed writer. Total: {} records in {} batch files", 
+            logger.debug("RECORDS MANAGER: Closed writer. Total: {} records in {} batch files", 
                         totalRecordsWritten, batchNumber);
         }
         
         // Escribir índice final si hay datos pendientes
         if (!indexBuffer.isEmpty()) {
-            logger.info("RECORDS MANAGER: Writing final index with {} records", indexBuffer.size());
+            logger.debug("RECORDS MANAGER: Writing final index with {} records", indexBuffer.size());
             writeIndexFile();
             indexBuffer.clear();
         }
@@ -1004,7 +1026,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         currentRecordIndex = 0;
         
         if (batchFiles != null && !batchFiles.isEmpty()) {
-            logger.info("RECORDS MANAGER: Closed reader for {} batch files (NO CACHE)", batchFiles.size());
+            logger.debug("RECORDS MANAGER: Closed reader for {} batch files (NO CACHE)", batchFiles.size());
         }
     }
     
@@ -1020,7 +1042,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         FileSystem fs = FileSystem.get(hadoopConf);
         
         if (!fs.exists(validationPath)) {
-            logger.info("RECORDS MANAGER: Validation directory does not exist for snapshot {}: {}", snapshotId, validationPath);
+            logger.debug("RECORDS MANAGER: Validation directory does not exist for snapshot {}: {}", snapshotId, validationPath);
             return;
         }
         
@@ -1038,7 +1060,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
             }
         }
         
-        logger.info("RECORDS MANAGER: Deleted {} parquet files from validation dir {}. Preserved validation_stats.json and other non-parquet files.", 
+        logger.debug("RECORDS MANAGER: Deleted {} parquet files from validation dir {}. Preserved validation_stats.json and other non-parquet files.", 
                     deletedCount, validationPath);
     }
 }

@@ -197,8 +197,8 @@ public class RecordValidation {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RecordValidation that = (RecordValidation) o;
-     return Objects.equals(getRecordId(), that.getRecordId()) &&
-         Objects.equals(identifier, that.identifier) &&
+        // Nota: recordId es derivado de identifier, por lo que solo comparamos identifier
+        return Objects.equals(identifier, that.identifier) &&
                Objects.equals(datestamp, that.datestamp) &&
                Objects.equals(recordIsValid, that.recordIsValid) &&
                Objects.equals(isTransformed, that.isTransformed) &&
@@ -208,7 +208,8 @@ public class RecordValidation {
 
     @Override
     public int hashCode() {
-        return Objects.hash(getRecordId(), identifier, datestamp, recordIsValid, isTransformed,
+        // Nota: recordId es derivado de identifier, por lo que solo usamos identifier
+        return Objects.hash(identifier, datestamp, recordIsValid, isTransformed,
                           publishedMetadataHash, ruleFacts);
     }
 

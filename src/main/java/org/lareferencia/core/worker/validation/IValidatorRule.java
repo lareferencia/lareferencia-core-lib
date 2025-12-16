@@ -85,4 +85,19 @@ public interface IValidatorRule {
 	 */
 	public void setQuantifier(QuantifierValues qv);
 
+	/**
+	 * Checks if this rule should store occurrence details for debugging/analysis.
+	 * Default should be false for most rules to optimize memory usage.
+	 * 
+	 * @return true if occurrences should be stored, false otherwise
+	 */
+	public boolean isStoreOccurrences();
+
+	/**
+	 * Sets whether this rule should store occurrence details.
+	 * 
+	 * @param storeOccurrences true to store occurrence details
+	 */
+	public void setStoreOccurrences(boolean storeOccurrences);
+
 }

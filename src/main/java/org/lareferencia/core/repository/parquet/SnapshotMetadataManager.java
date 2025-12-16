@@ -28,7 +28,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.PathUtils;
-import org.lareferencia.core.repository.parquet.SnapshotValidationStats;
 import org.lareferencia.core.domain.Network;
 
 import java.io.File;
@@ -56,9 +55,10 @@ public final class SnapshotMetadataManager {
     private static final Logger logger = LogManager.getLogger(SnapshotMetadataManager.class);
     private static final ObjectMapper mapper = createMapper();
     
-    private static final String VALIDATION_SUBDIR = "validation";
-    private static final String METADATA_FILENAME = "metadata.json";
-    private static final String VALIDATION_STATS_FILENAME = "validation-stats.json";
+    // Constantes centralizadas
+    private static final String VALIDATION_SUBDIR = ParquetConstants.VALIDATION_SUBDIR;
+    private static final String METADATA_FILENAME = ParquetConstants.METADATA_FILENAME;
+    private static final String VALIDATION_STATS_FILENAME = ParquetConstants.VALIDATION_STATS_FILENAME;
     
     /**
      * Mixin para serialización de Network: ignora relaciones JPA lazy
@@ -115,7 +115,7 @@ public final class SnapshotMetadataManager {
         String metadataPath = String.format("%s/%s", snapshotDir, METADATA_FILENAME);
         mapper.writeValue(new File(metadataPath), metadata);
         
-        logger.info("METADATA WRITTEN: snapshot={}, network={}, path={}", 
+        logger.debug("METADATA WRITTEN: snapshot={}, network={}, path={}", 
             metadata.getSnapshotId(), metadata.getNetwork().getAcronym(), metadataPath);
     }
     
@@ -181,7 +181,7 @@ public final class SnapshotMetadataManager {
         File file = new File(metadataPath);
         
         if (file.exists() && file.delete()) {
-            logger.info("METADATA DELETED: snapshot={}, network={}", 
+            logger.debug("METADATA DELETED: snapshot={}, network={}", 
                 snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
             return true;
         }
@@ -217,7 +217,7 @@ public final class SnapshotMetadataManager {
         String validationStatsPath = String.format("%s/%s", validationDir, VALIDATION_STATS_FILENAME);
         mapper.writeValue(new File(validationStatsPath), validationStats);
         
-        logger.info("VALIDATION STATS WRITTEN: snapshot={}, network={}, path={}", 
+        logger.debug("VALIDATION STATS WRITTEN: snapshot={}, network={}, path={}", 
             metadata.getSnapshotId(), metadata.getNetwork().getAcronym(), validationStatsPath);
     }
     
@@ -287,7 +287,7 @@ public final class SnapshotMetadataManager {
         File file = new File(validationStatsPath);
         
         if (file.exists() && file.delete()) {
-            logger.info("VALIDATION STATS DELETED: snapshot={}, network={}", 
+            logger.debug("VALIDATION STATS DELETED: snapshot={}, network={}", 
                 snapshotMetadata.getSnapshotId(), snapshotMetadata.getNetwork().getAcronym());
             return true;
         }
