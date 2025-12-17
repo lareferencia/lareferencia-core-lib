@@ -27,6 +27,10 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -303,5 +307,72 @@ public class MetadataStoreFSImpl implements IMetadataStore {
         }
 
         return count;
+    }
+
+    @Override
+    public boolean deleteMetadata(SnapshotMetadata snapshotMetadata, String hash) throws MetadataRecordStoreException {
+        try {
+            File file = getFileForHash(snapshotMetadata, hash);
+
+            String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
+
+            if (!file.exists()) {
+                logger.debug("Metadata with hash {} does not exist, nothing to delete (network: {})",
+                        hash, networkAcronym);
+                return false;
+            }
+
+            boolean deleted = file.delete();
+
+            if (deleted) {
+                logger.debug("Deleted metadata with hash {} (network: {})", hash, networkAcronym);
+            } else {
+                logger.warn("Failed to delete metadata file for hash {} (network: {})", hash, networkAcronym);
+            }
+
+            return deleted;
+
+        } catch (Exception e) {
+            logger.error("Error deleting metadata for hash: {}", hash, e);
+            throw new MetadataRecordStoreException("Failed to delete metadata", e);
+        }
+    }
+
+    @Override
+    public void forEachHash(SnapshotMetadata snapshotMetadata, Consumer<String> hashConsumer) throws MetadataRecordStoreException {
+        try {
+            String networkBasePath = getNetworkBasePath(snapshotMetadata);
+            Path basePath = new File(networkBasePath).toPath();
+
+            String networkAcronym = snapshotMetadata != null ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
+
+            if (!Files.exists(basePath)) {
+                logger.debug("No metadata directory exists for network: {}", networkAcronym);
+                return;
+            }
+
+            long startTime = System.currentTimeMillis();
+            long[] count = {0}; // Using array to allow modification in lambda
+
+            try (Stream<Path> pathStream = Files.walk(basePath)) {
+                pathStream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.toString().endsWith(FILE_EXTENSION))
+                    .forEach(path -> {
+                        String fileName = path.getFileName().toString();
+                        // Extract hash by removing the .xml.gz extension
+                        String hash = fileName.substring(0, fileName.length() - FILE_EXTENSION.length());
+                        hashConsumer.accept(hash);
+                        count[0]++;
+                    });
+            }
+
+            long duration = System.currentTimeMillis() - startTime;
+            logger.debug("Iterated over {} hashes in {}ms (network: {})", count[0], duration, networkAcronym);
+
+        } catch (IOException e) {
+            logger.error("Error iterating over metadata hashes", e);
+            throw new MetadataRecordStoreException("Failed to iterate over metadata hashes", e);
+        }
     }
 }

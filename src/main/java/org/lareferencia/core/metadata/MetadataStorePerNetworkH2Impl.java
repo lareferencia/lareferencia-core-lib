@@ -24,6 +24,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -54,6 +55,8 @@ public class MetadataStorePerNetworkH2Impl implements IMetadataStore {
     private static final String CREATE_TABLE_SQL = "CREATE TABLE IF NOT EXISTS metadata_records (hash VARCHAR(255) PRIMARY KEY, content CLOB)";
     private static final String INSERT_SQL = "MERGE INTO metadata_records (hash, content) KEY (hash) VALUES (?, ?)";
     private static final String SELECT_SQL = "SELECT content FROM metadata_records WHERE hash = ?";
+    private static final String DELETE_SQL = "DELETE FROM metadata_records WHERE hash = ?";
+    private static final String SELECT_ALL_HASHES_SQL = "SELECT hash FROM metadata_records";
 
     @PostConstruct
     public void init() {
@@ -191,5 +194,63 @@ public class MetadataStorePerNetworkH2Impl implements IMetadataStore {
             }
         }
         return success;
+    }
+
+    @Override
+    public boolean deleteMetadata(SnapshotMetadata snapshotMetadata, String hash) throws MetadataRecordStoreException {
+        try {
+            Connection conn = getConnection(snapshotMetadata);
+
+            String networkAcronym = snapshotMetadata != null && snapshotMetadata.getNetwork() != null
+                    ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
+
+            try (PreparedStatement stmt = conn.prepareStatement(DELETE_SQL)) {
+                stmt.setString(1, hash);
+                int affected = stmt.executeUpdate();
+
+                if (affected > 0) {
+                    logger.debug("Deleted metadata with hash {} (network: {})", hash, networkAcronym);
+                    return true;
+                } else {
+                    logger.debug("Metadata with hash {} does not exist, nothing to delete (network: {})",
+                            hash, networkAcronym);
+                    return false;
+                }
+            }
+
+        } catch (SQLException e) {
+            logger.error("Error deleting metadata for hash: {}", hash, e);
+            throw new MetadataRecordStoreException("Failed to delete metadata from H2", e);
+        }
+    }
+
+    @Override
+    public void forEachHash(SnapshotMetadata snapshotMetadata, Consumer<String> hashConsumer) throws MetadataRecordStoreException {
+        try {
+            Connection conn = getConnection(snapshotMetadata);
+
+            String networkAcronym = snapshotMetadata != null && snapshotMetadata.getNetwork() != null
+                    ? snapshotMetadata.getNetwork().getAcronym() : "UNKNOWN";
+
+            long startTime = System.currentTimeMillis();
+            long count = 0;
+
+            try (PreparedStatement stmt = conn.prepareStatement(SELECT_ALL_HASHES_SQL);
+                    ResultSet rs = stmt.executeQuery()) {
+
+                while (rs.next()) {
+                    String hash = rs.getString("hash");
+                    hashConsumer.accept(hash);
+                    count++;
+                }
+            }
+
+            long duration = System.currentTimeMillis() - startTime;
+            logger.debug("Iterated over {} hashes in {}ms (network: {})", count, duration, networkAcronym);
+
+        } catch (SQLException e) {
+            logger.error("Error iterating over metadata hashes", e);
+            throw new MetadataRecordStoreException("Failed to iterate over metadata hashes from H2", e);
+        }
     }
 }

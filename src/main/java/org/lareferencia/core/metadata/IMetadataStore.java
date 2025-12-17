@@ -21,6 +21,8 @@
 
 package org.lareferencia.core.metadata;
 
+import java.util.function.Consumer;
+
 /**
  * Interface for metadata storage and retrieval.
  * <p>
@@ -54,5 +56,28 @@ public interface IMetadataStore {
 	 * @return true if optimization was successful
 	 */
 	Boolean cleanAndOptimizeStore();
+
+	/**
+	 * Deletes metadata by its hash.
+	 * 
+	 * @param snapshotMetadata context containing network information
+	 * @param hash the metadata hash to delete
+	 * @return true if the metadata was deleted, false if it didn't exist
+	 * @throws MetadataRecordStoreException if deletion fails due to an error
+	 */
+	boolean deleteMetadata(SnapshotMetadata snapshotMetadata, String hash) throws MetadataRecordStoreException;
+
+	/**
+	 * Iterates over all metadata hashes in the store, applying the given consumer to each.
+	 * <p>
+	 * This method handles resource management internally, ensuring proper cleanup
+	 * of connections, file handles, and other resources after iteration completes.
+	 * </p>
+	 * 
+	 * @param snapshotMetadata context containing network information
+	 * @param hashConsumer consumer to apply to each hash
+	 * @throws MetadataRecordStoreException if iteration fails
+	 */
+	void forEachHash(SnapshotMetadata snapshotMetadata, Consumer<String> hashConsumer) throws MetadataRecordStoreException;
 
 }
