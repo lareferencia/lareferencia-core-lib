@@ -201,46 +201,7 @@ public class ValidationSnapshotLifecycleManager {
                 throw new IllegalStateException(
                         "Snapshot " + snapshotId + " not initialized. Call initializeSnapshot() first.");
             }
-            updateStats(stats, record);
-        }
-    }
-
-    /**
-     * Actualiza las estadísticas con los datos del record.
-     * NOTA: Debe llamarse dentro de bloque synchronized.
-     */
-    private void updateStats(SnapshotValidationStats snapshotStats, RecordValidation record) {
-        snapshotStats.incrementTotalRecords();
-
-        if (record.getRecordIsValid() != null && record.getRecordIsValid()) {
-            snapshotStats.incrementValidRecords();
-        }
-
-        if (record.getIsTransformed() != null && record.getIsTransformed()) {
-            snapshotStats.incrementTransformedRecords();
-        }
-
-        if (record.getRecordIsValid() != null) {
-            snapshotStats.updateFacet("record_is_valid", record.getRecordIsValid().toString());
-        }
-
-        if (record.getIsTransformed() != null) {
-            snapshotStats.updateFacet("record_is_transformed", record.getIsTransformed().toString());
-        }
-
-        if (record.getRuleFacts() != null) {
-            for (RuleFact fact : record.getRuleFacts()) {
-                Long ruleID = Long.valueOf(fact.getRuleId());
-                String ruleIdStr = ruleID.toString();
-
-                if (fact.getIsValid() != null && fact.getIsValid()) {
-                    snapshotStats.incrementRuleValid(ruleID);
-                    snapshotStats.updateFacet("valid_rules", ruleIdStr);
-                } else {
-                    snapshotStats.incrementRuleInvalid(ruleID);
-                    snapshotStats.updateFacet("invalid_rules", ruleIdStr);
-                }
-            }
+            stats.updateFromRecord(record);
         }
     }
 

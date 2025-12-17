@@ -478,18 +478,19 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				}
 			}
 			
-			// Flush periódico del repositorio Parquet (cada 10k records)
+			// El flush periódico ya no es necesario aquí porque OAIRecordManager
+			// tiene auto-flush incorporado cuando alcanza el threshold configurado
+			// (parquet.catalog.records-per-file). Solo logueamos progreso.
 			try {
 				Map<String, Object> info = oaiRecordRepository.getManagerInfo(snapshotId);
 				if (info != null) {
 					long recordsWritten = (long) info.get("recordsWritten");
-					if (recordsWritten % 10000 == 0 && recordsWritten > 0) {
-						oaiRecordRepository.flush(snapshotId);
-						logInfoMessage("PARQUET: Flushed " + recordsWritten + " records");
+					if (recordsWritten % 50000 == 0 && recordsWritten > 0) {
+						logInfoMessage("PARQUET: Progress - " + recordsWritten + " records written");
 					}
 				}
 			} catch (Exception e) {
-				logErrorMessage("PARQUET: Error flushing records: " + e.getMessage());
+				logErrorMessage("PARQUET: Error getting manager info: " + e.getMessage());
 			}
 
 			// Actualizar estado del snapshot

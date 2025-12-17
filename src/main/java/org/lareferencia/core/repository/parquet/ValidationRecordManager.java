@@ -759,6 +759,7 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         private RecordValidation nextRecord;
         private boolean hasNextComputed = false;
         private boolean iteratorExhausted = false;
+        private IOException lastError = null;
         
         @Override
         public boolean hasNext() {
@@ -777,6 +778,8 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
                     logger.error("Error reading next record in iterator", e);
                     iteratorExhausted = true;
                     nextRecord = null;
+                    lastError = e;
+                    throw new java.io.UncheckedIOException("Error reading record from Parquet", e);
                 }
             }
             
@@ -786,6 +789,9 @@ public final class ValidationRecordManager implements AutoCloseable, Iterable<Re
         @Override
         public RecordValidation next() {
             if (!hasNext()) {
+                if (lastError != null) {
+                    throw new java.io.UncheckedIOException("Iterator failed due to I/O error", lastError);
+                }
                 throw new NoSuchElementException("No more records available");
             }
             

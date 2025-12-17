@@ -65,10 +65,10 @@ public class RecordValidation {
     private String identifier;
     
     /**
-     * Nota: recordId no se almacena en campo separado; se calcula como MD5 del
-     * identifier cuando se solicita. Evitamos almacenar duplicados y eliminar
-     * el setter para mantener la inmutabilidad implícita de este valor.
+     * Cache del recordId (MD5 del identifier) para evitar recalcular en cada acceso.
+     * Se calcula lazy la primera vez que se solicita y se invalida si cambia el identifier.
      */
+    private transient String cachedRecordId;
     
     /**
      * Datestamp del record (fecha de última modificación según OAI-PMH).
@@ -139,11 +139,19 @@ public class RecordValidation {
     
     public void setIdentifier(String identifier) {
         this.identifier = identifier;
+        this.cachedRecordId = null; // Invalidar cache cuando cambia identifier
     }
     
+    /**
+     * Retorna el recordId (MD5 del identifier).
+     * Usa cache para evitar recalcular el hash en cada acceso.
+     */
     public String getRecordId() {
         if (this.identifier == null) return null;
-        return OAIRecord.generateIdFromIdentifier(this.identifier);
+        if (this.cachedRecordId == null) {
+            this.cachedRecordId = OAIRecord.generateIdFromIdentifier(this.identifier);
+        }
+        return this.cachedRecordId;
     }
     // No se provee setter para recordId (se calcula desde identifier)
     

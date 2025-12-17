@@ -123,7 +123,7 @@ public class ValidationStatsQueryService {
 
         for (RecordValidation record : cachedRecords) {
             if (matchesFilters(record, filters)) {
-                updateStats(stats, record);
+                stats.updateFromRecord(record);
                 filteredRecords++;
             }
         }
@@ -259,15 +259,21 @@ public class ValidationStatsQueryService {
 
         int pageSize = limit - offset;
 
-        List<RecordValidation> pageRecords = cachedRecords.stream()
-                .filter(record -> matchesFilters(record, filters))
+        // Optimización: Un solo recorrido para filtrar, paginar y contar
+        List<RecordValidation> filteredRecords = new ArrayList<>();
+        for (RecordValidation record : cachedRecords) {
+            if (matchesFilters(record, filters)) {
+                filteredRecords.add(record);
+            }
+        }
+        
+        long totalFilteredRecords = filteredRecords.size();
+        
+        // Aplicar paginación sobre la lista filtrada
+        List<RecordValidation> pageRecords = filteredRecords.stream()
                 .skip(offset)
                 .limit(pageSize)
                 .collect(Collectors.toList());
-
-        long totalFilteredRecords = cachedRecords.stream()
-                .filter(record -> matchesFilters(record, filters))
-                .count();
 
         logger.debug("PAGINATION COMPLETED: total={} records, filtered={}, returned={} for page (from cache)",
                 cachedRecords.size(), totalFilteredRecords, pageRecords.size());
@@ -463,40 +469,5 @@ public class ValidationStatsQueryService {
                                 && fact.getIsValid() != null
                                 && fact.getIsValid() == expectedValidity
                         ));
-    }
-
-    private void updateStats(SnapshotValidationStats stats, RecordValidation record) {
-        stats.incrementTotalRecords();
-
-        if (record.getRecordIsValid() != null && record.getRecordIsValid()) {
-            stats.incrementValidRecords();
-        }
-
-        if (record.getIsTransformed() != null && record.getIsTransformed()) {
-            stats.incrementTransformedRecords();
-        }
-
-        if (record.getRecordIsValid() != null) {
-            stats.updateFacet("record_is_valid", record.getRecordIsValid().toString());
-        }
-
-        if (record.getIsTransformed() != null) {
-            stats.updateFacet("record_is_transformed", record.getIsTransformed().toString());
-        }
-
-        if (record.getRuleFacts() != null) {
-            for (RuleFact fact : record.getRuleFacts()) {
-                Long ruleID = Long.valueOf(fact.getRuleId());
-                String ruleIdStr = ruleID.toString();
-
-                if (fact.getIsValid() != null && fact.getIsValid()) {
-                    stats.incrementRuleValid(ruleID);
-                    stats.updateFacet("valid_rules", ruleIdStr);
-                } else {
-                    stats.incrementRuleInvalid(ruleID);
-                    stats.updateFacet("invalid_rules", ruleIdStr);
-                }
-            }
-        }
     }
 }

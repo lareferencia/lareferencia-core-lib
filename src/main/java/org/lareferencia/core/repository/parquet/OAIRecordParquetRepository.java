@@ -98,7 +98,7 @@ public class OAIRecordParquetRepository {
     @Value("${store.basepath:/tmp/data/}")
     private String basePath;
 
-    @Value("${parquet.catalog.records-per-file:10000}")
+    @Value("${parquet.catalog.records-per-file:100000}")
     private int recordsPerFile;
 
     @Value("${parquet.compression:SNAPPY}")
@@ -131,10 +131,8 @@ public class OAIRecordParquetRepository {
 
         try {
             Files.createDirectories(Paths.get(basePath));
-            logger.info("OAI RECORD PARQUET REPO: Initialized | BasePath: " + basePath +
-                    " | Compression: " + compressionCodec +
-                    " | PageSize: " + pageSize +
-                    " | RecordsPerFile: " + recordsPerFile);
+            logger.info("OAI RECORD PARQUET REPO: Initialized | BasePath: {} | Compression: {} | PageSize: {} | RecordsPerFile: {}",
+                    basePath, compressionCodec, pageSize, recordsPerFile);
         } catch (IOException e) {
             logger.error("Failed to create base path: {}", basePath, e);
         }

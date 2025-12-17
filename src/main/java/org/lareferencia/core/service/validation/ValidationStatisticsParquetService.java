@@ -440,57 +440,6 @@ public class ValidationStatisticsParquetService implements IValidationStatistics
         );
     }
 
-    // /**
-    //  * Converts filters from String format to Map for Parquet repository
-    //  * Supports both formats: "field:value" and "field@@value"
-    //  */
-    // private Map<String, Object> parseFilterQueries(List<String> fq) {
-    //     Map<String, Object> filters = new HashMap<>();
-        
-    //     if (fq == null || fq.isEmpty()) {
-    //         return filters;
-    //     }
-        
-    //     logger.debug("Processing {} filter queries", fq.size());
-        
-    //     for (String fqTerm : fq) {
-    //         String key = null;
-    //         String value = null;
-            
-    //         // Support both formats: field:value and field@@value
-    //         if (fqTerm.contains("@@")) {
-    //             String[] parts = fqTerm.split("@@", 2);
-    //             key = parts[0].trim();
-    //             value = parts[1].trim();
-    //         } else if (fqTerm.contains(":")) {
-    //             String[] parts = fqTerm.split(":", 2);
-    //             key = parts[0].trim();
-    //             value = parts[1].trim();
-    //         }
-            
-    //         if (key != null && value != null) {
-    //             // Remove quotes if present
-    //             if (value.startsWith("\"") && value.endsWith("\"")) {
-    //                 value = value.substring(1, value.length() - 1);
-    //             }
-                
-    //             // Convert string values to appropriate types
-    //             if (value.equals("true") || value.equals("false")) {
-    //                 filters.put(key, Boolean.parseBoolean(value));
-    //             } else {
-    //                 filters.put(key, value);
-    //             }
-    //         } else {
-    //             logger.warn("Could not parse filter: {}", fqTerm);
-    //         }
-    //     }
-        
-    //     logger.debug("FILTER PARSING: Processed {} filters -> {}", fq.size(), filters);
-    //     return filters;
-    // }
-
-
-
     /**
      * Deletes validation statistics by snapshot ID (SIMPLIFIED)
      */

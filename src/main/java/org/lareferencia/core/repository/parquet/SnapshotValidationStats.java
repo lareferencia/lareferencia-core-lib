@@ -104,4 +104,45 @@ public class SnapshotValidationStats {
     public Map<String, Long> getFacet(String facetName) {
         return facets.get(facetName);
     }
+
+    /**
+     * Actualiza las estadísticas con los datos de un record de validación.
+     * Método centralizado para evitar duplicación de lógica.
+     * 
+     * @param record el record de validación con sus facts
+     */
+    public void updateFromRecord(RecordValidation record) {
+        incrementTotalRecords();
+
+        if (record.getRecordIsValid() != null && record.getRecordIsValid()) {
+            incrementValidRecords();
+        }
+
+        if (record.getIsTransformed() != null && record.getIsTransformed()) {
+            incrementTransformedRecords();
+        }
+
+        if (record.getRecordIsValid() != null) {
+            updateFacet("record_is_valid", record.getRecordIsValid().toString());
+        }
+
+        if (record.getIsTransformed() != null) {
+            updateFacet("record_is_transformed", record.getIsTransformed().toString());
+        }
+
+        if (record.getRuleFacts() != null) {
+            for (RuleFact fact : record.getRuleFacts()) {
+                Long ruleID = Long.valueOf(fact.getRuleId());
+                String ruleIdStr = ruleID.toString();
+
+                if (fact.getIsValid() != null && fact.getIsValid()) {
+                    incrementRuleValid(ruleID);
+                    updateFacet("valid_rules", ruleIdStr);
+                } else {
+                    incrementRuleInvalid(ruleID);
+                    updateFacet("invalid_rules", ruleIdStr);
+                }
+            }
+        }
+    }
 }
