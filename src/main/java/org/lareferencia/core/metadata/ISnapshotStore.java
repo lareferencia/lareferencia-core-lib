@@ -90,6 +90,57 @@ public interface ISnapshotStore {
 	List<Long> listSnapshotsIds(Long networkId, boolean includeDeleted);
 	
 	/**
+	 * DTO con información resumida de un snapshot para listados.
+	 */
+	public static class SnapshotSummary {
+		private Long id;
+		private String status;
+		private String indexStatus;
+		private LocalDateTime startTime;
+		private LocalDateTime endTime;
+		private Integer size;
+		private Integer validSize;
+		private Integer transformedSize;
+		private boolean deleted;
+		private boolean isLGK; // Last Good Known
+		
+		public SnapshotSummary(Long id, String status, String indexStatus, LocalDateTime startTime, 
+				LocalDateTime endTime, Integer size, Integer validSize, Integer transformedSize, 
+				boolean deleted, boolean isLGK) {
+			this.id = id;
+			this.status = status;
+			this.indexStatus = indexStatus;
+			this.startTime = startTime;
+			this.endTime = endTime;
+			this.size = size;
+			this.validSize = validSize;
+			this.transformedSize = transformedSize;
+			this.deleted = deleted;
+			this.isLGK = isLGK;
+		}
+		
+		public Long getId() { return id; }
+		public String getStatus() { return status; }
+		public String getIndexStatus() { return indexStatus; }
+		public LocalDateTime getStartTime() { return startTime; }
+		public LocalDateTime getEndTime() { return endTime; }
+		public Integer getSize() { return size; }
+		public Integer getValidSize() { return validSize; }
+		public Integer getTransformedSize() { return transformedSize; }
+		public boolean isDeleted() { return deleted; }
+		public boolean isLGK() { return isLGK; }
+	}
+	
+	/**
+	 * Lista snapshots con información resumida para una red.
+	 * 
+	 * @param networkId el ID de la red
+	 * @param includeDeleted si se deben incluir snapshots eliminados
+	 * @return lista de resumen de snapshots
+	 */
+	List<SnapshotSummary> listSnapshotsSummary(Long networkId, boolean includeDeleted);
+	
+	/**
 	 * Encuentra el ID del último snapshot válido de la red.
 	 * 
 	 * @param network la red
@@ -104,6 +155,22 @@ public interface ISnapshotStore {
 	 * @return el ID del snapshot, o null si no existe
 	 */
 	Long findLastHarvestingSnapshot(Network network);
+	
+	/**
+	 * Encuentra el ID del último snapshot válido de la red.
+	 * 
+	 * @param networkId el ID de la red
+	 * @return el ID del snapshot, o null si no existe
+	 */
+	Long findLastGoodKnownSnapshot(Long networkId);
+	
+	/**
+	 * Encuentra el ID del último snapshot en proceso de harvesting.
+	 * 
+	 * @param networkId el ID de la red
+	 * @return el ID del snapshot, o null si no existe
+	 */
+	Long findLastHarvestingSnapshot(Long networkId);
 	
 	/**
 	 * Obtiene el ID del snapshot anterior (para tracking incremental).

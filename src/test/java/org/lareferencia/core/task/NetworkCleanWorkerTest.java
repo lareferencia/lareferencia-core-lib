@@ -161,8 +161,8 @@ class NetworkCleanWorkerTest {
         
         List<Long> snapshotIds = List.of(1L, 2L);
         when(snapshotStore.listSnapshotsIds(anyLong(), eq(false))).thenReturn(snapshotIds);
-        when(snapshotStore.findLastGoodKnownSnapshot(any())).thenReturn(999L);
-        when(snapshotStore.findLastHarvestingSnapshot(any())).thenReturn(888L);
+        when(snapshotStore.findLastGoodKnownSnapshot(any(Network.class))).thenReturn(999L);
+        when(snapshotStore.findLastHarvestingSnapshot(any(Network.class))).thenReturn(888L);
         
         worker.run();
         

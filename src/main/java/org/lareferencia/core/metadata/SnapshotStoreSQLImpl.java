@@ -180,22 +180,64 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	}
 
 	@Override
+	public List<ISnapshotStore.SnapshotSummary> listSnapshotsSummary(Long networkId, boolean includeDeleted) {
+		List<Long> ids = listSnapshotsIds(networkId, includeDeleted);
+		Long lgkId = findLastGoodKnownSnapshot(networkId);
+		
+		List<ISnapshotStore.SnapshotSummary> summaries = new java.util.ArrayList<>();
+		for (Long id : ids) {
+			try {
+				NetworkSnapshot snapshot = getSnapshot(id);
+				summaries.add(new ISnapshotStore.SnapshotSummary(
+					snapshot.getId(),
+					snapshot.getStatus() != null ? snapshot.getStatus().name() : "UNKNOWN",
+					snapshot.getIndexStatus() != null ? snapshot.getIndexStatus().name() : "UNKNOWN",
+					snapshot.getStartTime(),
+					snapshot.getEndTime(),
+					snapshot.getSize(),
+					snapshot.getValidSize(),
+					snapshot.getTransformedSize(),
+					snapshot.isDeleted(),
+					id.equals(lgkId)
+				));
+			} catch (SnapshotStoreException e) {
+				logger.warn("Could not load snapshot {}: {}", id, e.getMessage());
+			}
+		}
+		return summaries;
+	}
+
+	@Override
 	public Long findLastGoodKnownSnapshot(Network network) {
-		if (network == null || network.getId() == null) {
+		if (network == null) {
 			return null;
 		}
-
-		NetworkSnapshot snapshot = snapshotRepository.findLastGoodKnowByNetworkID(network.getId());
-		return snapshot != null ? snapshot.getId() : null;
+		return findLastGoodKnownSnapshot(network.getId());
 	}
 
 	@Override
 	public Long findLastHarvestingSnapshot(Network network) {
-		if (network == null || network.getId() == null) {
+		if (network == null) {
 			return null;
 		}
+		return findLastHarvestingSnapshot(network.getId());
+	}
 
-		NetworkSnapshot snapshot = snapshotRepository.findLastHarvestedByNetworkID(network.getId());
+	@Override
+	public Long findLastGoodKnownSnapshot(Long networkId) {
+		if (networkId == null) {
+			return null;
+		}
+		NetworkSnapshot snapshot = snapshotRepository.findLastGoodKnowByNetworkID(networkId);
+		return snapshot != null ? snapshot.getId() : null;
+	}
+
+	@Override
+	public Long findLastHarvestingSnapshot(Long networkId) {
+		if (networkId == null) {
+			return null;
+		}
+		NetworkSnapshot snapshot = snapshotRepository.findLastHarvestedByNetworkID(networkId);
 		return snapshot != null ? snapshot.getId() : null;
 	}
 
