@@ -18,21 +18,44 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.flowable.config;
+package org.lareferencia.core.flowable.dto;
 
+import lombok.Builder;
 import lombok.Data;
 
+import java.time.LocalDateTime;
+import java.util.Map;
+
 /**
- * Configuration for a workflow lane.
+ * Information about a scheduled process.
  * 
  * @author LA Referencia Team
  */
 @Data
-public class LaneConfig {
+@Builder
+public class ScheduledProcessInfo {
 
-    /** Human-readable name of the lane */
-    private String name;
+    /** Unique identifier for this schedule */
+    private String scheduleId;
 
-    /** Maximum number of processes that can be queued for this lane */
-    private int maxQueued = 10;
+    /** Process definition key to execute */
+    private String processKey;
+
+    /** Cron expression for scheduling */
+    private String cronExpression;
+
+    /** Lane ID for queuing */
+    private String laneId;
+
+    /** Variables to pass to the process */
+    private Map<String, Object> variables;
+
+    /** Whether this schedule is currently enabled */
+    private boolean enabled;
+
+    /** When this schedule was created */
+    private LocalDateTime createdAt;
+
+    /** Next scheduled execution time */
+    private LocalDateTime nextExecutionTime;
 }

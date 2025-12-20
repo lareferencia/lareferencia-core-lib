@@ -20,23 +20,26 @@
 
 package org.lareferencia.core.flowable.config;
 
-import lombok.Data;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 /**
- * Configuration for a workflow process type.
+ * Configuration for workflow task scheduling.
  * 
  * @author LA Referencia Team
  */
-@Data
-public class ProcessConfig {
+@Configuration
+public class SchedulerConfig {
 
-    /**
-     * Lane assignment for this process type.
-     * <ul>
-     * <li>null or -1: Network queue (one process per network)</li>
-     * <li>0: Global serial lane (processes run one at a time globally)</li>
-     * <li>>0: Specific serial lane (processes in same lane run serially)</li>
-     * </ul>
-     */
-    private Long lane;
+    @Bean
+    public TaskScheduler workflowTaskScheduler(WorkflowProperties props) {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(props.getSchedulerPoolSize());
+        scheduler.setThreadNamePrefix("workflow-scheduler-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(false);
+        scheduler.initialize();
+        return scheduler;
+    }
 }

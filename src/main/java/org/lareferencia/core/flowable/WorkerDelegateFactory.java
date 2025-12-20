@@ -31,7 +31,8 @@ import org.springframework.stereotype.Component;
  *
  * Usage in BPMN:
  * <serviceTask id="task"
- *          flowable:delegateExpression="${workerDelegateFactory.create('workerBeanName')}"/>
+ * flowable:delegateExpression=
+ * "${workerDelegateFactory.create('workerBeanName')}"/>
  *
  * Each call to {@link #create(String)} produces a new delegate instance,
  * ensuring thread-safety across concurrent process executions.

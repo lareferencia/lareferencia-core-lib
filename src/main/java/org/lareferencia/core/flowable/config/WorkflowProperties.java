@@ -24,9 +24,6 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
-import java.util.Map;
-
 /**
  * Configuration properties for workflow management.
  * <p>
@@ -36,15 +33,8 @@ import java.util.Map;
  * <pre>
  * workflow:
  *   max-queued-processes: 32
- *   processes:
- *     networkProcessing:
- *       lane: null
- *     frontendIndexing:
- *       lane: 0
- *   lanes:
- *     0:
- *       name: "Global"
- *       max-queued: 10
+ *   max-queued-per-lane: 10
+ *   scheduler-pool-size: 5
  * </pre>
  * 
  * @author LA Referencia Team
@@ -57,31 +47,9 @@ public class WorkflowProperties {
     /** Maximum number of processes that can be queued globally */
     private int maxQueuedProcesses = 32;
 
-    /** Configuration for each process type, keyed by process key */
-    private Map<String, ProcessConfig> processes = new HashMap<>();
+    /** Maximum number of processes that can be queued per lane */
+    private int maxQueuedPerLane = 10;
 
-    /** Configuration for each lane, keyed by lane ID */
-    private Map<Long, LaneConfig> lanes = new HashMap<>();
-
-    /**
-     * Gets the lane ID for a process type.
-     * 
-     * @param processKey the process key
-     * @return the lane ID, or null for network queue
-     */
-    public Long getLaneForProcess(String processKey) {
-        ProcessConfig config = processes.get(processKey);
-        return config != null ? config.getLane() : null;
-    }
-
-    /**
-     * Gets the max queued count for a lane.
-     * 
-     * @param laneId the lane ID
-     * @return the max queued count, or 10 as default
-     */
-    public int getMaxQueuedForLane(Long laneId) {
-        LaneConfig config = lanes.get(laneId);
-        return config != null ? config.getMaxQueued() : 10;
-    }
+    /** Thread pool size for scheduled tasks */
+    private int schedulerPoolSize = 5;
 }

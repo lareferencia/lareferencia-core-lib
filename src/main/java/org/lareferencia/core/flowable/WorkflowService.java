@@ -35,9 +35,13 @@ import org.flowable.engine.runtime.ProcessInstance;
 import org.lareferencia.core.flowable.config.WorkflowProperties;
 import org.lareferencia.core.flowable.dto.ProcessDefinitionInfo;
 import org.lareferencia.core.flowable.dto.ProcessInstanceInfo;
+import org.lareferencia.core.flowable.dto.ScheduledProcessInfo;
 import org.lareferencia.core.flowable.exception.QueueFullException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -48,6 +52,7 @@ import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -55,12 +60,9 @@ import java.util.stream.Collectors;
  * Service for managing Flowable BPMN process instances with concurrency
  * control.
  * <p>
- * Provides lane-based queuing:
- * <ul>
- * <li>Network queue (lane null/-1): One process per network</li>
- * <li>Global serial lane (lane 0): Processes run one at a time globally</li>
- * <li>Serial lanes (lane > 0): Processes in same lane run serially</li>
- * </ul>
+ * Provides lane-based queuing where processes with the same laneId run
+ * serially,
+ * while processes in different lanes can run in parallel.
  * </p>
  * 
  * @author LA Referencia Team
@@ -87,17 +89,11 @@ public class WorkflowService {
 
     // ========== Concurrency Control State ==========
 
-    /** Tracks running process by network: networkId -> processInstanceId */
-    private final Map<Long, String> runningByNetwork = new ConcurrentHashMap<>();
-
-    /** Queued processes by network */
-    private final Map<Long, Queue<PendingProcess>> queuedByNetwork = new ConcurrentHashMap<>();
-
     /** Tracks running process by lane: laneId -> processInstanceId */
-    private final Map<Long, String> runningByLane = new ConcurrentHashMap<>();
+    private final Map<String, String> runningByLane = new ConcurrentHashMap<>();
 
     /** Queued processes by lane */
-    private final Map<Long, Queue<PendingProcess>> queuedByLane = new ConcurrentHashMap<>();
+    private final Map<String, Queue<PendingProcess>> queuedByLane = new ConcurrentHashMap<>();
 
     /** Track process states for cleanup */
     private final Map<String, ProcessState> processStates = new ConcurrentHashMap<>();
@@ -108,12 +104,19 @@ public class WorkflowService {
     /** Callbacks for worker status - queried to get current worker status */
     private final Map<String, Supplier<String>> statusCallbacks = new ConcurrentHashMap<>();
 
+    // ========== Scheduling State ==========
+
+    @Autowired
+    @Qualifier("workflowTaskScheduler")
+    private TaskScheduler taskScheduler;
+
+    /** Active scheduled tasks: scheduleId -> ScheduledTask */
+    private final Map<String, ScheduledTask> scheduledTasks = new ConcurrentHashMap<>();
+
     // ========== Initialization ==========
 
     /**
      * Cleanup interrupted processes and pending jobs on startup.
-     * This prevents automatic recovery of processes that were running when the
-     * system crashed.
      */
     @PostConstruct
     public void cleanupOnStartup() {
@@ -177,20 +180,26 @@ public class WorkflowService {
 
         } catch (Exception e) {
             logger.error("Error during startup cleanup: {}", e.getMessage(), e);
-            // Don't throw - allow service to start even if cleanup fails
         }
     }
 
     /**
      * Graceful shutdown - terminate all running processes and clear queues.
-     * This ensures the application can exit cleanly without waiting for Flowable.
      */
     @PreDestroy
     public void shutdown() {
         logger.info("WorkflowService shutting down - terminating all running processes");
 
+        // Cancel all scheduled tasks
+        for (ScheduledTask task : scheduledTasks.values()) {
+            if (task.future != null) {
+                task.future.cancel(false);
+            }
+        }
+        scheduledTasks.clear();
+        logger.info("Cancelled all scheduled tasks");
+
         // Clear all queues first to prevent new processes from starting
-        queuedByNetwork.clear();
         queuedByLane.clear();
 
         // Call termination callbacks for all running processes
@@ -204,6 +213,20 @@ public class WorkflowService {
                 logger.warn("Error calling termination callback for {}: {}", entry.getKey(), e.getMessage());
             }
         }
+
+        // Wait for workers to finish processing after receiving stop signal
+        if (terminatedCount > 0) {
+            logger.info("Waiting for {} workers to finish gracefully...", terminatedCount);
+            try {
+                // Give workers time to finish their current batch and close resources
+                Thread.sleep(5000); // 5 seconds should be enough for most cases
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while waiting for workers to finish");
+                Thread.currentThread().interrupt();
+            }
+            logger.info("Wait complete - proceeding with shutdown");
+        }
+
         terminationCallbacks.clear();
         statusCallbacks.clear();
 
@@ -223,7 +246,6 @@ public class WorkflowService {
         }
 
         // Clear internal tracking state
-        runningByNetwork.clear();
         runningByLane.clear();
         processStates.clear();
 
@@ -233,67 +255,36 @@ public class WorkflowService {
     // ========== Submit Process (with queuing) ==========
 
     /**
-     * Submits a process for execution. If the network or lane is busy,
-     * the process is queued.
+     * Submits a process for execution. If the lane is busy, the process is queued.
      * 
      * @param processKey the process definition key
-     * @param variables  the process variables (must include networkId)
+     * @param variables  the process variables (must include laneId)
      * @return info about the started or queued process
-     * @throws QueueFullException if the queue is at maximum capacity
+     * @throws IllegalArgumentException if laneId is missing
+     * @throws QueueFullException       if the queue is at maximum capacity
      */
     public synchronized ProcessInstanceInfo submitProcess(String processKey, Map<String, Object> variables) {
-        Long networkId = (Long) variables.get("networkId");
-        Long laneId = config.getLaneForProcess(processKey);
+        String laneId = (String) variables.get("laneId");
 
-        logger.info("Submitting process '{}' for network {} with lane {}", processKey, networkId, laneId);
-
-        if (laneId == null || laneId < 0) {
-            // Network queue: one process per network
-            return submitToNetworkQueue(processKey, variables, networkId);
-        } else {
-            // Serial lane (0 = global, >0 = specific)
-            return submitToLane(processKey, variables, networkId, laneId);
+        if (laneId == null || laneId.isBlank()) {
+            throw new IllegalArgumentException("'laneId' is required in process variables");
         }
-    }
 
-    private ProcessInstanceInfo submitToNetworkQueue(String processKey, Map<String, Object> variables, Long networkId) {
-        if (!isNetworkBusy(networkId)) {
-            return launchProcess(processKey, variables, networkId, null);
+        logger.info("Submitting process '{}' for lane '{}'", processKey, laneId);
+
+        if (isLaneAvailable(laneId)) {
+            return launchProcess(processKey, variables, laneId);
         } else {
-            // Queue for network
+            // Check queue limits
             if (getTotalQueuedCount() >= config.getMaxQueuedProcesses()) {
                 throw new QueueFullException("Max queued processes reached: " + config.getMaxQueuedProcesses());
             }
-
-            enqueueForNetwork(processKey, variables, networkId);
-            logger.info("Process '{}' queued for network {}", processKey, networkId);
-
-            return ProcessInstanceInfo.builder()
-                    .processDefinitionKey(processKey)
-                    .variables(variables)
-                    .completed(false)
-                    .suspended(false)
-                    .build();
-        }
-    }
-
-    private ProcessInstanceInfo submitToLane(String processKey, Map<String, Object> variables,
-            Long networkId, Long laneId) {
-        // Check both: network not busy AND lane available
-        boolean canLaunch = !isNetworkBusy(networkId) && isLaneAvailable(laneId);
-
-        if (canLaunch) {
-            return launchProcess(processKey, variables, networkId, laneId);
-        } else {
-            // Queue for lane
-            int maxQueuedForLane = config.getMaxQueuedForLane(laneId);
-            if (getQueuedCountForLane(laneId) >= maxQueuedForLane) {
-                throw new QueueFullException(
-                        "Max queued processes for lane " + laneId + " reached: " + maxQueuedForLane);
+            if (getQueuedCountForLane(laneId) >= config.getMaxQueuedPerLane()) {
+                throw new QueueFullException("Max queued for lane '" + laneId + "': " + config.getMaxQueuedPerLane());
             }
 
-            enqueueForLane(processKey, variables, networkId, laneId);
-            logger.info("Process '{}' queued for lane {}", processKey, laneId);
+            enqueueForLane(processKey, variables, laneId);
+            logger.info("Process '{}' queued for lane '{}'", processKey, laneId);
 
             return ProcessInstanceInfo.builder()
                     .processDefinitionKey(processKey)
@@ -304,23 +295,16 @@ public class WorkflowService {
         }
     }
 
-    private ProcessInstanceInfo launchProcess(String processKey, Map<String, Object> variables,
-            Long networkId, Long laneId) {
-        logger.info("Launching process '{}' for network {} in lane {}", processKey, networkId, laneId);
+    private ProcessInstanceInfo launchProcess(String processKey, Map<String, Object> variables, String laneId) {
+        logger.info("Launching process '{}' in lane '{}'", processKey, laneId);
 
         ProcessInstance instance = runtimeService.startProcessInstanceByKey(processKey, variables);
 
         // Track state
-        if (networkId != null) {
-            runningByNetwork.put(networkId, instance.getId());
-        }
-        if (laneId != null && laneId >= 0) {
-            runningByLane.put(laneId, instance.getId());
-        }
+        runningByLane.put(laneId, instance.getId());
 
         processStates.put(instance.getId(), ProcessState.builder()
                 .processInstanceId(instance.getId())
-                .networkId(networkId)
                 .laneId(laneId)
                 .build());
 
@@ -331,24 +315,11 @@ public class WorkflowService {
 
     // ========== Queue Management ==========
 
-    private void enqueueForNetwork(String processKey, Map<String, Object> variables, Long networkId) {
-        queuedByNetwork.computeIfAbsent(networkId, k -> new ConcurrentLinkedQueue<>())
-                .add(PendingProcess.builder()
-                        .processKey(processKey)
-                        .variables(new HashMap<>(variables))
-                        .networkId(networkId)
-                        .laneId(null)
-                        .queuedAt(LocalDateTime.now())
-                        .build());
-    }
-
-    private void enqueueForLane(String processKey, Map<String, Object> variables,
-            Long networkId, Long laneId) {
+    private void enqueueForLane(String processKey, Map<String, Object> variables, String laneId) {
         queuedByLane.computeIfAbsent(laneId, k -> new ConcurrentLinkedQueue<>())
                 .add(PendingProcess.builder()
                         .processKey(processKey)
                         .variables(new HashMap<>(variables))
-                        .networkId(networkId)
                         .laneId(laneId)
                         .queuedAt(LocalDateTime.now())
                         .build());
@@ -356,25 +327,15 @@ public class WorkflowService {
 
     // ========== Status Checks ==========
 
-    public boolean isNetworkBusy(Long networkId) {
-        if (networkId == null)
-            return false;
-
-        String processId = runningByNetwork.get(networkId);
-        if (processId == null)
-            return false;
-
-        // Verify process is still running
-        return isProcessRunning(processId);
-    }
-
-    public boolean isLaneAvailable(Long laneId) {
-        if (laneId == null || laneId < 0)
+    public boolean isLaneAvailable(String laneId) {
+        if (laneId == null || laneId.isBlank()) {
             return true;
+        }
 
         String processId = runningByLane.get(laneId);
-        if (processId == null)
+        if (processId == null) {
             return true;
+        }
 
         // Verify process is still running
         return !isProcessRunning(processId);
@@ -389,16 +350,13 @@ public class WorkflowService {
 
     public int getTotalQueuedCount() {
         int count = 0;
-        for (Queue<PendingProcess> q : queuedByNetwork.values()) {
-            count += q.size();
-        }
         for (Queue<PendingProcess> q : queuedByLane.values()) {
             count += q.size();
         }
         return count;
     }
 
-    public int getQueuedCountForLane(Long laneId) {
+    public int getQueuedCountForLane(String laneId) {
         Queue<PendingProcess> queue = queuedByLane.get(laneId);
         return queue != null ? queue.size() : 0;
     }
@@ -407,8 +365,8 @@ public class WorkflowService {
         return processStates.size();
     }
 
-    public List<Long> getBusyNetworks() {
-        return runningByNetwork.entrySet().stream()
+    public List<String> getBusyLanes() {
+        return runningByLane.entrySet().stream()
                 .filter(e -> isProcessRunning(e.getValue()))
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toList());
@@ -418,7 +376,6 @@ public class WorkflowService {
 
     /**
      * Called by ProcessCompletionListener when a process completes or is cancelled.
-     * This is the primary mechanism for releasing resources - replaces polling.
      * 
      * @param processInstanceId the completed process instance ID
      */
@@ -431,48 +388,23 @@ public class WorkflowService {
             return;
         }
 
-        // Release network
-        if (state.networkId != null) {
-            runningByNetwork.remove(state.networkId);
-            logger.debug("Released network {} for process {}", state.networkId, processInstanceId);
-
-            // Try to run next queued process for this network
-            runNextForNetwork(state.networkId);
-        }
-
         // Release lane
-        if (state.laneId != null && state.laneId >= 0) {
+        if (state.laneId != null) {
             runningByLane.remove(state.laneId);
-            logger.debug("Released lane {} for process {}", state.laneId, processInstanceId);
+            logger.debug("Released lane '{}' for process {}", state.laneId, processInstanceId);
 
             // Try to run next queued process for this lane
             runNextForLane(state.laneId);
         }
     }
 
-    private void runNextForNetwork(Long networkId) {
-        Queue<PendingProcess> queue = queuedByNetwork.get(networkId);
-        if (queue != null && !queue.isEmpty() && !isNetworkBusy(networkId)) {
-            PendingProcess pending = queue.poll();
-            if (pending != null) {
-                logger.info("Launching next queued process for network {}", networkId);
-                launchProcess(pending.processKey, pending.variables,
-                        pending.networkId, pending.laneId);
-            }
-        }
-    }
-
-    private void runNextForLane(Long laneId) {
+    private void runNextForLane(String laneId) {
         Queue<PendingProcess> queue = queuedByLane.get(laneId);
         if (queue != null && !queue.isEmpty() && isLaneAvailable(laneId)) {
             PendingProcess pending = queue.poll();
-            if (pending != null && !isNetworkBusy(pending.networkId)) {
-                logger.info("Launching next queued process for lane {}", laneId);
-                launchProcess(pending.processKey, pending.variables,
-                        pending.networkId, pending.laneId);
-            } else if (pending != null) {
-                // Put back if network is busy
-                queue.add(pending);
+            if (pending != null) {
+                logger.info("Launching next queued process for lane '{}'", laneId);
+                launchProcess(pending.processKey, pending.variables, pending.laneId);
             }
         }
     }
@@ -481,13 +413,11 @@ public class WorkflowService {
 
     /**
      * Fallback periodic cleanup for edge cases where events might be missed.
-     * The primary mechanism is event-driven via onProcessCompleted().
      */
-    @Scheduled(fixedRate = 60000) // Every 60 seconds (reduced from 10s)
+    @Scheduled(fixedRate = 60000)
     public synchronized void cleanupOrphanedProcesses() {
         logger.debug("Running fallback cleanup for orphaned processes");
 
-        // Clean finished processes that weren't caught by events
         List<String> toRemove = new ArrayList<>();
         for (ProcessState state : processStates.values()) {
             if (!isProcessRunning(state.processInstanceId)) {
@@ -496,13 +426,12 @@ public class WorkflowService {
             }
         }
 
-        // Process any orphaned completions
         for (String processInstanceId : toRemove) {
             onProcessCompleted(processInstanceId);
         }
     }
 
-    // ========== Original Methods ==========
+    // ========== Direct Process Methods ==========
 
     /**
      * Starts a process directly without queuing (use submitProcess for queuing).
@@ -559,10 +488,6 @@ public class WorkflowService {
     public void terminateProcess(String processInstanceId, String reason) {
         logger.info("Terminating process {} with reason: {}", processInstanceId, reason);
 
-        // Notify the worker to stop via callback
-        // The worker will detect the stop signal and terminate gracefully,
-        // which allows the process to complete normally without needing
-        // deleteProcessInstance
         Runnable callback = terminationCallbacks.get(processInstanceId);
         if (callback != null) {
             logger.info("Calling termination callback for process {}", processInstanceId);
@@ -577,58 +502,26 @@ public class WorkflowService {
         }
     }
 
-    /**
-     * Subscribe to termination events for a process.
-     * The callback will be called when terminateProcess() is invoked.
-     * 
-     * @param processInstanceId the process instance ID
-     * @param onTerminate       callback to run on termination (typically
-     *                          worker.stop())
-     */
     public void subscribeToTermination(String processInstanceId, Runnable onTerminate) {
         terminationCallbacks.put(processInstanceId, onTerminate);
         logger.debug("Registered termination callback for process {}", processInstanceId);
     }
 
-    /**
-     * Unsubscribe from termination events for a process.
-     * Call this when process/worker completes normally.
-     * 
-     * @param processInstanceId the process instance ID
-     */
     public void unsubscribeFromTermination(String processInstanceId) {
         terminationCallbacks.remove(processInstanceId);
         logger.debug("Unregistered termination callback for process {}", processInstanceId);
     }
 
-    /**
-     * Subscribe to status updates for a process.
-     * The supplier will be called when getWorkerStatus() is invoked.
-     * 
-     * @param processInstanceId the process instance ID
-     * @param statusSupplier    supplier that returns the current worker status
-     */
     public void subscribeToStatus(String processInstanceId, Supplier<String> statusSupplier) {
         statusCallbacks.put(processInstanceId, statusSupplier);
         logger.debug("Registered status callback for process {}", processInstanceId);
     }
 
-    /**
-     * Unsubscribe from status updates for a process.
-     * 
-     * @param processInstanceId the process instance ID
-     */
     public void unsubscribeFromStatus(String processInstanceId) {
         statusCallbacks.remove(processInstanceId);
         logger.debug("Unregistered status callback for process {}", processInstanceId);
     }
 
-    /**
-     * Gets the current status of a running worker.
-     * 
-     * @param processInstanceId the process instance ID
-     * @return the worker status, or null if not found
-     */
     public String getWorkerStatus(String processInstanceId) {
         Supplier<String> supplier = statusCallbacks.get(processInstanceId);
         if (supplier != null) {
@@ -658,8 +551,7 @@ public class WorkflowService {
     private static class PendingProcess {
         private String processKey;
         private Map<String, Object> variables;
-        private Long networkId;
-        private Long laneId;
+        private String laneId;
         private LocalDateTime queuedAt;
     }
 
@@ -667,8 +559,202 @@ public class WorkflowService {
     @Builder
     private static class ProcessState {
         private String processInstanceId;
-        private Long networkId;
-        private Long laneId;
+        private String laneId;
+    }
+
+    @Data
+    @Builder
+    private static class ScheduledTask {
+        private String scheduleId;
+        private String processKey;
+        private String cronExpression;
+        private String laneId;
+        private Map<String, Object> variables;
+        private boolean enabled;
+        private LocalDateTime createdAt;
+        private ScheduledFuture<?> future;
+    }
+
+    // ========== Scheduling Methods ==========
+
+    /**
+     * Schedule a process to run according to a cron expression.
+     * 
+     * @param scheduleId     unique identifier for this schedule
+     * @param processKey     the process definition key to execute
+     * @param cronExpression cron expression (e.g., "0 0 2 * * ?")
+     * @param laneId         lane ID for queuing when triggered
+     * @param variables      variables to pass to the process
+     * @return info about the created schedule
+     * @throws IllegalArgumentException if scheduleId already exists or cron is
+     *                                  invalid
+     */
+    public ScheduledProcessInfo scheduleProcess(String scheduleId, String processKey,
+            String cronExpression, String laneId, Map<String, Object> variables) {
+
+        if (scheduledTasks.containsKey(scheduleId)) {
+            throw new IllegalArgumentException("Schedule already exists: " + scheduleId);
+        }
+
+        // Ensure laneId is in variables
+        Map<String, Object> varsWithLane = new HashMap<>(variables);
+        varsWithLane.put("laneId", laneId);
+
+        CronTrigger trigger = new CronTrigger(cronExpression);
+
+        ScheduledFuture<?> future = taskScheduler.schedule(
+                () -> {
+                    try {
+                        logger.info("Scheduled trigger fired for schedule '{}'", scheduleId);
+                        submitProcess(processKey, new HashMap<>(varsWithLane));
+                    } catch (Exception e) {
+                        logger.error("Error executing scheduled process '{}': {}", scheduleId, e.getMessage(), e);
+                    }
+                },
+                trigger);
+
+        ScheduledTask task = ScheduledTask.builder()
+                .scheduleId(scheduleId)
+                .processKey(processKey)
+                .cronExpression(cronExpression)
+                .laneId(laneId)
+                .variables(varsWithLane)
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .future(future)
+                .build();
+
+        scheduledTasks.put(scheduleId, task);
+
+        logger.info("Created schedule '{}' for process '{}' with cron '{}'", scheduleId, processKey, cronExpression);
+
+        return buildScheduledProcessInfo(task);
+    }
+
+    /**
+     * Cancel and remove a scheduled process.
+     * 
+     * @param scheduleId the schedule to cancel
+     * @throws IllegalArgumentException if schedule not found
+     */
+    public void cancelSchedule(String scheduleId) {
+        ScheduledTask task = scheduledTasks.remove(scheduleId);
+        if (task == null) {
+            throw new IllegalArgumentException("Schedule not found: " + scheduleId);
+        }
+
+        if (task.future != null) {
+            task.future.cancel(false);
+        }
+
+        logger.info("Cancelled schedule '{}'", scheduleId);
+    }
+
+    /**
+     * Enable or disable a scheduled process.
+     * 
+     * @param scheduleId the schedule to update
+     * @param enabled    true to enable, false to disable
+     * @throws IllegalArgumentException if schedule not found
+     */
+    public void setScheduleEnabled(String scheduleId, boolean enabled) {
+        ScheduledTask task = scheduledTasks.get(scheduleId);
+        if (task == null) {
+            throw new IllegalArgumentException("Schedule not found: " + scheduleId);
+        }
+
+        if (task.enabled == enabled) {
+            return; // No change needed
+        }
+
+        if (enabled) {
+            // Re-enable: create new future
+            CronTrigger trigger = new CronTrigger(task.cronExpression);
+            ScheduledFuture<?> future = taskScheduler.schedule(
+                    () -> {
+                        try {
+                            logger.info("Scheduled trigger fired for schedule '{}'", scheduleId);
+                            submitProcess(task.processKey, new HashMap<>(task.variables));
+                        } catch (Exception e) {
+                            logger.error("Error executing scheduled process '{}': {}", scheduleId, e.getMessage(), e);
+                        }
+                    },
+                    trigger);
+            task.setFuture(future);
+        } else {
+            // Disable: cancel future
+            if (task.future != null) {
+                task.future.cancel(false);
+                task.setFuture(null);
+            }
+        }
+
+        task.setEnabled(enabled);
+        logger.info("Schedule '{}' {}", scheduleId, enabled ? "enabled" : "disabled");
+    }
+
+    /**
+     * List all scheduled processes.
+     * 
+     * @return list of all schedules
+     */
+    public List<ScheduledProcessInfo> listSchedules() {
+        return scheduledTasks.values().stream()
+                .map(this::buildScheduledProcessInfo)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Get information about a specific schedule.
+     * 
+     * @param scheduleId the schedule ID
+     * @return schedule info, or empty if not found
+     */
+    public Optional<ScheduledProcessInfo> getSchedule(String scheduleId) {
+        ScheduledTask task = scheduledTasks.get(scheduleId);
+        return task != null ? Optional.of(buildScheduledProcessInfo(task)) : Optional.empty();
+    }
+
+    /**
+     * Trigger a scheduled process immediately, ignoring its cron schedule.
+     * 
+     * @param scheduleId the schedule to trigger
+     * @return info about the started process
+     * @throws IllegalArgumentException if schedule not found
+     */
+    public ProcessInstanceInfo triggerScheduleNow(String scheduleId) {
+        ScheduledTask task = scheduledTasks.get(scheduleId);
+        if (task == null) {
+            throw new IllegalArgumentException("Schedule not found: " + scheduleId);
+        }
+
+        logger.info("Manually triggering schedule '{}'", scheduleId);
+        return submitProcess(task.processKey, new HashMap<>(task.variables));
+    }
+
+    private ScheduledProcessInfo buildScheduledProcessInfo(ScheduledTask task) {
+        LocalDateTime nextExecution = null;
+        if (task.enabled && task.future != null) {
+            try {
+                long delayMs = task.future.getDelay(java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (delayMs > 0) {
+                    nextExecution = LocalDateTime.now().plusNanos(delayMs * 1_000_000);
+                }
+            } catch (Exception e) {
+                // Future may be cancelled
+            }
+        }
+
+        return ScheduledProcessInfo.builder()
+                .scheduleId(task.scheduleId)
+                .processKey(task.processKey)
+                .cronExpression(task.cronExpression)
+                .laneId(task.laneId)
+                .variables(task.variables)
+                .enabled(task.enabled)
+                .createdAt(task.createdAt)
+                .nextExecutionTime(nextExecution)
+                .build();
     }
 
     // ========== Builder Methods ==========
