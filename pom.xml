@@ -244,6 +244,12 @@
   			<version>3.0.5</version>
 		</dependency>
 
+		<!-- Flowable BPMN Process Engine -->
+		<dependency>
+			<groupId>org.flowable</groupId>
+			<artifactId>flowable-spring-boot-starter-process</artifactId>
+			<version>7.0.0</version>
+		</dependency>
 
 	</dependencies>
 

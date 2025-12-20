@@ -42,6 +42,9 @@ import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.worker.BaseIteratorWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
 
 /**
  * Worker that performs validation and transformation of harvested OAI records
@@ -83,6 +86,8 @@ import org.springframework.beans.factory.annotation.Autowired;
  * @see ValidationService
  * @see BaseParquetOAIRecordWorker
  */
+@Component("validationWorkerFlowable")
+@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
 public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunningContext> {
 
 	private static Logger logger = LogManager.getLogger(ValidationWorker.class);

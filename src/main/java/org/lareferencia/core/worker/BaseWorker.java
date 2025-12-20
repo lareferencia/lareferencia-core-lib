@@ -40,28 +40,27 @@ import lombok.Setter;
  * @see IWorker
  */
 public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C> {
-	
-    private static Logger logger = LogManager.getLogger(BaseWorker.class);
-    
+
+	private static Logger logger = LogManager.getLogger(BaseWorker.class);
+
 	@Getter
 	@Setter
 	ScheduledFuture<?> scheduledFuture;
-	
+
 	/**
 	 * The context containing state and configuration for this worker's execution.
 	 */
 	@Getter
 	@Setter
-	protected
-	C runningContext;
-	
+	protected C runningContext;
+
 	/**
 	 * Identifier for serializing worker execution within a lane.
 	 */
 	@Getter
-	@Setter 
+	@Setter
 	protected Long serialLaneId = -1L;
-	
+
 	/**
 	 * Indicates whether this worker operates in incremental mode.
 	 */
@@ -70,10 +69,10 @@ public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C
 	/**
 	 * Human-readable name for this worker instance.
 	 */
-    @Getter
-    @Setter
+	@Getter
+	@Setter
 	protected String name = "BaseWorker";
-	
+
 	/**
 	 * Creates a worker with default settings.
 	 */
@@ -81,7 +80,7 @@ public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C
 		this.serialLaneId = -1L;
 		this.name = this.getClass().getSimpleName();
 	}
-	
+
 	/**
 	 * Creates a worker with the specified context.
 	 * 
@@ -91,13 +90,13 @@ public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C
 		this.runningContext = context;
 		this.name = this.getClass().getSimpleName();
 	}
-	
+
 	@Override
 	public void stop() {
-		
-		if ( scheduledFuture != null )
+
+		if (scheduledFuture != null)
 			scheduledFuture.cancel(true);
-		logger.info("WORKER: "+ getName() +" :: stopped");
+		logger.info("WORKER: " + getName() + " :: stopped");
 	}
 
 	@Override
@@ -109,9 +108,17 @@ public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C
 	public void setIncremental(boolean incremental) {
 		this.incremental = incremental;
 	}
-	
 
-
-	
+	/**
+	 * Gets a human-readable status of the current execution.
+	 * Default implementation returns "Running". Override in subclasses
+	 * for more specific status (e.g., record counts, percentages).
+	 * 
+	 * @return status string
+	 */
+	@Override
+	public String getStatus() {
+		return "Running";
+	}
 
 }
