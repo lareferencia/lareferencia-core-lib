@@ -39,8 +39,15 @@ public class FlowableEventConfig implements EngineConfigurationConfigurer<Spring
         flowableDataSource = createFlowableDataSource();
         if (flowableDataSource != null) {
             config.setDataSource(flowableDataSource);
-        }
 
+            // IMPORTANT: Create a dedicated transaction manager for this datasource
+            // Otherwise Flowable might use the primary (main DB) transaction manager
+            System.out.println(
+                    "DEBUG: [FlowableEventConfig] Creating dedicated DataSourceTransactionManager for Flowable");
+            org.springframework.jdbc.datasource.DataSourceTransactionManager transactionManager = new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                    flowableDataSource);
+            config.setTransactionManager(transactionManager);
+        }
         // Configure graceful shutdown for async executor (fixes exit hanging)
         config.setAsyncExecutorActivate(true);
         config.setAsyncExecutorNumberOfRetries(0); // Don't retry failed jobs on shutdown
@@ -68,7 +75,11 @@ public class FlowableEventConfig implements EngineConfigurationConfigurer<Spring
         String username = environment.getProperty("flowable.datasource.username");
         String password = environment.getProperty("flowable.datasource.password");
 
+        System.out.println("DEBUG: [FlowableEventConfig] Loaded flowable.datasource.jdbc-url = " + jdbcUrl);
+        System.out.println("DEBUG: [FlowableEventConfig] Loaded flowable.datasource.username = " + username);
+
         if (jdbcUrl == null || jdbcUrl.isEmpty()) {
+            System.out.println("DEBUG: [FlowableEventConfig] JDBC URL is missing, falling back to main DataSource");
             return null; // Fall back to default datasource
         }
 

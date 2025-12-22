@@ -38,6 +38,7 @@ import org.lareferencia.core.domain.Validator;
 import org.lareferencia.core.repository.jpa.NetworkSnapshotRepository;
 import org.lareferencia.core.repository.jpa.OAIRecordRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -73,24 +74,55 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	// Contador de updates para autoflush por snapshot
 	private final Map<Long, Integer> updateCounters = new ConcurrentHashMap<>();
 
+	// Cache concurrente de snapshots activos (en proceso de harvesting/validación)
+	private final ConcurrentHashMap<Long, NetworkSnapshot> snapshotCache = new ConcurrentHashMap<>();
+
 	// ============================================================================
 	// PRIVATE HELPERS
 	// ============================================================================
 
 	/**
-	 * Obtiene un snapshot dado su ID
+	 * Obtiene un snapshot dado su ID.
+	 * Usa cache-first: primero busca en cache, si no está, carga de BD y cachea.
 	 * 
 	 * @param snapshotId ID del snapshot a obtener
 	 * @return NetworkSnapshot con los datos del snapshot
 	 * @throws SnapshotStoreException si el snapshot no existe
 	 */
 	private NetworkSnapshot getSnapshot(Long snapshotId) throws SnapshotStoreException {
+		// Primero intentar desde cache
+		NetworkSnapshot cached = snapshotCache.get(snapshotId);
+		if (cached != null) {
+			return cached;
+		}
+
+		// Si no está en cache, cargar de BD
 		Optional<NetworkSnapshot> optSnapshot = snapshotRepository.findById(snapshotId);
 		if (optSnapshot.isPresent()) {
 			return optSnapshot.get();
 		} else {
 			throw new SnapshotStoreException("Snapshot: " + snapshotId + " not found.");
 		}
+	}
+
+	/**
+	 * Añade un snapshot al cache.
+	 * 
+	 * @param snapshot el snapshot a cachear
+	 */
+	private void cacheSnapshot(NetworkSnapshot snapshot) {
+		snapshotCache.put(snapshot.getId(), snapshot);
+		logger.debug("SNAPSHOT STORE: Cached snapshot {}", snapshot.getId());
+	}
+
+	/**
+	 * Remueve un snapshot del cache.
+	 * 
+	 * @param snapshotId el ID del snapshot a remover
+	 */
+	private void uncacheSnapshot(Long snapshotId) {
+		snapshotCache.remove(snapshotId);
+		logger.debug("SNAPSHOT STORE: Uncached snapshot {}", snapshotId);
 	}
 
 	/**
@@ -123,11 +155,15 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	// ============================================================================
 
 	@Override
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public Long createSnapshot(Network network) {
 		NetworkSnapshot snapshot = new NetworkSnapshot();
 		snapshot.setNetwork(network);
 		snapshot.setStartTime(LocalDateTime.now());
-		snapshotRepository.save(snapshot);
+		snapshotRepository.saveAndFlush(snapshot);
+
+		// Añadir al cache para uso posterior
+		cacheSnapshot(snapshot);
 
 		logger.debug("SNAPSHOT STORE: Created snapshot {} for network {}",
 				snapshot.getId(), network.getId());
@@ -183,23 +219,22 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	public List<ISnapshotStore.SnapshotSummary> listSnapshotsSummary(Long networkId, boolean includeDeleted) {
 		List<Long> ids = listSnapshotsIds(networkId, includeDeleted);
 		Long lgkId = findLastGoodKnownSnapshot(networkId);
-		
+
 		List<ISnapshotStore.SnapshotSummary> summaries = new java.util.ArrayList<>();
 		for (Long id : ids) {
 			try {
 				NetworkSnapshot snapshot = getSnapshot(id);
 				summaries.add(new ISnapshotStore.SnapshotSummary(
-					snapshot.getId(),
-					snapshot.getStatus() != null ? snapshot.getStatus().name() : "UNKNOWN",
-					snapshot.getIndexStatus() != null ? snapshot.getIndexStatus().name() : "UNKNOWN",
-					snapshot.getStartTime(),
-					snapshot.getEndTime(),
-					snapshot.getSize(),
-					snapshot.getValidSize(),
-					snapshot.getTransformedSize(),
-					snapshot.isDeleted(),
-					id.equals(lgkId)
-				));
+						snapshot.getId(),
+						snapshot.getStatus() != null ? snapshot.getStatus().name() : "UNKNOWN",
+						snapshot.getIndexStatus() != null ? snapshot.getIndexStatus().name() : "UNKNOWN",
+						snapshot.getStartTime(),
+						snapshot.getEndTime(),
+						snapshot.getSize(),
+						snapshot.getValidSize(),
+						snapshot.getTransformedSize(),
+						snapshot.isDeleted(),
+						id.equals(lgkId)));
 			} catch (SnapshotStoreException e) {
 				logger.warn("Could not load snapshot {}: {}", id, e.getMessage());
 			}
@@ -440,6 +475,20 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	}
 
 	@Override
+	public void incrementSnapshotSizeBy(Long snapshotId, int count) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setSize(snapshot.getSize() + count);
+			// Solo modifica en cache, la persistencia se hace en updateHarvesting
+			logger.debug("SNAPSHOT STORE: Incremented size by {} for snapshot {} (total: {})",
+					count, snapshotId, snapshot.getSize());
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error incrementing size by {} for snapshot {}: {}",
+					count, snapshotId, e.getMessage());
+		}
+	}
+
+	@Override
 	public void incrementValidSize(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
@@ -529,12 +578,12 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	// ============================================================================
 
 	@Override
-	@Transactional
 	public void startHarvesting(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.HARVESTING);
 			snapshot.setStartTime(LocalDateTime.now());
+			snapshotRepository.saveAndFlush(snapshot);
 			logger.info("SNAPSHOT STORE: Started harvesting for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error starting harvesting for snapshot {}: {}",
@@ -543,13 +592,13 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	}
 
 	@Override
-	@Transactional
 	public void updateHarvesting(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.HARVESTING);
 			snapshot.setEndTime(LocalDateTime.now());
-			logger.debug("SNAPSHOT STORE: Updated harvesting status for snapshot " + snapshot.getId());
+			snapshotRepository.saveAndFlush(snapshot);
+			logger.debug("SNAPSHOT STORE: Updated harvesting status for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error updating harvesting for snapshot {}: {}",
 					snapshotId, e.getMessage());
@@ -557,15 +606,15 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	}
 
 	@Override
-	@Transactional
 	public void finishHarvesting(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
 			snapshot.setEndTime(LocalDateTime.now());
+			snapshotRepository.saveAndFlush(snapshot);
 			logger.info("SNAPSHOT STORE: Finished harvesting for snapshot {}", snapshotId);
-			// JPA dirty checking persiste automáticamente al final de la transacción
 			clearUpdateCounter(snapshotId);
+			uncacheSnapshot(snapshotId);
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error finishing harvesting for snapshot {}: {}",
 					snapshotId, e.getMessage());
@@ -616,15 +665,15 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	}
 
 	@Override
-	@Transactional
 	public void markAsFailed(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_ERROR); // Usa error de harvesting
+			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_ERROR);
 			snapshot.setEndTime(LocalDateTime.now());
+			snapshotRepository.saveAndFlush(snapshot);
 			logger.info("SNAPSHOT STORE: Marked snapshot {} as failed", snapshotId);
-			// JPA dirty checking persiste automáticamente al final de la transacción
 			clearUpdateCounter(snapshotId);
+			uncacheSnapshot(snapshotId);
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error marking snapshot {} as failed: {}",
 					snapshotId, e.getMessage());

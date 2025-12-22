@@ -116,70 +116,75 @@ public class WorkflowService {
     // ========== Initialization ==========
 
     /**
-     * Cleanup interrupted processes and pending jobs on startup.
+     * Recover running processes state from Flowable on startup.
+     * Reconstructs internal tracking maps from persisted process instances.
      */
     @PostConstruct
-    public void cleanupOnStartup() {
-        logger.info("WorkflowService initializing - cleaning up interrupted processes and pending jobs");
+    public void recoverOnStartup() {
+        logger.info("WorkflowService initializing - recovering running processes from Flowable");
 
         try {
-            // Delete all pending async jobs to prevent recovery
-            long deletedJobs = managementService.createJobQuery()
-                    .list()
-                    .stream()
-                    .peek(job -> {
-                        logger.info("Deleting pending job: {} (process: {}, retries: {})",
-                                job.getId(), job.getProcessInstanceId(), job.getRetries());
-                        managementService.deleteJob(job.getId());
-                    })
-                    .count();
-
-            logger.info("Deleted {} pending async jobs", deletedJobs);
-
-            // Delete all timer jobs
-            long deletedTimers = managementService.createTimerJobQuery()
-                    .list()
-                    .stream()
-                    .peek(timer -> {
-                        logger.info("Deleting pending timer: {} (process: {})",
-                                timer.getId(), timer.getProcessInstanceId());
-                        managementService.deleteTimerJob(timer.getId());
-                    })
-                    .count();
-
-            logger.info("Deleted {} pending timer jobs", deletedTimers);
-
-            // Delete all deadletter jobs (failed jobs)
+            // Clean up dead letter jobs (failed jobs from previous run)
             long deletedDeadLetters = managementService.createDeadLetterJobQuery()
                     .list()
                     .stream()
                     .peek(deadLetter -> {
-                        logger.info("Deleting dead letter job: {} (process: {})",
+                        logger.warn("Removing dead letter job from previous run: {} (process: {})",
                                 deadLetter.getId(), deadLetter.getProcessInstanceId());
                         managementService.deleteDeadLetterJob(deadLetter.getId());
                     })
                     .count();
 
-            logger.info("Deleted {} dead letter jobs", deletedDeadLetters);
+            if (deletedDeadLetters > 0) {
+                logger.info("Cleaned up {} dead letter jobs", deletedDeadLetters);
+            }
 
-            // Delete all active process instances (interrupted processes)
-            long deletedProcesses = runtimeService.createProcessInstanceQuery()
-                    .list()
-                    .stream()
-                    .peek(process -> {
-                        logger.info("Deleting interrupted process: {} (definition: {})",
-                                process.getId(), process.getProcessDefinitionKey());
-                        runtimeService.deleteProcessInstance(process.getId(),
-                                "Cleanup on startup - process was interrupted by system shutdown");
-                    })
-                    .count();
+            // Recover all active process instances
+            List<ProcessInstance> activeProcesses = runtimeService.createProcessInstanceQuery()
+                    .active()
+                    .list();
 
-            logger.info("Deleted {} interrupted process instances", deletedProcesses);
+            int recoveredCount = 0;
+            for (ProcessInstance process : activeProcesses) {
+                try {
+                    Map<String, Object> vars = runtimeService.getVariables(process.getId());
+                    String laneId = (String) vars.get("laneId");
 
-            logger.info("Startup cleanup completed - system ready for new processes");
+                    if (laneId != null && !laneId.isBlank()) {
+                        // Reconstruct runningByLane
+                        runningByLane.put(laneId, process.getId());
+
+                        // Reconstruct processStates
+                        processStates.put(process.getId(), ProcessState.builder()
+                                .processInstanceId(process.getId())
+                                .laneId(laneId)
+                                .build());
+
+                        recoveredCount++;
+                        logger.info("Recovered running process: {} (definition: {}, lane: '{}')",
+                                process.getId(), process.getProcessDefinitionKey(), laneId);
+                    } else {
+                        logger.warn("Process {} has no laneId, skipping recovery tracking",
+                                process.getId());
+                    }
+                } catch (Exception e) {
+                    logger.error("Error recovering process {}: {}", process.getId(), e.getMessage());
+                }
+            }
+
+            // Log pending jobs that will be re-executed
+            long pendingJobs = managementService.createJobQuery().count();
+            long pendingTimers = managementService.createTimerJobQuery().count();
+
+            logger.info("Startup recovery completed - {} processes recovered, {} pending jobs, {} pending timers",
+                    recoveredCount, pendingJobs, pendingTimers);
+
+            if (pendingJobs > 0) {
+                logger.info("Flowable will automatically retry pending async jobs");
+            }
 
         } catch (Exception e) {
-            logger.error("Error during startup cleanup: {}", e.getMessage(), e);
+            logger.error("Error during startup recovery: {}", e.getMessage(), e);
         }
     }
 

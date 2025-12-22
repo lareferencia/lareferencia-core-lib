@@ -42,15 +42,16 @@ import org.lareferencia.core.domain.Validator;
  * - Metadata de snapshots (tamaños, contadores, etc.)
  * 
  * IMPLEMENTACIONES:
- * - SnapshotStoreSQLImpl: Implementación SQL actual (migrada desde MetadataRecordStoreServiceImpl)
+ * - SnapshotStoreSQLImpl: Implementación SQL actual (migrada desde
+ * MetadataRecordStoreServiceImpl)
  * - Futura: SnapshotStoreParquetImpl si se necesita
  */
 public interface ISnapshotStore {
-	
+
 	// ============================================================================
 	// SNAPSHOT LIFECYCLE
 	// ============================================================================
-	
+
 	/**
 	 * Crea un nuevo snapshot para la red especificada.
 	 * 
@@ -58,7 +59,7 @@ public interface ISnapshotStore {
 	 * @return el ID del snapshot creado
 	 */
 	Long createSnapshot(Network network);
-	
+
 	/**
 	 * Elimina completamente un snapshot y sus datos asociados.
 	 * Incluye: logs, records (delegado a RecordStore), y metadata del snapshot.
@@ -66,7 +67,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot a eliminar
 	 */
 	void deleteSnapshot(Long snapshotId);
-	
+
 	/**
 	 * Limpia los datos del snapshot pero mantiene su registro.
 	 * Para snapshots válidos: los marca como deleted
@@ -75,20 +76,20 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot a limpiar
 	 */
 	void cleanSnapshotData(Long snapshotId);
-	
+
 	// ============================================================================
 	// SNAPSHOT QUERIES
 	// ============================================================================
-	
+
 	/**
 	 * Lista todos los IDs de snapshots para una red.
 	 * 
-	 * @param networkId el ID de la red
+	 * @param networkId      el ID de la red
 	 * @param includeDeleted si se deben incluir snapshots eliminados
 	 * @return lista de IDs de snapshots
 	 */
 	List<Long> listSnapshotsIds(Long networkId, boolean includeDeleted);
-	
+
 	/**
 	 * DTO con información resumida de un snapshot para listados.
 	 */
@@ -103,9 +104,9 @@ public interface ISnapshotStore {
 		private Integer transformedSize;
 		private boolean deleted;
 		private boolean isLGK; // Last Good Known
-		
-		public SnapshotSummary(Long id, String status, String indexStatus, LocalDateTime startTime, 
-				LocalDateTime endTime, Integer size, Integer validSize, Integer transformedSize, 
+
+		public SnapshotSummary(Long id, String status, String indexStatus, LocalDateTime startTime,
+				LocalDateTime endTime, Integer size, Integer validSize, Integer transformedSize,
 				boolean deleted, boolean isLGK) {
 			this.id = id;
 			this.status = status;
@@ -118,28 +119,57 @@ public interface ISnapshotStore {
 			this.deleted = deleted;
 			this.isLGK = isLGK;
 		}
-		
-		public Long getId() { return id; }
-		public String getStatus() { return status; }
-		public String getIndexStatus() { return indexStatus; }
-		public LocalDateTime getStartTime() { return startTime; }
-		public LocalDateTime getEndTime() { return endTime; }
-		public Integer getSize() { return size; }
-		public Integer getValidSize() { return validSize; }
-		public Integer getTransformedSize() { return transformedSize; }
-		public boolean isDeleted() { return deleted; }
-		public boolean isLGK() { return isLGK; }
+
+		public Long getId() {
+			return id;
+		}
+
+		public String getStatus() {
+			return status;
+		}
+
+		public String getIndexStatus() {
+			return indexStatus;
+		}
+
+		public LocalDateTime getStartTime() {
+			return startTime;
+		}
+
+		public LocalDateTime getEndTime() {
+			return endTime;
+		}
+
+		public Integer getSize() {
+			return size;
+		}
+
+		public Integer getValidSize() {
+			return validSize;
+		}
+
+		public Integer getTransformedSize() {
+			return transformedSize;
+		}
+
+		public boolean isDeleted() {
+			return deleted;
+		}
+
+		public boolean isLGK() {
+			return isLGK;
+		}
 	}
-	
+
 	/**
 	 * Lista snapshots con información resumida para una red.
 	 * 
-	 * @param networkId el ID de la red
+	 * @param networkId      el ID de la red
 	 * @param includeDeleted si se deben incluir snapshots eliminados
 	 * @return lista de resumen de snapshots
 	 */
 	List<SnapshotSummary> listSnapshotsSummary(Long networkId, boolean includeDeleted);
-	
+
 	/**
 	 * Encuentra el ID del último snapshot válido de la red.
 	 * 
@@ -147,7 +177,7 @@ public interface ISnapshotStore {
 	 * @return el ID del snapshot, o null si no existe
 	 */
 	Long findLastGoodKnownSnapshot(Network network);
-	
+
 	/**
 	 * Encuentra el ID del último snapshot en proceso de harvesting.
 	 * 
@@ -155,7 +185,7 @@ public interface ISnapshotStore {
 	 * @return el ID del snapshot, o null si no existe
 	 */
 	Long findLastHarvestingSnapshot(Network network);
-	
+
 	/**
 	 * Encuentra el ID del último snapshot válido de la red.
 	 * 
@@ -163,7 +193,7 @@ public interface ISnapshotStore {
 	 * @return el ID del snapshot, o null si no existe
 	 */
 	Long findLastGoodKnownSnapshot(Long networkId);
-	
+
 	/**
 	 * Encuentra el ID del último snapshot en proceso de harvesting.
 	 * 
@@ -171,7 +201,7 @@ public interface ISnapshotStore {
 	 * @return el ID del snapshot, o null si no existe
 	 */
 	Long findLastHarvestingSnapshot(Long networkId);
-	
+
 	/**
 	 * Obtiene el ID del snapshot anterior (para tracking incremental).
 	 * 
@@ -179,19 +209,19 @@ public interface ISnapshotStore {
 	 * @return el ID del snapshot anterior, o null si no existe
 	 */
 	Long getPreviousSnapshotId(Long snapshotId);
-	
+
 	/**
 	 * Establece la referencia al snapshot anterior.
 	 * 
-	 * @param snapshotId el ID del snapshot actual
+	 * @param snapshotId         el ID del snapshot actual
 	 * @param previousSnapshotId el ID del snapshot anterior
 	 */
 	void setPreviousSnapshotId(Long snapshotId, Long previousSnapshotId);
-	
+
 	// ============================================================================
 	// SNAPSHOT METADATA
 	// ============================================================================
-	
+
 	/**
 	 * Obtiene los metadatos completos del snapshot.
 	 * 
@@ -199,7 +229,7 @@ public interface ISnapshotStore {
 	 * @return los metadatos del snapshot
 	 */
 	SnapshotMetadata getSnapshotMetadata(Long snapshotId);
-	
+
 	/**
 	 * Obtiene el validador asociado al snapshot.
 	 * 
@@ -207,12 +237,12 @@ public interface ISnapshotStore {
 	 * @return el validador
 	 */
 	Validator getValidator(Long snapshotId);
-	
-	
+
 	// ============================================================================
-	// SNAPSHOT STATUS - USE BATCH METHODS INSTEAD (startHarvesting, finishValidation, etc)
+	// SNAPSHOT STATUS - USE BATCH METHODS INSTEAD (startHarvesting,
+	// finishValidation, etc)
 	// ============================================================================
-	
+
 	/**
 	 * Obtiene el estado actual del snapshot.
 	 * 
@@ -220,7 +250,7 @@ public interface ISnapshotStore {
 	 * @return el estado del snapshot
 	 */
 	SnapshotStatus getSnapshotStatus(Long snapshotId);
-	
+
 	/**
 	 * Obtiene el estado de indexación del snapshot.
 	 * 
@@ -228,11 +258,11 @@ public interface ISnapshotStore {
 	 * @return el estado de indexación
 	 */
 	SnapshotIndexStatus getSnapshotIndexStatus(Long snapshotId);
-	
+
 	// ============================================================================
 	// SNAPSHOT TIMESTAMPS - USE BATCH METHODS FOR STATE CHANGES
 	// ============================================================================
-	
+
 	/**
 	 * Obtiene el timestamp de inicio del snapshot.
 	 * 
@@ -240,7 +270,7 @@ public interface ISnapshotStore {
 	 * @return el timestamp de inicio
 	 */
 	LocalDateTime getSnapshotStartDatestamp(Long snapshotId);
-	
+
 	/**
 	 * Obtiene el timestamp de fin del snapshot.
 	 * 
@@ -248,7 +278,7 @@ public interface ISnapshotStore {
 	 * @return el timestamp de fin
 	 */
 	LocalDateTime getSnapshotEndDatestamp(Long snapshotId);
-	
+
 	/**
 	 * Obtiene el timestamp del último harvesting incremental.
 	 * 
@@ -256,20 +286,20 @@ public interface ISnapshotStore {
 	 * @return el timestamp del último incremental
 	 */
 	LocalDateTime getSnapshotLastIncrementalDatestamp(Long snapshotId);
-	
+
 	/**
 	 * Actualiza el timestamp del último harvesting incremental.
 	 * Usado durante harvesting incremental para trackear el progreso.
 	 * 
 	 * @param snapshotId el ID del snapshot
-	 * @param datestamp el timestamp del último incremental
+	 * @param datestamp  el timestamp del último incremental
 	 */
 	void updateSnapshotLastIncrementalDatestamp(Long snapshotId, LocalDateTime datestamp);
-	
+
 	// ============================================================================
 	// SNAPSHOT COUNTERS
 	// ============================================================================
-	
+
 	/**
 	 * Obtiene el tamaño total del snapshot (número de records).
 	 * 
@@ -277,7 +307,7 @@ public interface ISnapshotStore {
 	 * @return el número de records
 	 */
 	Integer getSnapshotSize(Long snapshotId);
-	
+
 	/**
 	 * Obtiene el tamaño válido actual del snapshot.
 	 * 
@@ -285,7 +315,7 @@ public interface ISnapshotStore {
 	 * @return el número de records válidos
 	 */
 	Integer getSnapshotValidSize(Long snapshotId);
-	
+
 	/**
 	 * Obtiene el tamaño transformado actual del snapshot.
 	 * 
@@ -293,13 +323,13 @@ public interface ISnapshotStore {
 	 * @return el número de records transformados
 	 */
 	Integer getSnapshotTransformedSize(Long snapshotId);
-	
+
 	/**
 	 * Incrementa el contador de tamaño del snapshot.
 	 * Llamado cuando se crea un nuevo record.
 	 * 
 	 * @deprecated Usar {@link #updateCounters(Long, CountersUpdate)} en su lugar.
-	 * Ejemplo: updateCounters(id, CountersUpdate.incrementHarvested())
+	 *             Ejemplo: updateCounters(id, CountersUpdate.incrementHarvested())
 	 * 
 	 * @param snapshotId el ID del snapshot
 	 */
@@ -310,35 +340,45 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void incrementSnapshotSize(Long snapshotId);
-	
+
+	/**
+	 * Incrementa el contador de tamaño del snapshot en una cantidad específica.
+	 * Usado para incrementos por batch (más eficiente que llamar
+	 * incrementSnapshotSize N veces).
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 * @param count      la cantidad a incrementar
+	 */
+	void incrementSnapshotSizeBy(Long snapshotId, int count);
+
 	/**
 	 * Incrementa el contador de records válidos.
 	 * 
 	 * @param snapshotId el ID del snapshot
 	 */
 	void incrementValidSize(Long snapshotId);
-	
+
 	/**
 	 * Decrementa el contador de records válidos.
 	 * 
 	 * @param snapshotId el ID del snapshot
 	 */
 	void decrementValidSize(Long snapshotId);
-	
+
 	/**
 	 * Incrementa el contador de records transformados.
 	 * 
 	 * @param snapshotId el ID del snapshot
 	 */
 	void incrementTransformedSize(Long snapshotId);
-	
+
 	/**
 	 * Decrementa el contador de records transformados.
 	 * 
 	 * @param snapshotId el ID del snapshot
 	 */
 	void decrementTransformedSize(Long snapshotId);
-	
+
 	/**
 	 * Reinicia los contadores de validación del snapshot.
 	 * Pone validSize y transformedSize a 0.
@@ -347,7 +387,7 @@ public interface ISnapshotStore {
 	 * @throws MetadataRecordStoreException si falla la operación
 	 */
 	void resetSnapshotValidationCounts(Long snapshotId);
-	
+
 	/**
 	 * Fuerza la persistencia de cambios pendientes a la BD.
 	 * 
@@ -362,11 +402,11 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot (puede ser null para flush general)
 	 */
 	void flush(Long snapshotId);
-	
+
 	// ============================================================================
 	// BATCH UPDATE METHODS - Simplified API (Fase 2)
 	// ============================================================================
-	
+
 	/**
 	 * Inicia la fase de harvesting.
 	 * Actualiza: status = HARVESTING, startTime = now()
@@ -374,7 +414,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void startHarvesting(Long snapshotId);
-	
+
 	/**
 	 * Actualiza el estado de harvesting sin finalizar.
 	 * Actualiza: status = HARVESTING, endTime = now()
@@ -383,7 +423,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void updateHarvesting(Long snapshotId);
-	
+
 	/**
 	 * Finaliza la fase de harvesting exitosamente.
 	 * Actualiza: status = HARVESTED, endTime = now()
@@ -391,7 +431,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void finishHarvesting(Long snapshotId);
-	
+
 	/**
 	 * Inicia la fase de validación.
 	 * Actualiza: status = VALIDATING
@@ -399,7 +439,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void startValidation(Long snapshotId);
-	
+
 	/**
 	 * Finaliza la fase de validación exitosamente.
 	 * Actualiza: status = VALID, endTime = now()
@@ -407,7 +447,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void finishValidation(Long snapshotId);
-	
+
 	/**
 	 * Marca el snapshot como indexado.
 	 * Actualiza: indexStatus = INDEXED
@@ -415,7 +455,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void markAsIndexed(Long snapshotId);
-	
+
 	/**
 	 * Marca el snapshot como fallido.
 	 * Actualiza: status = FAILED, endTime = now()
@@ -423,7 +463,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void markAsFailed(Long snapshotId);
-	
+
 	/**
 	 * Marca el snapshot en estado de reintento.
 	 * Actualiza: status = RETRYING
@@ -431,7 +471,7 @@ public interface ISnapshotStore {
 	 * @param snapshotId el ID del snapshot
 	 */
 	void markAsRetrying(Long snapshotId);
-	
+
 	/**
 	 * Marca el snapshot como eliminado.
 	 * Actualiza: status = DELETED, endTime = now()

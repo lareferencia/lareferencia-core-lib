@@ -48,10 +48,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -94,9 +90,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 	@Getter
 	@Setter
 	private boolean fetchIdentifyParameters = false;
-
-	@Autowired
-	private PlatformTransactionManager transactionManager;
 
 	@Autowired
 	private ValidationService validationManager;
@@ -438,11 +431,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 	@Override
 	public void harvestingEventOccurred(HarvestingEvent event) {
 
-		DefaultTransactionDefinition transactionDefinition = new DefaultTransactionDefinition();
-		transactionDefinition.setIsolationLevel(TransactionDefinition.ISOLATION_DEFAULT);
-
-		TransactionStatus transactionStatus = transactionManager.getTransaction(transactionDefinition);
-
 		logger.debug(runningContext.getNetwork().getName() + "  HarvestingEvent received: " +
 				event.getStatus());
 
@@ -480,6 +468,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				}
 
 				// Agregar records no eliminados al snapshot
+				int recordsProcessed = 0;
 				for (OAIRecordMetadata metadata : event.getRecords()) {
 
 					try {
@@ -487,6 +476,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 						// Si el metadata pasa la prevalidación, almacenarlo
 						if (metadataPassPrevalidation(metadata)) {
 							createRecord(metadata);
+							recordsProcessed++;
 						}
 
 					} catch (ValidationException e) {
@@ -497,9 +487,13 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 					}
 				}
 
-				// El flush periódico ya no es necesario aquí porque OAIRecordManager
-				// tiene auto-flush incorporado cuando alcanza el threshold configurado
-				// (parquet.catalog.records-per-file). Solo logueamos progreso.
+				// Actualizar contador y estado del snapshot (un solo commit por batch)
+				if (recordsProcessed > 0) {
+					snapshotStore.incrementSnapshotSizeBy(snapshotId, recordsProcessed);
+				}
+				snapshotStore.updateHarvesting(snapshotId);
+
+				// Loguear progreso periódicamente
 				try {
 					Map<String, Object> info = oaiRecordRepository.getManagerInfo(snapshotId);
 					if (info != null) {
@@ -511,9 +505,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				} catch (Exception e) {
 					logErrorMessage("PARQUET: Error getting manager info: " + e.getMessage());
 				}
-
-				// Actualizar estado del snapshot
-				snapshotStore.updateHarvesting(snapshotId);
 
 				break;
 
@@ -567,9 +558,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				// TODO: decidir qué hacer en este caso
 				break;
 		}
-
-		transactionManager.commit(transactionStatus);
-
 	}
 
 	/**
@@ -594,9 +582,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 		// 3. Escribir a Parquet vía repositorio
 		oaiRecordRepository.saveRecord(snapshotId, record);
-
-		// 4. Incrementar contador en snapshot
-		snapshotStore.incrementSnapshotSize(snapshotId);
 
 		logger.trace("PARQUET: Created record " + metadata.getIdentifier());
 	}
