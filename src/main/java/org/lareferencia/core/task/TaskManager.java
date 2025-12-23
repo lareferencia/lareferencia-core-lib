@@ -46,6 +46,10 @@ import java.util.function.Predicate;
 /**
  * Manages task scheduling, queueing, and execution for workers in the system.
  * Provides JMX monitoring capabilities and enforces concurrency limits.
+ * 
+ * <p>
+ * This TaskManager is used in legacy mode (workflow.engine=legacy).
+ * When workflow.engine=flowable, WorkflowService is used instead.
  */
 @ManagedResource(objectName = "backend:name=taskManager", description = "TaskManager LRHarvester")
 public class TaskManager {

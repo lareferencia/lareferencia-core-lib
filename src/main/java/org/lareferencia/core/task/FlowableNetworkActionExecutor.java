@@ -25,7 +25,9 @@ import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.flowable.WorkflowService;
 import org.lareferencia.core.flowable.dto.ProcessInstanceInfo;
+import org.lareferencia.core.flowable.dto.ScheduledProcessInfo;
 import org.lareferencia.core.repository.jpa.NetworkRepository;
+import org.lareferencia.core.worker.NetworkRunningContext;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -277,14 +279,26 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
 
     @Override
     public List<String> getQueuedTasksByContext(String runningContextID) {
-        // TODO: Implement queued tasks query from WorkflowService
-        return new ArrayList<>();
+        List<String> result = new ArrayList<>();
+        int queuedCount = workflowService.getQueuedCountForLane(runningContextID);
+        if (queuedCount > 0) {
+            result.add("Queued processes: " + queuedCount);
+        }
+        return result;
     }
 
     @Override
     public List<String> getScheduledTasksByContext(String runningContextID) {
-        // TODO: Implement scheduled tasks query from WorkflowService
-        return new ArrayList<>();
+        List<String> result = new ArrayList<>();
+        for (ScheduledProcessInfo schedule : workflowService.listSchedules()) {
+            if (runningContextID.equals(schedule.getLaneId())) {
+                String nextRun = schedule.getNextExecutionTime() != null
+                        ? schedule.getNextExecutionTime().toString()
+                        : "N/A";
+                result.add(schedule.getProcessKey() + " (next: " + nextRun + ")");
+            }
+        }
+        return result;
     }
 
     // ========== Helper Methods ==========
@@ -299,7 +313,7 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
     }
 
     private String buildLaneId(Network network) {
-        return "network-" + network.getId();
+        return NetworkRunningContext.buildID(network);
     }
 
     private String buildScheduleId(Network network) {

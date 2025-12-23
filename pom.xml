@@ -244,10 +244,41 @@
   			<version>3.0.5</version>
 		</dependency>
 
-		<!-- Flowable BPMN Process Engine -->
+		<!-- Flowable BPMN Process Engine (Manual Configuration) -->
+		<!-- Using individual dependencies instead of Spring Boot starter for full control -->
+		
+		<!-- Flowable Core Engine -->
 		<dependency>
 			<groupId>org.flowable</groupId>
-			<artifactId>flowable-spring-boot-starter-process</artifactId>
+			<artifactId>flowable-engine</artifactId>
+			<version>7.0.0</version>
+		</dependency>
+
+		<!-- Flowable Spring Integration -->
+		<dependency>
+			<groupId>org.flowable</groupId>
+			<artifactId>flowable-spring</artifactId>
+			<version>7.0.0</version>
+		</dependency>
+
+		<!-- Flowable BPMN Model -->
+		<dependency>
+			<groupId>org.flowable</groupId>
+			<artifactId>flowable-bpmn-model</artifactId>
+			<version>7.0.0</version>
+		</dependency>
+
+		<!-- Flowable BPMN Converter -->
+		<dependency>
+			<groupId>org.flowable</groupId>
+			<artifactId>flowable-bpmn-converter</artifactId>
+			<version>7.0.0</version>
+		</dependency>
+
+		<!-- Flowable Process Validation -->
+		<dependency>
+			<groupId>org.flowable</groupId>
+			<artifactId>flowable-process-validation</artifactId>
 			<version>7.0.0</version>
 		</dependency>
 

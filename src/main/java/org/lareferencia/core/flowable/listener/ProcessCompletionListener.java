@@ -29,6 +29,7 @@ import org.flowable.engine.delegate.event.impl.FlowableEntityEventImpl;
 import org.flowable.engine.impl.persistence.entity.ExecutionEntity;
 import org.lareferencia.core.flowable.WorkflowService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
@@ -39,6 +40,7 @@ import org.springframework.stereotype.Component;
  * @author LA Referencia Team
  */
 @Component
+@ConditionalOnProperty(name = "workflow.engine", havingValue = "flowable")
 public class ProcessCompletionListener implements FlowableEventListener {
 
     private static final Logger logger = LogManager.getLogger(ProcessCompletionListener.class);

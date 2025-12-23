@@ -25,6 +25,7 @@ import org.lareferencia.core.repository.jpa.NetworkRepository;
 import org.lareferencia.core.worker.IRunningContext;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -40,6 +41,7 @@ import java.util.Map;
  * @author LA Referencia Team
  */
 @Component
+@ConditionalOnProperty(name = "workflow.engine", havingValue = "flowable")
 public class NetworkRunningContextFactory implements IWorkerContextFactory {
 
     @Autowired

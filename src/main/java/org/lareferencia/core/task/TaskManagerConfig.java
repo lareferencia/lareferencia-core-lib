@@ -18,8 +18,9 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.flowable.config;
+package org.lareferencia.core.task;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,21 +28,42 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 /**
- * Configuration for workflow task scheduling.
+ * Configuration for TaskManager bean (legacy workflow engine).
+ * 
+ * <p>
+ * TaskManager is only created when workflow.engine=legacy (or not set).
+ * When workflow.engine=flowable, this configuration is skipped.
  * 
  * @author LA Referencia Team
  */
 @Configuration
-@ConditionalOnProperty(name = "workflow.engine", havingValue = "flowable")
-public class SchedulerConfig {
+@ConditionalOnProperty(name = "workflow.engine", havingValue = "legacy", matchIfMissing = true)
+public class TaskManagerConfig {
 
+    /**
+     * Creates TaskScheduler bean for legacy workflow execution.
+     * This is the same scheduler defined in XML but created conditionally.
+     * 
+     * @param poolSize scheduler pool size from properties
+     * @return TaskScheduler instance
+     */
     @Bean(name = "taskScheduler")
-    public TaskScheduler taskScheduler(WorkflowProperties props) {
+    public TaskScheduler taskScheduler(@Value("${scheduler.pool.size:10}") int poolSize) {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(props.getSchedulerPoolSize());
-        scheduler.setThreadNamePrefix("workflow-scheduler-");
-        scheduler.setWaitForTasksToCompleteOnShutdown(false);
+        scheduler.setPoolSize(poolSize);
+        scheduler.setThreadNamePrefix("taskScheduler-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(true);
         scheduler.initialize();
         return scheduler;
+    }
+
+    /**
+     * Creates TaskManager bean for legacy workflow execution.
+     * 
+     * @return TaskManager instance
+     */
+    @Bean
+    public TaskManager taskManager() {
+        return new TaskManager();
     }
 }

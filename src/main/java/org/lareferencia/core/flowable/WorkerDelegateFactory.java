@@ -23,6 +23,7 @@ package org.lareferencia.core.flowable;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.delegate.JavaDelegate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
@@ -38,6 +39,7 @@ import org.springframework.stereotype.Component;
  * ensuring thread-safety across concurrent process executions.
  */
 @Component("workerDelegateFactory")
+@ConditionalOnProperty(name = "workflow.engine", havingValue = "flowable")
 public class WorkerDelegateFactory {
 
     @Autowired

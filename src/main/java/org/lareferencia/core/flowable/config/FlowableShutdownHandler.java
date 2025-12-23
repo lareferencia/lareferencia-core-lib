@@ -23,6 +23,7 @@ import org.flowable.engine.ProcessEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,7 @@ import org.springframework.stereotype.Component;
  * @author LA Referencia Team
  */
 @Component
+@ConditionalOnProperty(name = "workflow.engine", havingValue = "flowable")
 public class FlowableShutdownHandler implements ApplicationListener<ContextClosedEvent> {
 
     private static final Logger logger = LoggerFactory.getLogger(FlowableShutdownHandler.class);

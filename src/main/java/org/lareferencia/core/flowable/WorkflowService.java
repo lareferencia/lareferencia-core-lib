@@ -39,6 +39,7 @@ import org.lareferencia.core.flowable.dto.ScheduledProcessInfo;
 import org.lareferencia.core.flowable.exception.QueueFullException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronTrigger;
@@ -68,6 +69,7 @@ import java.util.stream.Collectors;
  * @author LA Referencia Team
  */
 @Service
+@ConditionalOnProperty(name = "workflow.engine", havingValue = "flowable")
 public class WorkflowService {
 
     private static final Logger logger = LogManager.getLogger(WorkflowService.class);
@@ -107,7 +109,7 @@ public class WorkflowService {
     // ========== Scheduling State ==========
 
     @Autowired
-    @Qualifier("workflowTaskScheduler")
+    @Qualifier("taskScheduler")
     private TaskScheduler taskScheduler;
 
     /** Active scheduled tasks: scheduleId -> ScheduledTask */
