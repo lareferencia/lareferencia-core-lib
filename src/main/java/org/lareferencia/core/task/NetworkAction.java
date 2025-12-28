@@ -38,54 +38,63 @@ public class NetworkAction {
 		workers = new ArrayList<>();
 		properties = new ArrayList<>();
 	}
-	
+
 	/**
 	 * List of worker names to be executed as part of this action.
 	 */
 	@Getter
 	@Setter
 	List<String> workers;
-	
+
 	/**
 	 * Flag indicating whether this action runs in incremental mode.
 	 */
 	private boolean incremental = false;
-	
+
 	/**
 	 * List of properties associated with this network action.
 	 */
 	@Getter
 	@Setter
 	List<NetworkProperty> properties;
-	
+
 	/**
 	 * Flag indicating whether this action should run on schedule.
 	 */
 	@Getter
 	@Setter
-	Boolean runOnSchedule = false; 
-	
+	Boolean runOnSchedule = false;
+
 	/**
-	 * Flag indicating whether this action should always run on schedule regardless of other conditions.
+	 * Flag indicating whether this action should always run on schedule regardless
+	 * of other conditions.
 	 */
 	@Getter
-    @Setter
-    Boolean allwaysRunOnSchedule = false; 
-	
+	@Setter
+	Boolean allwaysRunOnSchedule = false;
+
 	/**
 	 * The name identifier of this action.
 	 */
 	@Getter
 	@Setter
 	String name = "DUMMY";
-	
+
 	/**
 	 * A human-readable description of this action's purpose.
 	 */
 	@Getter
 	@Setter
 	String description = "DUMMY";
-	
+
+	/**
+	 * Display order for listing actions (lower numbers appear first).
+	 * Used to control the order in which actions appear in UI lists.
+	 */
+	@Getter
+	@Setter
+	Integer displayOrder = 0;
+
 	/**
 	 * Checks if this action operates in incremental mode.
 	 *

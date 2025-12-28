@@ -24,24 +24,30 @@ import lombok.Builder;
 import lombok.Data;
 
 /**
- * DTO containing information about a Flowable process definition.
+ * DTO containing information about a Flowable workflow definition (process
+ * template).
+ * Workflow definitions are templates that define the steps and logic.
+ * Process instances are the actual running executions of these workflows.
  * 
  * @author LA Referencia Team
  */
 @Data
 @Builder
-public class ProcessDefinitionInfo {
+public class WorkflowDefinitionInfo {
 
-    /** Unique identifier of the process definition */
+    /** Unique identifier of the process definition (Flowable internal ID) */
     private String processDefinitionId;
 
-    /** Key of the process (used to start instances) */
-    private String processKey;
+    /** Key of the workflow (used to start process instances) */
+    private String workflowKey;
 
-    /** Human-readable name of the process */
+    /** Display order for listing workflows (lower numbers appear first) */
+    private Integer displayOrder;
+
+    /** Human-readable name of the workflow */
     private String name;
 
-    /** Description of what this process does */
+    /** Description of what this workflow does */
     private String description;
 
     /** Version number (latest by default) */

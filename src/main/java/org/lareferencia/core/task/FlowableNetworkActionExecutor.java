@@ -26,6 +26,7 @@ import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.flowable.WorkflowService;
 import org.lareferencia.core.flowable.dto.ProcessInstanceInfo;
 import org.lareferencia.core.flowable.dto.ScheduledProcessInfo;
+import org.lareferencia.core.flowable.dto.WorkflowDefinitionInfo;
 import org.lareferencia.core.repository.jpa.NetworkRepository;
 import org.lareferencia.core.worker.NetworkRunningContext;
 
@@ -216,20 +217,23 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
     }
 
     /**
-     * Gets available actions from Flowable BPMN process definitions.
-     * Each process definition is exposed as an action.
+     * Gets available actions from Flowable BPMN workflow definitions.
+     * Each workflow definition is exposed as an action.
      *
-     * @return list of actions derived from BPMN processes
+     * @return list of actions derived from BPMN workflow definitions
      */
     @Override
     public List<NetworkAction> getAvailableActions() {
         List<NetworkAction> actions = new ArrayList<>();
 
-        // Get process definitions from WorkflowService and convert to NetworkAction
-        for (var processInfo : workflowService.getAvailableProcesses()) {
+        // Get workflow definitions from WorkflowService and convert to NetworkAction
+        // The workflows are already sorted by displayOrder
+        for (var workflowInfo : workflowService.getAvailableWorkflows()) {
             NetworkAction action = new NetworkAction();
-            action.setName(processInfo.getProcessKey());
-            action.setDescription(processInfo.getName() != null ? processInfo.getName() : processInfo.getProcessKey());
+            action.setName(workflowInfo.getWorkflowKey());
+            action.setDescription(
+                    workflowInfo.getName() != null ? workflowInfo.getName() : workflowInfo.getWorkflowKey());
+            action.setDisplayOrder(workflowInfo.getDisplayOrder());
             action.setRunOnSchedule(true);
             action.setIncremental(false);
             actions.add(action);

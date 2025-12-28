@@ -33,7 +33,7 @@ import org.flowable.engine.repository.ProcessDefinition;
 import org.flowable.engine.runtime.Execution;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.lareferencia.core.flowable.config.WorkflowProperties;
-import org.lareferencia.core.flowable.dto.ProcessDefinitionInfo;
+import org.lareferencia.core.flowable.dto.WorkflowDefinitionInfo;
 import org.lareferencia.core.flowable.dto.ProcessInstanceInfo;
 import org.lareferencia.core.flowable.dto.ScheduledProcessInfo;
 import org.lareferencia.core.flowable.exception.QueueFullException;
@@ -483,12 +483,26 @@ public class WorkflowService {
         return runtimeService.getVariables(processInstanceId);
     }
 
-    public List<ProcessDefinitionInfo> getAvailableProcesses() {
+    public List<WorkflowDefinitionInfo> getAvailableWorkflows() {
         return repositoryService.createProcessDefinitionQuery()
                 .latestVersion()
                 .list()
                 .stream()
-                .map(this::buildProcessDefinitionInfo)
+                .map(this::buildWorkflowDefinitionInfo)
+                .sorted((w1, w2) -> {
+                    // Sort by displayOrder (nulls last), then by workflowKey
+                    if (w1.getDisplayOrder() == null && w2.getDisplayOrder() == null) {
+                        return w1.getWorkflowKey().compareTo(w2.getWorkflowKey());
+                    }
+                    if (w1.getDisplayOrder() == null)
+                        return 1;
+                    if (w2.getDisplayOrder() == null)
+                        return -1;
+                    int orderCompare = w1.getDisplayOrder().compareTo(w2.getDisplayOrder());
+                    if (orderCompare != 0)
+                        return orderCompare;
+                    return w1.getWorkflowKey().compareTo(w2.getWorkflowKey());
+                })
                 .collect(Collectors.toList());
     }
 
@@ -802,14 +816,61 @@ public class WorkflowService {
                 .build();
     }
 
-    private ProcessDefinitionInfo buildProcessDefinitionInfo(ProcessDefinition definition) {
-        return ProcessDefinitionInfo.builder()
+    private WorkflowDefinitionInfo buildWorkflowDefinitionInfo(ProcessDefinition definition) {
+        logger.info(">>> Building workflow info for: {}", definition.getKey());
+        // Extract display order from flowable:order attribute in BPMN
+        Integer displayOrder = null;
+        try {
+            org.flowable.bpmn.model.BpmnModel bpmnModel = repositoryService.getBpmnModel(definition.getId());
+            org.flowable.bpmn.model.Process process = bpmnModel.getMainProcess();
+            if (process != null) {
+                // Get the flowable:order attribute from the process element
+                java.util.Map<String, java.util.List<org.flowable.bpmn.model.ExtensionAttribute>> attributes = process
+                        .getAttributes();
+
+                if (attributes != null && !attributes.isEmpty()) {
+                    // Try different possible keys for the order attribute
+                    // Flowable may store it as "order", "flowable:order", or with full namespace
+                    for (String key : new String[] { "order", "flowable:order", "{http://flowable.org/bpmn}order" }) {
+                        if (attributes.containsKey(key)) {
+                            java.util.List<org.flowable.bpmn.model.ExtensionAttribute> orderAttrs = attributes.get(key);
+                            if (orderAttrs != null && !orderAttrs.isEmpty()) {
+                                String orderValue = orderAttrs.get(0).getValue();
+                                if (orderValue != null && !orderValue.isBlank()) {
+                                    displayOrder = Integer.parseInt(orderValue);
+                                    logger.info("  ✓ Found display order {} using key '{}'",
+                                            displayOrder, key);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // Log available keys for debugging if order was not found
+                    if (displayOrder == null) {
+                        logger.info("  ✗ No order found. Available keys: {}", attributes.keySet());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // If order attribute is not set or invalid, leave as null
+            logger.warn("Error parsing display order for workflow '{}': {}",
+                    definition.getKey(), e.getMessage(), e);
+        }
+
+        WorkflowDefinitionInfo result = WorkflowDefinitionInfo.builder()
                 .processDefinitionId(definition.getId())
-                .processKey(definition.getKey())
+                .workflowKey(definition.getKey())
+                .displayOrder(displayOrder)
                 .name(definition.getName())
                 .description(definition.getDescription())
                 .version(definition.getVersion())
                 .build();
+
+        logger.info("  → Returning: key={}, displayOrder={}, name={}",
+                result.getWorkflowKey(), result.getDisplayOrder(), result.getName());
+
+        return result;
     }
 
     private LocalDateTime convertToLocalDateTime(Date date) {
