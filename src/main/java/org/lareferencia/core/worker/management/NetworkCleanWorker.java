@@ -33,7 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.lareferencia.core.repository.parquet.OAIRecordParquetRepository;
+import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
 import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
 
 /**
@@ -41,14 +41,12 @@ import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
  * Removes records, metadata, and associated resources based on configuration.
  */
 public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
-	
-	
-	private static Logger logger = LogManager.getLogger(NetworkCleanWorker.class);
 
+	private static Logger logger = LogManager.getLogger(NetworkCleanWorker.class);
 
 	@Override
 	public String toString() {
-		if ( !deleteEntireNetwork )
+		if (!deleteEntireNetwork)
 			return "Cleaner";
 		else
 			return "Delete";
@@ -56,23 +54,24 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 
 	@Autowired
 	private IValidationStatisticsService validationStatisticsService;
-		
+
 	@Autowired
 	private ISnapshotStore snapshotStore;
-	
+
 	@Autowired
-	private OAIRecordParquetRepository oaiRecordRepo;
-	
+	private OAIRecordCatalogRepository catalogRepo;
+
 	@Autowired
 	private ValidationStatParquetRepository validationRepo;
-	
+
 	/**
-	 * Flag indicating whether to delete the entire network or just clean snapshot data.
+	 * Flag indicating whether to delete the entire network or just clean snapshot
+	 * data.
 	 */
 	@Setter
 	@Getter
 	private boolean deleteEntireNetwork;
-	
+
 	/**
 	 * Repository for accessing network entities.
 	 */
@@ -87,74 +86,68 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 		deleteEntireNetwork = false;
 	};
 
-	
 	@Override
 	public void run() {
-		
+
 		Network network = runningContext.getNetwork();
-		
-		// si no es una limpiza total debe identificar el ultimo snapshot cosechado y el ultimo válido para no limpiarlos
-		if ( ! deleteEntireNetwork ) { 
-			
+
+		// si no es una limpiza total debe identificar el ultimo snapshot cosechado y el
+		// ultimo válido para no limpiarlos
+		if (!deleteEntireNetwork) {
+
 			logger.info("Running Network/Repository cleanning process: " + network.getAcronym());
-			
+
 			Long lgkSnapshotID = snapshotStore.findLastGoodKnownSnapshot(network);
 			Long lhSnapshotID = snapshotStore.findLastHarvestingSnapshot(network);
-			
+
 			// clean all snapshot data except last harvested and last good known snapshots
-			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), false) ) {
+			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), false)) {
 				// si no es el lgk ni lh
-				if ( !snapshotId.equals(lgkSnapshotID) && !snapshotId.equals(lhSnapshotID) ) {
-					
+				if (!snapshotId.equals(lgkSnapshotID) && !snapshotId.equals(lhSnapshotID)) {
+
 					try {
 						cleanSnapshotStatsData(snapshotId);
-						oaiRecordRepo.deleteCatalogForSnapshot(snapshotId);
+						catalogRepo.deleteSnapshot(snapshotStore.getSnapshotMetadata(snapshotId));
 						validationRepo.deleteParquetForSnapshot(snapshotId);
 						snapshotStore.cleanSnapshotData(snapshotId);
 
-					} catch (Exception e) {  // Broadened to catch IOException too
+					} catch (Exception e) { // Broadened to catch IOException too
 						logger.error("Error cleaning snapshot " + snapshotId + ": " + e.getMessage(), e);
 					}
-				
+
 				}
 			}
-			
-		}
-		else { // caso de borrado completo de la red
+
+		} else { // caso de borrado completo de la red
 			logger.info("Deleting the entire network/repository: " + network.getAcronym());
-			
-			// limpia todos los snapshots 
-			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), true) ) {
+
+			// limpia todos los snapshots
+			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), true)) {
 				try {
 					cleanSnapshotStatsData(snapshotId);
-					oaiRecordRepo.deleteCatalogForSnapshot(snapshotId);
+					catalogRepo.deleteSnapshot(snapshotStore.getSnapshotMetadata(snapshotId));
 					validationRepo.deleteParquetForSnapshot(snapshotId);
 					snapshotStore.cleanSnapshotData(snapshotId);
 					snapshotStore.deleteSnapshot(snapshotId);
 
-				} catch (Exception e) {  // Broadened to catch IOException too
+				} catch (Exception e) { // Broadened to catch IOException too
 					logger.error("Error deleting snapshot " + snapshotId + ": " + e.getMessage(), e);
 				}
 			}
-			
 
 			networkRepository.deleteByNetworkID(network.getId());
-			logger.debug("Network/Repository deleted: " +network.getName()); 
+			logger.debug("Network/Repository deleted: " + network.getName());
 		}
 
 	}
 
-	
 	private void cleanSnapshotStatsData(Long snapshotId) throws ValidationStatisticsException {
 
 		// Delete validation results using new multi-file architecture
 		logger.info("CLEAN WORKER: Deleting validation data for snapshot: " + snapshotId);
-		validationStatisticsService.deleteValidationStatsObservationsBySnapshotID( snapshotId );
+		validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
 		logger.info("CLEAN WORKER: Successfully deleted validation data for snapshot: " + snapshotId);
 
 	}
-	
-
-	
 
 }

@@ -22,7 +22,6 @@ package org.lareferencia.core.worker;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.lareferencia.core.repository.parquet.OAIRecordParquetRepository;
 import lombok.Getter;
 import lombok.Setter;
 

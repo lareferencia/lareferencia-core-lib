@@ -29,8 +29,9 @@ import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.domain.SnapshotStatus;
 import org.lareferencia.core.domain.Validator;
-import org.lareferencia.core.repository.parquet.OAIRecord;
-import org.lareferencia.core.repository.parquet.OAIRecordParquetRepository;
+import org.lareferencia.core.repository.catalog.OAIRecord;
+import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
+
 import org.lareferencia.core.service.management.SnapshotLogService;
 import org.lareferencia.core.service.validation.ValidationService;
 import org.lareferencia.core.metadata.IMetadataStore;
@@ -55,27 +56,22 @@ import lombok.Setter;
 @Component("harvestingWorkerFlowable")
 @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
 /**
- * Worker de harvesting que usa almacenamiento Parquet.
+ * Worker de harvesting que usa almacenamiento SQLite para catálogo.
  * 
- * ARQUITECTURA NUEVA:
+ * ARQUITECTURA:
  * - ISnapshotStore: Gestiona metadata de snapshots (SQL)
- * - OAIRecordManager: Gestiona records en Parquet (catálogo inmutable)
+ * - OAIRecordCatalogRepository: Gestiona records en SQLite (catálogo por
+ * snapshot)
  * - IMetadataStore: Gestiona XML de metadata (filesystem)
- * 
- * DIFERENCIAS CON HarvestingWorkerLegacy (SQL):
- * - Usa OAIRecordManager en lugar de IMetadataRecordStoreService para records
- * - Usa ISnapshotStore para operaciones de snapshot
- * - Records se escriben en Parquet (OAIRecord catálogo inmutable)
- * - Contadores de snapshot se actualizan vía ISnapshotStore
  * 
  * FLUJO:
  * 1. Crear snapshot (ISnapshotStore)
- * 2. Abrir OAIRecordManager para escritura
+ * 2. Inicializar catálogo SQLite (copia del anterior si incremental)
  * 3. Por cada record harvested:
  * - Guardar XML en IMetadataStore
- * - Crear OAIRecord Parquet vía OAIRecordManager
+ * - Upsert OAIRecord en SQLite
  * - Incrementar contador en ISnapshotStore
- * 4. Cerrar OAIRecordManager (flush final)
+ * 4. Cerrar catálogo SQLite
  * 5. Actualizar estado de snapshot
  * 
  * @author LA Referencia Team
@@ -101,7 +97,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 	private IMetadataStore metadataStore;
 
 	@Autowired
-	private OAIRecordParquetRepository oaiRecordRepository;
+	private OAIRecordCatalogRepository catalogRepository;
 
 	@Autowired
 	private SnapshotLogService snapshotLogService;
@@ -112,7 +108,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 	private IValidator validator;
 
 	/**
-	 * Crea un nuevo harvesting worker Parquet.
+	 * Crea un nuevo harvesting worker SQLite.
 	 */
 	public HarvestingWorker() {
 		super();
@@ -121,7 +117,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 	@Override
 	public String toString() {
-		return "Harvesting (Parquet)";
+		return "Harvesting (SQLite)";
 	}
 
 	@Value("${harvester.max.retries}")
@@ -225,15 +221,9 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 		// El timestamp de inicio se establece en startHarvesting() automáticamente
 
-		// Inicializar repositorio Parquet para escritura
-		try {
-			oaiRecordRepository.initializeSnapshot(snapshotMetadata);
-			logInfoMessage("PARQUET: Repository initialized for writing - snapshot " + snapshotId);
-		} catch (Exception e) {
-			logErrorMessage("PARQUET: Error initializing repository: " + e.getMessage());
-			snapshotStore.markAsFailed(snapshotId);
-			return;
-		}
+		// Inicializar catálogo SQLite para escritura
+		// Nota: previousSnapshotId se determina más adelante si es incremental
+		// La inicialización real se hace después de determinar el modo
 
 		// Fetch identify parameters si está habilitado
 		if (this.fetchIdentifyParameters) {
@@ -308,6 +298,30 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 		logInfoMessage("Harvesting is starting for " + runningContext.toString() + "...");
 
+		// Inicializar catálogo SQLite para escritura DESPUÉS de determinar
+		// previousSnapshotId
+		// Si es incremental, copia el catálogo del snapshot anterior
+		try {
+			catalogRepository.initializeSnapshot(snapshotMetadata, previousSnapshotId);
+			if (previousSnapshotId != null) {
+				// Para incremental: copiar el tamaño del snapshot anterior como base
+				Integer previousSize = snapshotStore.getSnapshotSize(previousSnapshotId);
+				if (previousSize != null && previousSize > 0) {
+					snapshotStore.incrementSnapshotSizeBy(snapshotId, previousSize);
+					logInfoMessage("CATALOG: Repository initialized - copied from snapshot " + previousSnapshotId +
+							" with initial size: " + previousSize);
+				} else {
+					logInfoMessage("CATALOG: Repository initialized - copied from snapshot " + previousSnapshotId);
+				}
+			} else {
+				logInfoMessage("CATALOG: Repository initialized (new catalog) - snapshot " + snapshotId);
+			}
+		} catch (Exception e) {
+			logErrorMessage("CATALOG: Error initializing repository: " + e.getMessage());
+			snapshotStore.markAsFailed(snapshotId);
+			return;
+		}
+
 		snapshotStore.startHarvesting(this.snapshotId);
 
 		// Inicialización del harvester
@@ -326,16 +340,12 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		if (snapshotStore.getSnapshotStatus(snapshotId) != SnapshotStatus.HARVESTING_FINISHED_ERROR) {
 
 			if (isIncremental() && previousSnapshotId != null) {
-				// TODO: Copiar records del snapshot anterior (requiere implementación en
-				// RecordStore)
+				// El catálogo ya fue copiado durante la inicialización
+				// Solo actualizar metadata del snapshot
 				logInfoMessage(runningContext.toString() +
-						" :: getting records from previous snapshot: " + previousSnapshotId);
+						" :: Catalog inherited from previous snapshot: " + previousSnapshotId);
 				snapshotStore.updateSnapshotLastIncrementalDatestamp(snapshotId, previousSnapshotStartDatestamp);
 				snapshotStore.setPreviousSnapshotId(snapshotId, previousSnapshotId);
-
-				// TODO: Implementar copyNotDeletedRecordsFromSnapshot para Parquet
-				// metadataStoreService.copyNotDeletedRecordsFromSnapshot(previousSnapshotId,
-				// snapshotId);
 			}
 
 			logInfoMessage(runningContext.toString() + " :: Harvesting ended successfully.");
@@ -347,24 +357,22 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			snapshotStore.markAsFailed(snapshotId);
 		}
 
-		// Cerrar repositorio Parquet (flush final) - SE CIERRA SIEMPRE al final
-		closeOAIRecordRepository();
+		// Cerrar catálogo SQLite (flush final) - SE CIERRA SIEMPRE al final
+		closeCatalogRepository();
 
 	}
 
 	/**
-	 * Cierra el repositorio Parquet de forma segura.
+	 * Cierra el catálogo SQLite de forma segura.
 	 */
-	private void closeOAIRecordRepository() {
-		if (oaiRecordRepository != null && oaiRecordRepository.hasActiveManager(snapshotId)) {
+	private void closeCatalogRepository() {
+		if (catalogRepository != null && catalogRepository.hasActiveManager(snapshotId)) {
 			try {
-				Map<String, Object> info = oaiRecordRepository.getManagerInfo(snapshotId);
-				oaiRecordRepository.finalizeSnapshot(snapshotId);
-				logInfoMessage("PARQUET: Repository closed - " +
-						info.get("recordsWritten") + " records written in " +
-						info.get("batchCount") + " batch files");
+				long recordCount = catalogRepository.count(snapshotId);
+				catalogRepository.finalizeSnapshot(snapshotId);
+				logInfoMessage("CATALOG: Repository closed - " + recordCount + " records in catalog");
 			} catch (Exception e) {
-				logErrorMessage("PARQUET: Error closing repository: " + e.getMessage());
+				logErrorMessage("CATALOG: Error closing repository: " + e.getMessage());
 			}
 		}
 	}
@@ -444,14 +452,19 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 							" identifiers: " + event.getMissingRecordsIdentifiers());
 				}
 
-				// Si es harvesting incremental, procesar deleted records
+				// Procesar records (batching handled by repository, buffering handled here by
+				// event)
+				// NOTA: Ya no hacemos tracking incremental del tamaño (sizeAdjustment)
+				// El tamaño final se calculará al terminar el proceso consultando el catálogo
+
+				// Lista para batch update
+				java.util.List<OAIRecord> batchRecords = new java.util.ArrayList<>();
+
 				if (isIncremental()) {
-
 					try {
-
 						// Procesar deleted records
 						for (String deletedRecordIdentifier : event.getDeletedRecordsIdentifiers()) {
-							createDeletedRecord(deletedRecordIdentifier, LocalDateTime.now());
+							batchRecords.add(createDeletedRecord(deletedRecordIdentifier, LocalDateTime.now()));
 						}
 
 						// Loguear deleted records
@@ -464,21 +477,15 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 						logErrorMessage("Error storing deleted records for " + runningContext.toString() +
 								" : " + e.getMessage());
 					}
-
 				}
 
 				// Agregar records no eliminados al snapshot
-				int recordsProcessed = 0;
 				for (OAIRecordMetadata metadata : event.getRecords()) {
-
 					try {
-
 						// Si el metadata pasa la prevalidación, almacenarlo
 						if (metadataPassPrevalidation(metadata)) {
-							createRecord(metadata);
-							recordsProcessed++;
+							batchRecords.add(createRecord(metadata));
 						}
-
 					} catch (ValidationException e) {
 						logErrorMessage("Error prevalidating record " + metadata.getIdentifier() +
 								" for " + runningContext.toString() + " : " + e.getMessage());
@@ -487,24 +494,22 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 					}
 				}
 
-				// Actualizar contador y estado del snapshot (un solo commit por batch)
-				if (recordsProcessed > 0) {
-					snapshotStore.incrementSnapshotSizeBy(snapshotId, recordsProcessed);
-				}
-				snapshotStore.updateHarvesting(snapshotId);
-
-				// Loguear progreso periódicamente
-				try {
-					Map<String, Object> info = oaiRecordRepository.getManagerInfo(snapshotId);
-					if (info != null) {
-						long recordsWritten = (long) info.get("recordsWritten");
-						if (recordsWritten % 50000 == 0 && recordsWritten > 0) {
-							logInfoMessage("PARQUET: Progress - " + recordsWritten + " records written");
-						}
+				// Batch upsert hacia el catálogo
+				// Esto usará una sola transacción para todos los registros de la página
+				if (!batchRecords.isEmpty()) {
+					try {
+						catalogRepository.upsertBatch(snapshotId, batchRecords);
+						// Optimistic size update: assume all records are new/relevant for progress
+						// display
+						// The final exact count is corrected at finishHarvestingSuccessfully()
+						snapshotStore.incrementSnapshotSizeBy(snapshotId, batchRecords.size());
+					} catch (Exception e) {
+						logErrorMessage("Error performing batch upsert: " + e.getMessage());
 					}
-				} catch (Exception e) {
-					logErrorMessage("PARQUET: Error getting manager info: " + e.getMessage());
 				}
+
+				// Snapshot update
+				snapshotStore.updateHarvesting(snapshotId);
 
 				break;
 
@@ -514,7 +519,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				if (!bySetHarvesting) {
 
 					if (isIncremental()) {
-						snapshotStore.finishHarvesting(snapshotId);
+						finishHarvestingSuccessfully(); // Puede ser que no haya nuevos registros
 						logInfoMessage("No records found in incremental harvesting" +
 								runningContext.toString());
 					} else {
@@ -523,7 +528,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 					}
 
 				} else {
-					snapshotStore.finishHarvesting(snapshotId);
+					finishHarvestingSuccessfully();
 					logInfoMessage("No records found for the set: " + currentSetSpec + " at " +
 							runningContext.toString());
 				}
@@ -545,13 +550,16 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			case STOP_SIGNAL_RECEIVED:
 
 				logErrorMessage("Stop signal received:" + event.getMessage());
-				if (snapshotStore.getSnapshotSize(snapshotId) > 0)
-					snapshotStore.finishHarvesting(snapshotId);
+
+				// Intentar finalizar correctamente si hay datos
+				long currentCount = catalogRepository.countNotDeleted(snapshotId);
+				if (currentCount > 0)
+					finishHarvestingSuccessfully();
 				else
 					snapshotStore.markAsFailed(snapshotId);
 
-				// Cerrar repositorio Parquet cuando se detiene el harvesting
-				closeOAIRecordRepository();
+				// Cerrar catálogo SQLite cuando se detiene el harvesting
+				closeCatalogRepository();
 				break;
 
 			default:
@@ -561,18 +569,33 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 	}
 
 	/**
-	 * Crea un record en Parquet a partir de metadata OAI.
+	 * Finaliza el harvesting exitosamente, actualizando el tamaño final.
+	 */
+	private void finishHarvestingSuccessfully() {
+		// ACTUALIZAR TAMAÑO FINAL
+		// Consultar el catálogo para obtener el conteo real exacto
+		long finalCount = catalogRepository.countNotDeleted(snapshotId);
+		snapshotStore.updateSnapshotSize(snapshotId, (int) finalCount);
+
+		logInfoMessage("Harvesting finished. Final count: " + finalCount);
+
+		snapshotStore.finishHarvesting(snapshotId);
+	}
+
+	/**
+	 * Crea un record en SQLite a partir de metadata OAI.
 	 * 
 	 * @param metadata el metadata OAI a almacenar
+	 * @return OAIRecord record creado
 	 * @throws Exception si falla la creación
 	 */
-	private void createRecord(OAIRecordMetadata metadata) throws Exception {
+	private OAIRecord createRecord(OAIRecordMetadata metadata) throws Exception {
 
 		// 1. Guardar XML en IMetadataStore y obtener hash
 		String metadataStr = metadata.toString();
 		String hash = metadataStore.storeAndReturnHash(snapshotMetadata, metadataStr);
 
-		// 2. Crear OAIRecord Parquet
+		// 2. Crear OAIRecord para catálogo
 		OAIRecord record = OAIRecord.create(
 				metadata.getIdentifier(),
 				metadata.getDatestamp(),
@@ -580,20 +603,18 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				false // no deleted
 		);
 
-		// 3. Escribir a Parquet vía repositorio
-		oaiRecordRepository.saveRecord(snapshotId, record);
-
-		logger.trace("PARQUET: Created record " + metadata.getIdentifier());
+		return record;
 	}
 
 	/**
-	 * Crea un deleted record marker en Parquet.
+	 * Crea un deleted record marker en SQLite.
 	 * 
 	 * @param identifier el identificador OAI del record eliminado
 	 * @param dateStamp  el timestamp de eliminación
+	 * @return OAIRecord record eliminado creado
 	 * @throws Exception si falla la creación
 	 */
-	private void createDeletedRecord(String identifier, LocalDateTime dateStamp) throws Exception {
+	private OAIRecord createDeletedRecord(String identifier, LocalDateTime dateStamp) throws Exception {
 
 		// Crear OAIRecord con flag deleted=true
 		OAIRecord record = OAIRecord.create(
@@ -603,10 +624,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				true // deleted
 		);
 
-		// Escribir a Parquet vía repositorio
-		oaiRecordRepository.saveRecord(snapshotId, record);
-
-		logger.trace("PARQUET: Created deleted record marker " + identifier);
+		return record;
 	}
 
 	/**

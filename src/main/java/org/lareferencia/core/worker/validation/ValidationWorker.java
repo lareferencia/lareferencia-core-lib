@@ -20,15 +20,14 @@
 
 package org.lareferencia.core.worker.validation;
 
-import java.io.IOException;
 import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.util.Iterator;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.lareferencia.core.repository.parquet.OAIRecord;
-import org.lareferencia.core.repository.parquet.OAIRecordParquetRepository;
+import org.lareferencia.core.repository.catalog.OAIRecord;
+import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
 import org.lareferencia.core.repository.jpa.NetworkRepository;
 import org.lareferencia.core.service.management.SnapshotLogService;
 import org.lareferencia.core.service.validation.ValidationService;
@@ -50,15 +49,14 @@ import org.springframework.stereotype.Component;
  * Worker that performs validation and transformation of harvested OAI records
  * using Parquet storage.
  * <p>
- * This is the NEW Parquet-based implementation that uses:
- * -
- * {@link org.lareferencia.backend.repositories.parquet.OAIRecordParquetRepository}
- * for OAI records (Parquet)
+ * This is the NEW SQLite-based implementation that uses:
+ * - {@link OAIRecordCatalogRepository} for OAI records (SQLite catalog)
  * - {@link ISnapshotStore} for snapshot metadata (SQL)
  * <p>
  * For the legacy SQL-based implementation, see {@link ValidationWorkerLegacy}.
  * <p>
- * This worker processes OAI records from Parquet storage in a network snapshot,
+ * This worker processes OAI records from SQLite catalog storage in a network
+ * snapshot,
  * applying validation rules and metadata transformations. It supports both full
  * and
  * incremental validation modes.
@@ -66,12 +64,11 @@ import org.springframework.stereotype.Component;
  * The worker performs the following operations:
  * </p>
  * <ul>
- * <li>Reads OAI records from Parquet storage (streaming)</li>
+ * <li>Reads OAI records from SQLite catalog (streaming)</li>
  * <li>Validates metadata records against configured validation rules</li>
  * <li>Applies primary and secondary transformations to valid records</li>
  * <li>Tracks validation statistics and observations</li>
- * <li>Updates record status (stored in Parquet)</li>
- * <li>Writes validated/transformed records back to Parquet</li>
+ * <li>Writes validation results to Parquet validation store</li>
  * </ul>
  * <p>
  * In incremental mode, only new (UNTESTED) records are processed. In full mode,
@@ -107,7 +104,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 	private IMetadataStore metadataStoreService;
 
 	@Autowired
-	protected OAIRecordParquetRepository recordRepository;
+	protected OAIRecordCatalogRepository catalogRepository;
 
 	private ITransformer transformer;
 	private ITransformer secondaryTransformer;
@@ -148,9 +145,15 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 			this.snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
 
 			try {
-				Iterator<OAIRecord> it = recordRepository.getIterator(snapshotMetadata);
+				// Abrir catálogo SQLite para lectura (fue creado durante harvesting)
+				catalogRepository.openSnapshotForRead(snapshotMetadata);
+
+				// Use stream instead of iterator for catalog
+				java.util.stream.Stream<OAIRecord> stream = catalogRepository.streamNotDeleted(snapshotMetadata);
+				// Convert stream to iterator for BaseIteratorWorker compatibility
+				Iterator<OAIRecord> it = stream.iterator();
 				this.setIterator(it, snapshotMetadata.getSize());
-			} catch (IOException e) {
+			} catch (Exception e) {
 				logError("Error initializing OAIRecord iterator for snapshot " + snapshotId + ": " + e.getMessage());
 				this.stop();
 				return;

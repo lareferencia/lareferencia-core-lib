@@ -36,7 +36,7 @@ import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.domain.SnapshotStatus;
 import org.lareferencia.core.domain.Validator;
 import org.lareferencia.core.repository.jpa.NetworkSnapshotRepository;
-import org.lareferencia.core.repository.jpa.OAIRecordRepository;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -485,6 +485,22 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error incrementing size by {} for snapshot {}: {}",
 					count, snapshotId, e.getMessage());
+		}
+	}
+
+	@Override
+	public void updateSnapshotSize(Long snapshotId, Integer size) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setSize(size);
+			snapshotRepository.save(snapshot);
+
+			// Solo modifica en cache, la persistencia se hace en updateHarvesting
+			logger.debug("SNAPSHOT STORE: Updated size to {} for snapshot {}",
+					size, snapshotId);
+		} catch (SnapshotStoreException e) {
+			logger.error("SNAPSHOT STORE: Error updating size to {} for snapshot {}: {}",
+					size, snapshotId, e.getMessage());
 		}
 	}
 

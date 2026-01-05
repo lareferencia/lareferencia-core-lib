@@ -211,6 +211,12 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
         List<RunningProcessInfo> result = new ArrayList<>();
 
         for (IWorker<?> worker : taskManager.getAllRunningWorkers()) {
+            // Skip workers that are already finished but not yet cleaned up
+            if (worker.getScheduledFuture() != null &&
+                    (worker.getScheduledFuture().isDone() || worker.getScheduledFuture().isCancelled())) {
+                continue;
+            }
+
             String contextId = worker.getRunningContext() != null ? worker.getRunningContext().getId() : "unknown";
             String networkAcronym = null;
 

@@ -32,28 +32,35 @@ import java.util.Objects;
  * - Sin explosión: 1 registro = 1 fila (vs antiguo 1 registro = N filas)
  * - Rule facts incluidos: Lista de reglas aplicadas dentro del mismo record
  * - Paginación correcta: 20 filas = 20 records
- * - Estructura por snapshot: Cada snapshot tiene su propio directorio (sin particiones)
+ * - Estructura por snapshot: Cada snapshot tiene su propio directorio (sin
+ * particiones)
  *
  * SEPARACIÓN CATÁLOGO VS VALIDACIÓN:
  * - recordId: Referencia al ID en OAIRecord (catálogo inmutable)
- * - publishedMetadataHash: Hash del XML a indexar (resultado de validación/transformación)
+ * - publishedMetadataHash: Hash del XML a indexar (resultado de
+ * validación/transformación)
  *
  * ESQUEMA PARQUET:
- * - identifier: STRING (required) - Identificador OAI del record (denormalizado para búsquedas)
- * - record_id: STRING (required) - Hash MD5 que referencia al OAIRecord en catálogo (PK única)
+ * - identifier: STRING (required) - Identificador OAI del record (denormalizado
+ * para búsquedas)
+ * - record_id: STRING (required) - Hash MD5 que referencia al OAIRecord en
+ * catálogo (PK única)
  * - record_is_valid: BOOLEAN (required) - Si el record es válido
  * - is_transformed: BOOLEAN (required) - Si el record fue transformado
  * - published_metadata_hash: STRING (optional) - Hash MD5 del XML a indexar
- * - rule_facts: LIST<RuleFact> (optional) - Detalles de todas las reglas aplicadas (null en índice ligero)
+ * - rule_facts: LIST<RuleFact> (optional) - Detalles de todas las reglas
+ * aplicadas (null en índice ligero)
  * 
  * LÓGICA DE publishedMetadataHash:
  * - Si isTransformed = true: hash del XML transformado
- * - Si isTransformed = false && recordIsValid = true: copia del originalMetadataHash
+ * - Si isTransformed = false && recordIsValid = true: copia del
+ * originalMetadataHash
  * - Si recordIsValid = false: null (no hay XML a publicar)
  * 
  * USO COMO ÍNDICE LIGERO:
  * - Para índice ligero: ruleFacts = null o lista vacía
- * - Proyección Parquet: Leer solo [recordId, identifier, recordIsValid, isTransformed, publishedMetadataHash]
+ * - Proyección Parquet: Leer solo [recordId, identifier, recordIsValid,
+ * isTransformed, publishedMetadataHash]
  * - Tamaño en memoria: ~30 bytes/record comprimido
  * - 10M records = ~300 MB en memoria (viable para carga completa)
  * 
@@ -63,34 +70,37 @@ import java.util.Objects;
 public class RecordValidation {
 
     private String identifier;
-    
+
     /**
-     * Cache del recordId (MD5 del identifier) para evitar recalcular en cada acceso.
-     * Se calcula lazy la primera vez que se solicita y se invalida si cambia el identifier.
+     * Cache del recordId (MD5 del identifier) para evitar recalcular en cada
+     * acceso.
+     * Se calcula lazy la primera vez que se solicita y se invalida si cambia el
+     * identifier.
      */
     private transient String cachedRecordId;
-    
+
     /**
      * Datestamp del record (fecha de última modificación según OAI-PMH).
      * Denormalizado desde OAIRecord para facilitar consultas y ordenamiento.
      */
     private LocalDateTime datestamp;
-    
+
     private Boolean recordIsValid;
     private Boolean isTransformed;
-    
+
     /**
      * Hash MD5 del XML a indexar (resultado de validación/transformación).
      * 
      * - Si isTransformed = true: hash del XML transformado
-     * - Si isTransformed = false && recordIsValid = true: copia del originalMetadataHash
+     * - Si isTransformed = false && recordIsValid = true: copia del
+     * originalMetadataHash
      * - Si recordIsValid = false: null
      * 
      * NUEVO campo que antes estaba en OAIRecord.publishedMetadataHash.
      * Ahora está aquí porque es RESULTADO de validación, no dato de catálogo.
      */
     private String publishedMetadataHash;
-    
+
     private List<RuleFact> ruleFacts;
 
     // Constructor vacío
@@ -98,31 +108,31 @@ public class RecordValidation {
         this.ruleFacts = new ArrayList<>();
     }
 
-    public RecordValidation(String identifier, 
-                           Boolean recordIsValid, Boolean isTransformed) {
+    public RecordValidation(String identifier,
+            Boolean recordIsValid, Boolean isTransformed) {
         this.identifier = identifier;
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
         this.ruleFacts = new ArrayList<>();
     }
-    
-    public RecordValidation(String identifier, 
-                           Boolean recordIsValid, Boolean isTransformed, List<RuleFact> ruleFacts) {
+
+    public RecordValidation(String identifier,
+            Boolean recordIsValid, Boolean isTransformed, List<RuleFact> ruleFacts) {
         this.identifier = identifier;
         this.recordIsValid = recordIsValid;
         this.isTransformed = isTransformed;
         this.ruleFacts = ruleFacts != null ? ruleFacts : new ArrayList<>();
     }
-    
+
     /**
      * Constructor completo con todos los campos (sin almacenar recordId).
      * recordId será calculado a partir de `identifier` cuando se solicite.
      */
     public RecordValidation(String identifier,
-                           LocalDateTime datestamp,
-                           Boolean recordIsValid, Boolean isTransformed,
-                           String publishedMetadataHash,
-                           List<RuleFact> ruleFacts) {
+            LocalDateTime datestamp,
+            Boolean recordIsValid, Boolean isTransformed,
+            String publishedMetadataHash,
+            List<RuleFact> ruleFacts) {
         this.identifier = identifier;
         this.datestamp = datestamp;
         this.recordIsValid = recordIsValid;
@@ -130,95 +140,102 @@ public class RecordValidation {
         this.publishedMetadataHash = publishedMetadataHash;
         this.ruleFacts = ruleFacts != null ? ruleFacts : new ArrayList<>();
     }
-    
+
     // Getters y Setters
-    
+
     public String getIdentifier() {
         return identifier;
     }
-    
+
     public void setIdentifier(String identifier) {
         this.identifier = identifier;
         this.cachedRecordId = null; // Invalidar cache cuando cambia identifier
     }
-    
+
     /**
      * Retorna el recordId (MD5 del identifier).
      * Usa cache para evitar recalcular el hash en cada acceso.
      */
     public String getRecordId() {
-        if (this.identifier == null) return null;
+        if (this.identifier == null)
+            return null;
         if (this.cachedRecordId == null) {
-            this.cachedRecordId = OAIRecord.generateIdFromIdentifier(this.identifier);
+            this.cachedRecordId = org.lareferencia.core.repository.catalog.OAIRecord
+                    .generateIdFromIdentifier(this.identifier);
         }
         return this.cachedRecordId;
     }
     // No se provee setter para recordId (se calcula desde identifier)
-    
+
     public LocalDateTime getDatestamp() {
         return datestamp;
     }
-    
+
     public void setDatestamp(LocalDateTime datestamp) {
         this.datestamp = datestamp;
     }
-    
+
     public Boolean getRecordIsValid() {
         return recordIsValid;
-    }    public void setRecordIsValid(Boolean recordIsValid) {
+    }
+
+    public void setRecordIsValid(Boolean recordIsValid) {
         this.recordIsValid = recordIsValid;
     }
-    
+
     public Boolean getIsTransformed() {
         return isTransformed;
     }
-    
+
     public void setIsTransformed(Boolean isTransformed) {
         this.isTransformed = isTransformed;
     }
-    
+
     public String getPublishedMetadataHash() {
         return publishedMetadataHash;
     }
-    
+
     public void setPublishedMetadataHash(String publishedMetadataHash) {
         this.publishedMetadataHash = publishedMetadataHash;
     }
-    
+
     public List<RuleFact> getRuleFacts() {
         return ruleFacts;
     }
-    
+
     public void setRuleFacts(List<RuleFact> ruleFacts) {
         this.ruleFacts = ruleFacts;
     }
-    
+
     public void addRuleFact(RuleFact ruleFact) {
         if (this.ruleFacts == null) {
             this.ruleFacts = new ArrayList<>();
         }
         this.ruleFacts.add(ruleFact);
     }
-    
+
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o)
+            return true;
+        if (o == null || getClass() != o.getClass())
+            return false;
         RecordValidation that = (RecordValidation) o;
-        // Nota: recordId es derivado de identifier, por lo que solo comparamos identifier
+        // Nota: recordId es derivado de identifier, por lo que solo comparamos
+        // identifier
         return Objects.equals(identifier, that.identifier) &&
-               Objects.equals(datestamp, that.datestamp) &&
-               Objects.equals(recordIsValid, that.recordIsValid) &&
-               Objects.equals(isTransformed, that.isTransformed) &&
-               Objects.equals(publishedMetadataHash, that.publishedMetadataHash) &&
-               Objects.equals(ruleFacts, that.ruleFacts);
+                Objects.equals(datestamp, that.datestamp) &&
+                Objects.equals(recordIsValid, that.recordIsValid) &&
+                Objects.equals(isTransformed, that.isTransformed) &&
+                Objects.equals(publishedMetadataHash, that.publishedMetadataHash) &&
+                Objects.equals(ruleFacts, that.ruleFacts);
     }
 
     @Override
     public int hashCode() {
         // Nota: recordId es derivado de identifier, por lo que solo usamos identifier
         return Objects.hash(identifier, datestamp, recordIsValid, isTransformed,
-                          publishedMetadataHash, ruleFacts);
+                publishedMetadataHash, ruleFacts);
     }
 
     @Override

@@ -231,6 +231,14 @@ public interface ISnapshotStore {
 	SnapshotMetadata getSnapshotMetadata(Long snapshotId);
 
 	/**
+	 * Actualiza el tamaño (cantidad de registros) del snapshot.
+	 * 
+	 * @param snapshotId el ID del snapshot
+	 * @param size       el nuevo tamaño
+	 */
+	void updateSnapshotSize(Long snapshotId, Integer size);
+
+	/**
 	 * Obtiene el validador asociado al snapshot.
 	 * 
 	 * @param snapshotId el ID del snapshot

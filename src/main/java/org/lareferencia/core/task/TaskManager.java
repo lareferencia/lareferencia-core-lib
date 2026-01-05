@@ -361,7 +361,7 @@ public class TaskManager {
 
 	}
 
-	@Scheduled(fixedRate = 10000)
+	@Scheduled(fixedRate = 2000) // Reduced from 10000ms to 2000ms for faster cleanup
 	private synchronized void cleanFinishedTasksAndRunQueued() {
 
 		logger.debug("Cleaning finished process and running queuede ones");

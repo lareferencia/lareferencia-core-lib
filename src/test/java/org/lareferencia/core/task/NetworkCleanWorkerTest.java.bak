@@ -173,6 +173,7 @@ class NetworkCleanWorkerTest {
         worker.run();
 
         verify(validationStatisticsService, times(2)).deleteValidationStatsObservationsBySnapshotID(anyLong());
+        verify(catalogRepo, times(2)).deleteSnapshot(anyLong());
         verify(validationRepo, times(2)).deleteParquetForSnapshot(anyLong());
         verify(snapshotStore, times(2)).cleanSnapshotData(anyLong());
     }
@@ -190,6 +191,7 @@ class NetworkCleanWorkerTest {
         worker.run();
 
         verify(validationStatisticsService, times(2)).deleteValidationStatsObservationsBySnapshotID(anyLong());
+        verify(catalogRepo, times(2)).deleteSnapshot(anyLong());
         verify(validationRepo, times(2)).deleteParquetForSnapshot(anyLong());
         verify(snapshotStore, times(2)).cleanSnapshotData(anyLong());
         verify(snapshotStore, times(2)).deleteSnapshot(anyLong());
