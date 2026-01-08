@@ -781,27 +781,43 @@ public class WorkflowService {
     // ========== Builder Methods ==========
 
     private ProcessInstanceInfo buildProcessInstanceInfo(ProcessInstance instance) {
-        Map<String, Object> variables = runtimeService.getVariables(instance.getId());
+        try {
+            Map<String, Object> variables = runtimeService.getVariables(instance.getId());
 
-        String currentActivityId = null;
-        List<Execution> executions = runtimeService.createExecutionQuery()
-                .processInstanceId(instance.getId())
-                .list();
+            String currentActivityId = null;
+            List<Execution> executions = runtimeService.createExecutionQuery()
+                    .processInstanceId(instance.getId())
+                    .list();
 
-        if (!executions.isEmpty()) {
-            currentActivityId = executions.get(0).getActivityId();
+            if (!executions.isEmpty()) {
+                currentActivityId = executions.get(0).getActivityId();
+            }
+
+            return ProcessInstanceInfo.builder()
+                    .processInstanceId(instance.getId())
+                    .processDefinitionKey(instance.getProcessDefinitionKey())
+                    .processDefinitionName(instance.getProcessDefinitionName())
+                    .variables(variables)
+                    .currentActivityId(currentActivityId)
+                    .startTime(convertToLocalDateTime(instance.getStartTime()))
+                    .completed(false)
+                    .suspended(instance.isSuspended())
+                    .build();
+        } catch (org.flowable.common.engine.api.FlowableObjectNotFoundException e) {
+            // Process might have completed synchronously and is no longer in runtime
+            logger.debug("Process {} not found in runtime, checking history (synchronous completion?)",
+                    instance.getId());
+
+            HistoricProcessInstance historicInstance = historyService.createHistoricProcessInstanceQuery()
+                    .processInstanceId(instance.getId())
+                    .singleResult();
+
+            if (historicInstance != null) {
+                return buildHistoricProcessInstanceInfo(historicInstance);
+            }
+            // If not found in history either, rethrow
+            throw e;
         }
-
-        return ProcessInstanceInfo.builder()
-                .processInstanceId(instance.getId())
-                .processDefinitionKey(instance.getProcessDefinitionKey())
-                .processDefinitionName(instance.getProcessDefinitionName())
-                .variables(variables)
-                .currentActivityId(currentActivityId)
-                .startTime(convertToLocalDateTime(instance.getStartTime()))
-                .completed(false)
-                .suspended(instance.isSuspended())
-                .build();
     }
 
     private ProcessInstanceInfo buildHistoricProcessInstanceInfo(HistoricProcessInstance instance) {

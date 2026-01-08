@@ -22,7 +22,6 @@ package org.lareferencia.core.worker.indexing;
 
 import java.io.IOException;
 import java.text.NumberFormat;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -33,8 +32,8 @@ import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
 import org.lareferencia.core.domain.SnapshotIndexStatus;
-import org.lareferencia.core.repository.parquet.RecordValidation;
-import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
+import org.lareferencia.core.repository.validation.ValidationRecord;
+import org.lareferencia.core.repository.validation.RecordValidationRepository;
 import org.lareferencia.core.service.management.SnapshotLogService;
 import org.lareferencia.core.metadata.IMDFormatTransformer;
 import org.lareferencia.core.metadata.IMetadataStore;
@@ -44,7 +43,6 @@ import org.lareferencia.core.metadata.MDFormatTransformerService;
 import org.lareferencia.core.metadata.MDTransformerParameterSetter;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
-import org.lareferencia.core.metadata.RecordStatus;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.date.DateHelper;
 import org.lareferencia.core.worker.BaseIteratorWorker;
@@ -67,7 +65,7 @@ import lombok.Setter;
  */
 @Component("indexerWorkerFlowable")
 @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
-public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkRunningContext> {
+public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkRunningContext> {
 
 	@Autowired
 	private ISnapshotStore snapshotStore;
@@ -76,7 +74,7 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 	private IMetadataStore metadataStore;
 
 	@Autowired
-	private ValidationStatParquetRepository parquetRepository;
+	private RecordValidationRepository recordRepository;
 
 	private static Logger logger = LogManager.getLogger(IndexerWorker.class);
 
@@ -92,6 +90,8 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
+
+	private java.util.stream.Stream<ValidationRecord> validationStream;
 
 	@Getter
 	@Setter
@@ -172,9 +172,8 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 				// establece el transformador para indexación
 				try {
 
-					Iterator<RecordValidation> iterator = parquetRepository.getLightweightIterator(snapshotMetadata,
-							RecordStatus.VALID);
-					this.setIterator(iterator, snapshotMetadata.getValidSize());
+					validationStream = recordRepository.streamAll(snapshotId);
+					this.setIterator(validationStream.iterator(), snapshotMetadata.getValidSize());
 
 					metadataTransformer = trfService
 							.getMDTransformer(runningContext.getNetwork().getMetadataStoreSchema(), targetSchemaName);
@@ -197,7 +196,7 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 							+ " error: " + e.getMessage());
 					error();
 				} catch (IOException e) {
-					logError("Error getting lightweight iterator for indexing: " + runningContext.toString() + ": "
+					logError("Error getting streams for indexing: " + runningContext.toString() + ": "
 							+ e.getMessage());
 					error();
 				}
@@ -215,7 +214,7 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 		stringBuffer = new StringBuffer();
 	}
 
-	public void processItem(RecordValidation record) {
+	public void processItem(ValidationRecord record) {
 
 		try {
 
@@ -225,7 +224,7 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 			// this filters the records by content, using the contentFiltersByFieldName map
 			if (contentFiltersByFieldName != null) {
 
-				logger.debug("Evaluating record content: " + record.getRecordId());
+				logger.debug("Evaluating record content: " + record.getIdentifierHash());
 
 				boolean allowIndexing = true;
 
@@ -252,7 +251,7 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 
 			// fingerprint del registro
 			metadataTransformer.setParameter("fingerprint", runningContext.getNetwork().getAcronym() + "_"
-					+ record.getRecordId());
+					+ record.getIdentifierHash());
 
 			// identifier del record
 			metadataTransformer.setParameter("identifier", record.getIdentifier());
@@ -270,7 +269,7 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 			// this parameter is used to filter out deleted records in oai providers
 			// this parameter is not used by frontends solr indices
 			metadataTransformer
-					.setParameter("deleted", Boolean.valueOf(!record.getRecordIsValid()).toString());
+					.setParameter("deleted", Boolean.valueOf(!record.isValid()).toString());
 
 			// metadata como string
 			metadataTransformer.setParameter("metadata", metadata.toString());
@@ -281,31 +280,32 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 			// used by oaipmh providers but not by frontends
 			// frontend indexer should set indexDeletedRecords to false and oai provider
 			// indexer should set it to true
-			if (record.getRecordIsValid()) {
+			if (record.isValid()) {
 				String recordStr = metadataTransformer.transformToString(metadata.getDOMDocument());
 				stringBuffer.append(recordStr);
 
-				logger.debug("Transformed record to be indexed: " + record.getRecordId() + " :: "
+				logger.debug("Transformed record to be indexed: " + record.getIdentifierHash() + " :: "
 						+ record.getIdentifier() + " :: " + recordStr);
 				logger.debug("Indexed record size in bytes: " + recordStr.length());
 			} else {
-				logger.debug("Record not indexed: " + record.getRecordId() + " :: " + record.getIdentifier() + " :: "
-						+ record.getRecordIsValid());
+				logger.debug(
+						"Record not indexed: " + record.getIdentifierHash() + " :: " + record.getIdentifier() + " :: "
+								+ record.isValid());
 			}
 
 		} catch (MDFormatTranformationException e) {
 
-			logError("Index::RecordID:" + record.getRecordId() + " oai_id:" + record.getIdentifier()
+			logError("Index::RecordID:" + record.getIdentifierHash() + " oai_id:" + record.getIdentifier()
 					+ " transformation Error xslt with the schema: " + targetSchemaName + " :: " + e.getMessage());
 			logger.debug(e.getMessage(), e);
 			// logger.debug("Record Metadata: \n" + metadata.toString() + "\n\n");
 			error();
 		} catch (OAIRecordMetadataParseException e) {
-			logError("Index::RecordID:" + record.getRecordId() + " oai_id:" + record.getIdentifier()
+			logError("Index::RecordID:" + record.getIdentifierHash() + " oai_id:" + record.getIdentifier()
 					+ " error getting record metadata: :: " + e.getMessage());
 		} catch (Exception e) {
 			// Catches MetadataRecordStoreException and other exceptions
-			logError("Index::RecordID:" + record.getRecordId() + " oai_id:" + record.getIdentifier()
+			logError("Index::RecordID:" + record.getIdentifierHash() + " oai_id:" + record.getIdentifier()
 					+ " error: :: " + e.getMessage());
 		}
 
@@ -342,6 +342,11 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 	public void postRun() {
 
 		try {
+			// Close stream to release DB resources
+			if (validationStream != null) {
+				validationStream.close();
+			}
+
 			postPage();
 
 			this.sendUpdateToSolr("<commit/>");
@@ -366,6 +371,9 @@ public class IndexerWorker extends BaseIteratorWorker<RecordValidation, NetworkR
 		// With new @Transactional pattern, simply stopping the worker will persist
 		// the current snapshot state. Index status remains FAILED by default.
 		// No need to call saveSnapshot() - automatic persistence handles this.
+		if (validationStream != null) { // Ensure stream is closed on error
+			validationStream.close();
+		}
 		this.stop();
 	}
 

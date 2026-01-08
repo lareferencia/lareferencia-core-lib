@@ -28,7 +28,6 @@ import static org.mockito.Mockito.*;
 @DisplayName("AddProvenanceMetadataRule Tests")
 class AddProvenanceMetadataRuleTest {
 
-
     @Mock
     private SnapshotMetadata snapshotMetadata;
     @Mock
@@ -41,7 +40,7 @@ class AddProvenanceMetadataRuleTest {
     private NetworkSnapshot snapshot;
 
     @Mock
-    private Network network;
+    private SnapshotMetadata.NetworkInfo networkInfo;
 
     private AddProvenanceMetadataRule rule;
     private Map<String, Object> attributes;
@@ -50,11 +49,10 @@ class AddProvenanceMetadataRuleTest {
     void setUp() {
         rule = new AddProvenanceMetadataRule();
         attributes = new HashMap<>();
-        
-        lenient().when(snapshotMetadata.getNetwork()).thenReturn(network);
+
+        lenient().when(snapshotMetadata.getNetwork()).thenReturn(networkInfo);
         lenient().when(record.getSnapshot()).thenReturn(snapshot);
-        lenient().when(snapshot.getNetwork()).thenReturn(network);
-        lenient().when(network.getAttributes()).thenReturn(attributes);
+        lenient().when(networkInfo.getAttributes()).thenReturn(attributes);
         lenient().when(record.getDatestamp()).thenReturn(java.time.LocalDateTime.now());
     }
 
@@ -64,7 +62,7 @@ class AddProvenanceMetadataRuleTest {
         attributes.put("source_type", "Institutional Repository");
         attributes.put("source_url", "http://repository.edu");
         attributes.put("institution_type", "University");
-        
+
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
@@ -86,7 +84,7 @@ class AddProvenanceMetadataRuleTest {
     void testNullAttributeValues() throws Exception {
         attributes.put("source_type", null);
         attributes.put("source_url", null);
-        
+
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
@@ -97,7 +95,7 @@ class AddProvenanceMetadataRuleTest {
     @DisplayName("Should remove existing fields before adding new ones")
     void testRemoveExistingFields() throws Exception {
         attributes.put("source_type", "Repository");
-        
+
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
@@ -114,7 +112,7 @@ class AddProvenanceMetadataRuleTest {
         attributes.put("institution_type", "University");
         attributes.put("institution_url", "http://university.edu");
         attributes.put("oai_base_url", "http://repo.edu/oai");
-        
+
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
@@ -161,7 +159,7 @@ class AddProvenanceMetadataRuleTest {
     void testUnicodeAttributeValues() throws Exception {
         attributes.put("source_type", "Repositório Institucional");
         attributes.put("institution_type", "Universität");
-        
+
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
@@ -173,7 +171,7 @@ class AddProvenanceMetadataRuleTest {
     void testSpecialCharactersInAttributes() throws Exception {
         attributes.put("source_url", "http://repository.edu/oai?verb=ListRecords");
         attributes.put("contact_email", "admin@repository.edu");
-        
+
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
@@ -193,7 +191,7 @@ class AddProvenanceMetadataRuleTest {
     void testLargeAttributeValues() throws Exception {
         String largeValue = "a".repeat(1000);
         attributes.put("source_type", largeValue);
-        
+
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
@@ -204,7 +202,7 @@ class AddProvenanceMetadataRuleTest {
     void testWhitespaceInAttributes() throws Exception {
         attributes.put("source_type", "  Institutional Repository  ");
         attributes.put("institution_type", "\tUniversity\n");
-        
+
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);

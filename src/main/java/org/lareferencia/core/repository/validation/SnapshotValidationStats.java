@@ -18,7 +18,7 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.repository.parquet;
+package org.lareferencia.core.repository.validation;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -26,9 +26,12 @@ import java.util.*;
 
 import org.lareferencia.core.metadata.SnapshotMetadata;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 /**
  * Class to accumulate snapshot validation statistics and facets.
- * Contains rule statistics and facet data (rule definitions are in SnapshotMetadata).
+ * Contains rule statistics and facet data (rule definitions are in
+ * SnapshotMetadata).
  */
 @Data
 @NoArgsConstructor
@@ -36,29 +39,32 @@ public class SnapshotValidationStats {
 
     // Reference to parent metadata for projection
     private SnapshotMetadata snapshotMetadata;
-    
+
     // Record counts
     private Integer totalRecords = 0;
     private Integer transformedRecords = 0;
     private Integer validRecords = 0;
-    
+
     // Rule statistics: ruleID -> counters
     private Map<Long, RuleStats> ruleStats = new LinkedHashMap<>();
-    
+
     // Facets map: facetName -> Map<value, counter>
-    private Map<String, Map<String, Long>> facets = new LinkedHashMap<>();    /**
+    private Map<String, Map<String, Long>> facets = new LinkedHashMap<>();
+
+    /**
      * Constructor with metadata reference
      */
     public SnapshotValidationStats(SnapshotMetadata snapshotMetadata) {
         this.snapshotMetadata = snapshotMetadata;
 
         // Initialize ruleStats map based on metadata rule definitions
-        for (Map.Entry<Long, SnapshotMetadata.RuleDefinition> entry : snapshotMetadata.getRuleDefinitions().entrySet()) {
+        for (Map.Entry<Long, SnapshotMetadata.RuleDefinition> entry : snapshotMetadata.getRuleDefinitions()
+                .entrySet()) {
             Long ruleID = entry.getKey();
             ruleStats.put(ruleID, new RuleStats());
         }
     }
-    
+
     /**
      * Inner class for rule statistics/counters (mutable)
      */
@@ -66,23 +72,38 @@ public class SnapshotValidationStats {
     public static class RuleStats {
         private Long validCount = 0L;
         private Long invalidCount = 0L;
-        
-        public void incrementValid() { this.validCount++; }
-        public void incrementInvalid() { this.invalidCount++; }
+
+        public void incrementValid() {
+            this.validCount++;
+        }
+
+        public void incrementInvalid() {
+            this.invalidCount++;
+        }
     }
-    
+
     // Record count increment methods
-    public void incrementTotalRecords() { this.totalRecords++; }
-    public void incrementTransformedRecords() { this.transformedRecords++; }
-    public void incrementValidRecords() { this.validRecords++; }
-    
-    // Calculated invalid records
+    public void incrementTotalRecords() {
+        this.totalRecords++;
+    }
+
+    public void incrementTransformedRecords() {
+        this.transformedRecords++;
+    }
+
+    public void incrementValidRecords() {
+        this.validRecords++;
+    }
+
+    // Calculated invalid records - not serialized to avoid deserialization issues
+    @JsonIgnore
     public Integer getInvalidRecords() {
         return (totalRecords != null && validRecords != null) ? totalRecords - validRecords : 0;
     }
-    
+
     public void incrementRuleValid(Long ruleID) {
-        // Create stats if missing and increment (safer for callers that may not register beforehand)
+        // Create stats if missing and increment (safer for callers that may not
+        // register beforehand)
         ruleStats.computeIfAbsent(ruleID, k -> new RuleStats()).incrementValid();
     }
 
@@ -94,11 +115,26 @@ public class SnapshotValidationStats {
     public RuleStats getRuleStats(Long ruleID) {
         return ruleStats.get(ruleID);
     }
-    
+
+    /**
+     * Registers a rule ID (creates empty stats if not exists).
+     */
+    public void registerRule(Long ruleID) {
+        ruleStats.computeIfAbsent(ruleID, k -> new RuleStats());
+    }
+
     // Facet management methods
     public void updateFacet(String facetName, String value) {
         Map<String, Long> facetValues = facets.computeIfAbsent(facetName, k -> new LinkedHashMap<>());
         facetValues.put(value, facetValues.getOrDefault(value, 0L) + 1);
+    }
+
+    /**
+     * Updates a facet with a specific count (for SQL-based aggregation).
+     */
+    public void updateFacet(String facetName, String value, long count) {
+        Map<String, Long> facetValues = facets.computeIfAbsent(facetName, k -> new LinkedHashMap<>());
+        facetValues.put(value, facetValues.getOrDefault(value, 0L) + count);
     }
 
     public Map<String, Long> getFacet(String facetName) {
@@ -106,36 +142,32 @@ public class SnapshotValidationStats {
     }
 
     /**
-     * Actualiza las estadísticas con los datos de un record de validación.
-     * Método centralizado para evitar duplicación de lógica.
+     * Updates statistics using data from a validation record.
+     * Centralized method to avoid logic duplication.
      * 
-     * @param record el record de validación con sus facts
+     * @param record the validation record with its results
      */
-    public void updateFromRecord(RecordValidation record) {
+    public void updateFromRecord(ValidationRecord record) {
         incrementTotalRecords();
 
-        if (record.getRecordIsValid() != null && record.getRecordIsValid()) {
+        if (record.isValid()) {
             incrementValidRecords();
         }
 
-        if (record.getIsTransformed() != null && record.getIsTransformed()) {
+        if (record.isTransformed()) {
             incrementTransformedRecords();
         }
 
-        if (record.getRecordIsValid() != null) {
-            updateFacet("record_is_valid", record.getRecordIsValid().toString());
-        }
+        updateFacet("record_is_valid", String.valueOf(record.isValid()));
+        updateFacet("record_is_transformed", String.valueOf(record.isTransformed()));
 
-        if (record.getIsTransformed() != null) {
-            updateFacet("record_is_transformed", record.getIsTransformed().toString());
-        }
-
-        if (record.getRuleFacts() != null) {
-            for (RuleFact fact : record.getRuleFacts()) {
-                Long ruleID = Long.valueOf(fact.getRuleId());
+        if (record.getRuleResults() != null) {
+            for (Map.Entry<Long, Boolean> entry : record.getRuleResults().entrySet()) {
+                Long ruleID = entry.getKey();
                 String ruleIdStr = ruleID.toString();
+                boolean isValid = entry.getValue();
 
-                if (fact.getIsValid() != null && fact.getIsValid()) {
+                if (isValid) {
                     incrementRuleValid(ruleID);
                     updateFacet("valid_rules", ruleIdStr);
                 } else {

@@ -25,7 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.lareferencia.core.repository.parquet.SnapshotValidationStats;
+import org.lareferencia.core.repository.validation.SnapshotValidationStats;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.worker.validation.QuantifierValues;
 
@@ -41,15 +41,15 @@ import lombok.Setter;
 @Setter
 public class ValidationStatsResult {
 
-	/**
-	 * Constructs a new ValidationStatsResult with empty facets and rules maps.
-	 */
+    /**
+     * Constructs a new ValidationStatsResult with empty facets and rules maps.
+     */
     public ValidationStatsResult() {
         facets = new HashMap<>();
         rulesByID = new HashMap<>();
     }
 
-	/** Total number of records in the snapshot */
+    /** Total number of records in the snapshot */
     Integer size;
     /** Number of records that were transformed */
     Integer transformedSize;
@@ -59,7 +59,7 @@ public class ValidationStatsResult {
     Map<String, ValidationRuleStat> rulesByID;
     /** Map of faceted field entries for search and filtering */
     Map<String, List<FacetFieldEntry>> facets;
-    
+
     /**
      * Creates a ValidationStatsResult from a SnapshotValidationStats instance.
      * Converts the internal domain structure to the API result format.
@@ -69,22 +69,23 @@ public class ValidationStatsResult {
      */
     public static ValidationStatsResult fromSnapshotValidationStats(SnapshotValidationStats snapshotStats) {
         ValidationStatsResult result = new ValidationStatsResult();
-        
+
         // Convert basic counts
         result.setSize(snapshotStats.getTotalRecords() != null ? snapshotStats.getTotalRecords() : 0);
-        result.setTransformedSize(snapshotStats.getTransformedRecords() != null ? snapshotStats.getTransformedRecords() : 0);
+        result.setTransformedSize(
+                snapshotStats.getTransformedRecords() != null ? snapshotStats.getTransformedRecords() : 0);
         result.setValidSize(snapshotStats.getValidRecords() != null ? snapshotStats.getValidRecords() : 0);
-        
+
         // Convert rules statistics
         Map<String, ValidationRuleStat> rulesByID = new HashMap<>();
         SnapshotMetadata metadata = snapshotStats.getSnapshotMetadata();
-        
+
         if (metadata != null && metadata.getRuleDefinitions() != null) {
             for (Map.Entry<Long, SnapshotMetadata.RuleDefinition> entry : metadata.getRuleDefinitions().entrySet()) {
                 Long ruleID = entry.getKey();
                 SnapshotMetadata.RuleDefinition ruleDef = entry.getValue();
                 SnapshotValidationStats.RuleStats ruleStats = snapshotStats.getRuleStats(ruleID);
-                
+
                 ValidationRuleStat ruleStat = new ValidationRuleStat();
                 ruleStat.setRuleID(ruleID.longValue());
                 ruleStat.setName(ruleDef.getName());
@@ -93,30 +94,30 @@ public class ValidationStatsResult {
                 ruleStat.setMandatory(ruleDef.getMandatory());
                 ruleStat.setValidCount(ruleStats != null ? ruleStats.getValidCount().intValue() : 0);
                 ruleStat.setInvalidCount(ruleStats != null ? ruleStats.getInvalidCount().intValue() : null);
-                
+
                 rulesByID.put(ruleID.toString(), ruleStat);
             }
         }
-        
+
         result.setRulesByID(rulesByID);
-        
+
         // Convert facets
         Map<String, List<FacetFieldEntry>> facets = new HashMap<>();
-        
+
         for (Map.Entry<String, Map<String, Long>> facetEntry : snapshotStats.getFacets().entrySet()) {
             String facetName = facetEntry.getKey();
             Map<String, Long> facetValues = facetEntry.getValue();
-            
+
             List<FacetFieldEntry> facetEntries = new ArrayList<>();
             for (Map.Entry<String, Long> valueEntry : facetValues.entrySet()) {
                 facetEntries.add(new FacetFieldEntry(valueEntry.getKey(), valueEntry.getValue(), facetName));
             }
-            
+
             facets.put(facetName, facetEntries);
         }
-        
+
         result.setFacets(facets);
-        
+
         return result;
     }
 }

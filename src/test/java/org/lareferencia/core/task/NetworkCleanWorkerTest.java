@@ -31,15 +31,14 @@ import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.worker.management.NetworkCleanWorker;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-import java.util.List;
-import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
-import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
 import org.lareferencia.core.service.validation.IValidationStatisticsService;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.repository.jpa.NetworkRepository;
+import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 @DisplayName("NetworkCleanWorker Tests")
 @ExtendWith(MockitoExtension.class)
@@ -51,8 +50,6 @@ class NetworkCleanWorkerTest {
     private IValidationStatisticsService validationStatisticsService;
     @Mock
     private OAIRecordCatalogRepository catalogRepo;
-    @Mock
-    private ValidationStatParquetRepository validationRepo;
     @Mock
     private NetworkRepository networkRepository;
 
@@ -173,7 +170,6 @@ class NetworkCleanWorkerTest {
         worker.run();
 
         verify(validationStatisticsService, times(2)).deleteValidationStatsObservationsBySnapshotID(anyLong());
-        verify(validationRepo, times(2)).deleteParquetForSnapshot(anyLong());
         verify(snapshotStore, times(2)).cleanSnapshotData(anyLong());
     }
 
@@ -190,7 +186,6 @@ class NetworkCleanWorkerTest {
         worker.run();
 
         verify(validationStatisticsService, times(2)).deleteValidationStatsObservationsBySnapshotID(anyLong());
-        verify(validationRepo, times(2)).deleteParquetForSnapshot(anyLong());
         verify(snapshotStore, times(2)).cleanSnapshotData(anyLong());
         verify(snapshotStore, times(2)).deleteSnapshot(anyLong());
         verify(networkRepository, times(1)).deleteByNetworkID(anyLong());

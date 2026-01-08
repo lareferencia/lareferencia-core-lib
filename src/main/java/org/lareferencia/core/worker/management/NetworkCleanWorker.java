@@ -34,7 +34,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import lombok.Getter;
 import lombok.Setter;
 import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
-import org.lareferencia.core.repository.parquet.ValidationStatParquetRepository;
 
 /**
  * Worker that cleans network snapshot data or deletes an entire network.
@@ -60,9 +59,6 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 
 	@Autowired
 	private OAIRecordCatalogRepository catalogRepo;
-
-	@Autowired
-	private ValidationStatParquetRepository validationRepo;
 
 	/**
 	 * Flag indicating whether to delete the entire network or just clean snapshot
@@ -108,7 +104,6 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 					try {
 						cleanSnapshotStatsData(snapshotId);
 						catalogRepo.deleteSnapshot(snapshotStore.getSnapshotMetadata(snapshotId));
-						validationRepo.deleteParquetForSnapshot(snapshotId);
 						snapshotStore.cleanSnapshotData(snapshotId);
 
 					} catch (Exception e) { // Broadened to catch IOException too
@@ -126,7 +121,6 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 				try {
 					cleanSnapshotStatsData(snapshotId);
 					catalogRepo.deleteSnapshot(snapshotStore.getSnapshotMetadata(snapshotId));
-					validationRepo.deleteParquetForSnapshot(snapshotId);
 					snapshotStore.cleanSnapshotData(snapshotId);
 					snapshotStore.deleteSnapshot(snapshotId);
 

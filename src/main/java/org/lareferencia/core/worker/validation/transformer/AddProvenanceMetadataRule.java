@@ -198,7 +198,7 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 		metadata.removeFieldOcurrence(oaiIdentifierField);
 
 		try {
-			Network network = snapshotMetadata.getNetwork();
+			SnapshotMetadata.NetworkInfo network = snapshotMetadata.getNetwork();
 			// AbstractNetworkAttributes attributes = network.getAttributes();
 			Map<String, Object> attributes = network.getAttributes();
 

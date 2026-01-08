@@ -18,7 +18,7 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.repository.parquet;
+package org.lareferencia.core.repository.validation;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -26,62 +26,20 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * RECORD VALIDATION: 1 fila por record en Parquet.
- *
- * ARQUITECTURA SIMPLIFICADA CON RULE FACTS INTEGRADOS:
- * - Sin explosión: 1 registro = 1 fila (vs antiguo 1 registro = N filas)
- * - Rule facts incluidos: Lista de reglas aplicadas dentro del mismo record
- * - Paginación correcta: 20 filas = 20 records
- * - Estructura por snapshot: Cada snapshot tiene su propio directorio (sin
- * particiones)
- *
- * SEPARACIÓN CATÁLOGO VS VALIDACIÓN:
- * - recordId: Referencia al ID en OAIRecord (catálogo inmutable)
- * - publishedMetadataHash: Hash del XML a indexar (resultado de
- * validación/transformación)
- *
- * ESQUEMA PARQUET:
- * - identifier: STRING (required) - Identificador OAI del record (denormalizado
- * para búsquedas)
- * - record_id: STRING (required) - Hash MD5 que referencia al OAIRecord en
- * catálogo (PK única)
- * - record_is_valid: BOOLEAN (required) - Si el record es válido
- * - is_transformed: BOOLEAN (required) - Si el record fue transformado
- * - published_metadata_hash: STRING (optional) - Hash MD5 del XML a indexar
- * - rule_facts: LIST<RuleFact> (optional) - Detalles de todas las reglas
- * aplicadas (null en índice ligero)
- * 
- * LÓGICA DE publishedMetadataHash:
- * - Si isTransformed = true: hash del XML transformado
- * - Si isTransformed = false && recordIsValid = true: copia del
- * originalMetadataHash
- * - Si recordIsValid = false: null (no hay XML a publicar)
- * 
- * USO COMO ÍNDICE LIGERO:
- * - Para índice ligero: ruleFacts = null o lista vacía
- * - Proyección Parquet: Leer solo [recordId, identifier, recordIsValid,
- * isTransformed, publishedMetadataHash]
- * - Tamaño en memoria: ~30 bytes/record comprimido
- * - 10M records = ~300 MB en memoria (viable para carga completa)
- * 
- * IDENTIFICACIÓN:
- * - recordId sirve como PRIMARY KEY única (no se necesita campo id separado)
+ * DTO representing a validation record result.
+ * Used for API responses and detailed diagnostics.
  */
 public class RecordValidation {
 
     private String identifier;
 
     /**
-     * Cache del recordId (MD5 del identifier) para evitar recalcular en cada
-     * acceso.
-     * Se calcula lazy la primera vez que se solicita y se invalida si cambia el
-     * identifier.
+     * Cache of recordId (MD5 of identifier).
      */
     private transient String cachedRecordId;
 
     /**
-     * Datestamp del record (fecha de última modificación según OAI-PMH).
-     * Denormalizado desde OAIRecord para facilitar consultas y ordenamiento.
+     * Datestamp of the record.
      */
     private LocalDateTime datestamp;
 
@@ -89,21 +47,12 @@ public class RecordValidation {
     private Boolean isTransformed;
 
     /**
-     * Hash MD5 del XML a indexar (resultado de validación/transformación).
-     * 
-     * - Si isTransformed = true: hash del XML transformado
-     * - Si isTransformed = false && recordIsValid = true: copia del
-     * originalMetadataHash
-     * - Si recordIsValid = false: null
-     * 
-     * NUEVO campo que antes estaba en OAIRecord.publishedMetadataHash.
-     * Ahora está aquí porque es RESULTADO de validación, no dato de catálogo.
+     * MD5 Hash of the XML to index.
      */
     private String publishedMetadataHash;
 
     private List<RuleFact> ruleFacts;
 
-    // Constructor vacío
     public RecordValidation() {
         this.ruleFacts = new ArrayList<>();
     }
@@ -124,10 +73,6 @@ public class RecordValidation {
         this.ruleFacts = ruleFacts != null ? ruleFacts : new ArrayList<>();
     }
 
-    /**
-     * Constructor completo con todos los campos (sin almacenar recordId).
-     * recordId será calculado a partir de `identifier` cuando se solicite.
-     */
     public RecordValidation(String identifier,
             LocalDateTime datestamp,
             Boolean recordIsValid, Boolean isTransformed,
@@ -141,21 +86,15 @@ public class RecordValidation {
         this.ruleFacts = ruleFacts != null ? ruleFacts : new ArrayList<>();
     }
 
-    // Getters y Setters
-
     public String getIdentifier() {
         return identifier;
     }
 
     public void setIdentifier(String identifier) {
         this.identifier = identifier;
-        this.cachedRecordId = null; // Invalidar cache cuando cambia identifier
+        this.cachedRecordId = null;
     }
 
-    /**
-     * Retorna el recordId (MD5 del identifier).
-     * Usa cache para evitar recalcular el hash en cada acceso.
-     */
     public String getRecordId() {
         if (this.identifier == null)
             return null;
@@ -165,7 +104,6 @@ public class RecordValidation {
         }
         return this.cachedRecordId;
     }
-    // No se provee setter para recordId (se calcula desde identifier)
 
     public LocalDateTime getDatestamp() {
         return datestamp;
@@ -221,8 +159,6 @@ public class RecordValidation {
         if (o == null || getClass() != o.getClass())
             return false;
         RecordValidation that = (RecordValidation) o;
-        // Nota: recordId es derivado de identifier, por lo que solo comparamos
-        // identifier
         return Objects.equals(identifier, that.identifier) &&
                 Objects.equals(datestamp, that.datestamp) &&
                 Objects.equals(recordIsValid, that.recordIsValid) &&
@@ -233,7 +169,6 @@ public class RecordValidation {
 
     @Override
     public int hashCode() {
-        // Nota: recordId es derivado de identifier, por lo que solo usamos identifier
         return Objects.hash(identifier, datestamp, recordIsValid, isTransformed,
                 publishedMetadataHash, ruleFacts);
     }

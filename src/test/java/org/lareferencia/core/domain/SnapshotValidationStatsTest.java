@@ -22,7 +22,7 @@ package org.lareferencia.core.domain;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.lareferencia.core.repository.parquet.SnapshotValidationStats;
+import org.lareferencia.core.repository.validation.SnapshotValidationStats;
 import org.lareferencia.core.service.validation.FacetFieldEntry;
 import org.lareferencia.core.service.validation.ValidationStatsResult;
 import org.lareferencia.core.metadata.SnapshotMetadata;
@@ -71,20 +71,20 @@ class SnapshotValidationStatsTest {
         assertEquals(100, result.getSize());
         assertEquals(10, result.getTransformedSize());
         assertEquals(90, result.getValidSize());
-        
+
         // Verify rules
         assertNotNull(result.getRulesByID());
         assertTrue(result.getRulesByID().containsKey("1"));
         assertEquals("Test Rule", result.getRulesByID().get("1").getName());
         assertEquals(1, result.getRulesByID().get("1").getValidCount());
         assertEquals(Integer.valueOf(1), result.getRulesByID().get("1").getInvalidCount());
-        
+
         // Verify facets
         assertNotNull(result.getFacets());
         assertTrue(result.getFacets().containsKey("record_is_valid"));
         List<FacetFieldEntry> facetEntries = result.getFacets().get("record_is_valid");
         assertEquals(2, facetEntries.size());
-        
+
         // Check facet entries
         boolean foundTrue = false, foundFalse = false;
         for (FacetFieldEntry entry : facetEntries) {
@@ -100,7 +100,7 @@ class SnapshotValidationStatsTest {
 
         // Test JSON serialization of ValidationStatsResult
         String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
-        
+
         // Verify JSON structure contains expected fields
         assertTrue(json.contains("\"size\" : 100"));
         assertTrue(json.contains("\"transformedSize\" : 10"));

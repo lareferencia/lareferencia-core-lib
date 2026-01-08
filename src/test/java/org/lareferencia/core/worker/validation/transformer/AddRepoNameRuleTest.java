@@ -25,7 +25,6 @@ import static org.mockito.Mockito.*;
 @DisplayName("AddRepoNameRule Tests")
 class AddRepoNameRuleTest {
 
-
     @Mock
     private SnapshotMetadata snapshotMetadata;
     @Mock
@@ -38,17 +37,16 @@ class AddRepoNameRuleTest {
     private NetworkSnapshot snapshot;
 
     @Mock
-    private Network network;
+    private SnapshotMetadata.NetworkInfo networkInfo;
 
     private AddRepoNameRule rule;
 
-        @BeforeEach
+    @BeforeEach
     void setUp() {
         rule = new AddRepoNameRule();
-        
-        lenient().when(snapshotMetadata.getNetwork()).thenReturn(network);
+
+        lenient().when(snapshotMetadata.getNetwork()).thenReturn(networkInfo);
         lenient().when(record.getSnapshot()).thenReturn(snapshot);
-        lenient().when(snapshot.getNetwork()).thenReturn(network);
     }
 
     @Test
@@ -57,8 +55,8 @@ class AddRepoNameRuleTest {
         rule.setDoRepoNameAppend(true);
         rule.setRepoNameField("dc.source");
         rule.setRepoNamePrefix("reponame:");
-        
-        when(network.getName()).thenReturn("TestRepository");
+
+        when(networkInfo.getName()).thenReturn("TestRepository");
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -74,9 +72,9 @@ class AddRepoNameRuleTest {
         rule.setInstNamePrefix("instname:");
         rule.setInstAcronField("dc.source");
         rule.setInstAcronPrefix("instacron:");
-        
-        when(network.getInstitutionName()).thenReturn("Test University");
-        when(network.getInstitutionAcronym()).thenReturn("TU");
+
+        when(networkInfo.getInstitutionName()).thenReturn("Test University");
+        when(networkInfo.getInstitutionAcronym()).thenReturn("TU");
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -91,10 +89,10 @@ class AddRepoNameRuleTest {
         rule.setRepoNameField("dc.source");
         rule.setInstNameField("dc.source");
         rule.setInstAcronField("dc.source");
-        
-        when(network.getName()).thenReturn("TestRepo");
-        when(network.getInstitutionName()).thenReturn("Test Institution");
-        when(network.getInstitutionAcronym()).thenReturn("TI");
+
+        when(networkInfo.getName()).thenReturn("TestRepo");
+        when(networkInfo.getInstitutionName()).thenReturn("Test Institution");
+        when(networkInfo.getInstitutionAcronym()).thenReturn("TI");
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -118,8 +116,8 @@ class AddRepoNameRuleTest {
         rule.setDoRepoNameAppend(true);
         rule.setRepoNameField("dc.source");
         rule.setRepoNamePrefix("repository:");
-        
-        when(network.getName()).thenReturn("CustomRepo");
+
+        when(networkInfo.getName()).thenReturn("CustomRepo");
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -135,9 +133,9 @@ class AddRepoNameRuleTest {
         rule.setInstNamePrefix("institution:");
         rule.setInstAcronField("dc.publisher");
         rule.setInstAcronPrefix("acronym:");
-        
-        when(network.getInstitutionName()).thenReturn("Custom University");
-        when(network.getInstitutionAcronym()).thenReturn("CU");
+
+        when(networkInfo.getInstitutionName()).thenReturn("Custom University");
+        when(networkInfo.getInstitutionAcronym()).thenReturn("CU");
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -151,7 +149,7 @@ class AddRepoNameRuleTest {
     void testDoRepoNameAppendGetterSetter() {
         rule.setDoRepoNameAppend(true);
         assertTrue(rule.getDoRepoNameAppend());
-        
+
         rule.setDoRepoNameAppend(false);
         assertFalse(rule.getDoRepoNameAppend());
     }
@@ -240,8 +238,8 @@ class AddRepoNameRuleTest {
     void testUnicodeInRepoName() {
         rule.setDoRepoNameAppend(true);
         rule.setRepoNameField("dc.source");
-        
-        when(network.getName()).thenReturn("Repositório Científico");
+
+        when(networkInfo.getName()).thenReturn("Repositório Científico");
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -254,9 +252,9 @@ class AddRepoNameRuleTest {
         rule.setDoInstNameAppend(true);
         rule.setInstNameField("dc.source");
         rule.setInstAcronField("dc.source");
-        
-        when(network.getInstitutionName()).thenReturn("Universität München");
-        when(network.getInstitutionAcronym()).thenReturn("UM");
+
+        when(networkInfo.getInstitutionName()).thenReturn("Universität München");
+        when(networkInfo.getInstitutionAcronym()).thenReturn("UM");
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 

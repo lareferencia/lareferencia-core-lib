@@ -72,69 +72,7 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 		</dependency>
 
-		<!-- Parquet and Hadoop dependencies for file-based storage -->
-		<!-- Apache Parquet dependencies (native, without Avro) -->
-		<dependency>
-			<groupId>org.apache.parquet</groupId>
-			<artifactId>parquet-hadoop</artifactId>
-			<version>1.14.3</version>
-		</dependency>
-		
-		<!-- Dependencias adicionales para optimizaciones avanzadas de Parquet -->
-		<dependency>
-			<groupId>org.apache.parquet</groupId>
-			<artifactId>parquet-column</artifactId>
-			<version>1.14.3</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.parquet</groupId>
-			<artifactId>parquet-common</artifactId>
-			<version>1.14.3</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.parquet</groupId>
-			<artifactId>parquet-encoding</artifactId>
-			<version>1.14.3</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.parquet</groupId>
-			<artifactId>parquet-format-structures</artifactId>
-			<version>1.14.3</version>
-		</dependency>
-		
-		<dependency>
-			<groupId>org.apache.hadoop</groupId>
-			<artifactId>hadoop-client</artifactId>
-			<version>3.3.4</version>
-			<exclusions>
-				<!-- Exclude conflicting dependencies -->
-				<exclusion>
-					<groupId>org.slf4j</groupId>
-					<artifactId>slf4j-log4j12</artifactId>
-				</exclusion>
-				<exclusion>
-					<groupId>org.slf4j</groupId>
-					<artifactId>slf4j-reload4j</artifactId>
-				</exclusion>
-				<exclusion>
-					<groupId>ch.qos.reload4j</groupId>
-					<artifactId>reload4j</artifactId>
-				</exclusion>
-				<exclusion>
-					<groupId>log4j</groupId>
-					<artifactId>log4j</artifactId>
-				</exclusion>
-				<exclusion>
-					<groupId>org.apache.logging.log4j</groupId>
-					<artifactId>log4j-slf4j2-impl</artifactId>
-				</exclusion>
-				<!-- UPGRADED: Exclude old JLine 3.9.0 from hadoop-yarn-client to avoid conflict with Spring Shell 3.x (needs JLine 3.26.x) -->
-				<exclusion>
-					<groupId>org.jline</groupId>
-					<artifactId>jline</artifactId>
-				</exclusion>
-			</exclusions>
-		</dependency>
+
 
 		<dependency>
 			<groupId>org.junit.vintage</groupId>
