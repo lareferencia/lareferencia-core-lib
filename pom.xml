@@ -220,6 +220,39 @@
 			<version>7.0.0</version>
 		</dependency>
 
+		<!-- Apache Parquet - for legacy catalog migration -->
+		<dependency>
+			<groupId>org.apache.parquet</groupId>
+			<artifactId>parquet-hadoop</artifactId>
+			<version>1.13.1</version>
+		</dependency>
+
+		<!-- Hadoop Client - required by Parquet -->
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-client</artifactId>
+			<version>3.3.6</version>
+			<exclusions>
+				<!-- Exclude conflicting logging implementations -->
+				<exclusion>
+					<groupId>org.slf4j</groupId>
+					<artifactId>slf4j-reload4j</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>ch.qos.reload4j</groupId>
+					<artifactId>reload4j</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>org.slf4j</groupId>
+					<artifactId>slf4j-log4j12</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>log4j</groupId>
+					<artifactId>log4j</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
 	</dependencies>
 
 	<build>
