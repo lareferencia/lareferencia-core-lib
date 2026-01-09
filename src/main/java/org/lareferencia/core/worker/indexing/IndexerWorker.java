@@ -33,7 +33,8 @@ import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
 import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.repository.validation.ValidationRecord;
-import org.lareferencia.core.repository.validation.RecordValidationRepository;
+import org.lareferencia.core.repository.validation.ValidationRecordPaginator;
+import org.lareferencia.core.repository.validation.ValidationDatabaseManager;
 import org.lareferencia.core.service.management.SnapshotLogService;
 import org.lareferencia.core.metadata.IMDFormatTransformer;
 import org.lareferencia.core.metadata.IMetadataStore;
@@ -45,7 +46,7 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.date.DateHelper;
-import org.lareferencia.core.worker.BaseIteratorWorker;
+import org.lareferencia.core.worker.BaseBatchWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
@@ -65,7 +66,7 @@ import lombok.Setter;
  */
 @Component("indexerWorkerFlowable")
 @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
-public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkRunningContext> {
+public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunningContext> {
 
 	@Autowired
 	private ISnapshotStore snapshotStore;
@@ -74,7 +75,7 @@ public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkR
 	private IMetadataStore metadataStore;
 
 	@Autowired
-	private RecordValidationRepository recordRepository;
+	private ValidationDatabaseManager dbManager;
 
 	private static Logger logger = LogManager.getLogger(IndexerWorker.class);
 
@@ -91,7 +92,8 @@ public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkR
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
 
-	private java.util.stream.Stream<ValidationRecord> validationStream;
+	// Counter for generating unique record IDs (incremented in processItem)
+	private int recordCounter = 0;
 
 	@Getter
 	@Setter
@@ -171,9 +173,11 @@ public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkR
 
 				// establece el transformador para indexación
 				try {
-
-					validationStream = recordRepository.streamAll(snapshotId);
-					this.setIterator(validationStream.iterator(), snapshotMetadata.getValidSize());
+					// Create paginator for validation records
+					ValidationRecordPaginator paginator = new ValidationRecordPaginator(
+							snapshotMetadata, dbManager);
+					paginator.setPageSize(getPageSize());
+					this.setPaginator(paginator);
 
 					metadataTransformer = trfService
 							.getMDTransformer(runningContext.getNetwork().getMetadataStoreSchema(), targetSchemaName);
@@ -195,10 +199,6 @@ public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkR
 							+ " " + runningContext.getNetwork().getMetadataStoreSchema() + " >> " + targetSchemaName
 							+ " error: " + e.getMessage());
 					error();
-				} catch (IOException e) {
-					logError("Error getting streams for indexing: " + runningContext.toString() + ": "
-							+ e.getMessage());
-					error();
 				}
 
 			} else {
@@ -215,6 +215,9 @@ public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkR
 	}
 
 	public void processItem(ValidationRecord record) {
+
+		// Increment counter for unique ID generation
+		recordCounter++;
 
 		try {
 
@@ -256,8 +259,8 @@ public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkR
 			// identifier del record
 			metadataTransformer.setParameter("identifier", record.getIdentifier());
 
-			// metadata como string
-			metadataTransformer.setParameter("record_id", getCurrentRecordUniqueID(snapshotId).toString());
+			// record_id: use snapshot + counter for unique integer ID
+			metadataTransformer.setParameter("record_id", generateRecordUniqueID(snapshotId).toString());
 
 			// metadata como string
 			if (record.getDatestamp() != null)
@@ -342,10 +345,7 @@ public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkR
 	public void postRun() {
 
 		try {
-			// Close stream to release DB resources
-			if (validationStream != null) {
-				validationStream.close();
-			}
+			// Paginator cleanup is handled by BaseBatchWorker
 
 			postPage();
 
@@ -367,13 +367,22 @@ public class IndexerWorker extends BaseIteratorWorker<ValidationRecord, NetworkR
 	}
 
 	/******************* Auxiliares ********** */
+	/**
+	 * Generates a unique record ID by combining snapshot ID with counter.
+	 * Uses bit shifting: snapshotId in bits 27-62, counter in bits 0-26.
+	 * NOTE: Counter must be incremented before calling this method.
+	 * 
+	 * @param snapshotId the snapshot ID
+	 * @return unique Long ID for the record
+	 */
+	private Long generateRecordUniqueID(Long snapshotId) {
+		return (snapshotId << 27) | (recordCounter & 0x7FFFFFFFL);
+	}
+
 	private void error() {
 		// With new @Transactional pattern, simply stopping the worker will persist
 		// the current snapshot state. Index status remains FAILED by default.
-		// No need to call saveSnapshot() - automatic persistence handles this.
-		if (validationStream != null) { // Ensure stream is closed on error
-			validationStream.close();
-		}
+		// Paginator cleanup is handled by BaseBatchWorker
 		this.stop();
 	}
 

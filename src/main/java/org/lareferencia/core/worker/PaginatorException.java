@@ -25,7 +25,7 @@ package org.lareferencia.core.worker;
  * Exception thrown when an error occurs during pagination operations.
  * Indicates failures in page-based data iteration or retrieval.
  */
-public class PaginatorException extends Exception {
+public class PaginatorException extends RuntimeException {
 
 	/**
 	 * Constructs a new paginator exception with the specified detail message.
@@ -34,6 +34,17 @@ public class PaginatorException extends Exception {
 	 */
 	public PaginatorException(String string) {
 		super(string);
+	}
+
+	/**
+	 * Constructs a new paginator exception with the specified detail message and
+	 * cause.
+	 * 
+	 * @param string the detail message describing the pagination error
+	 * @param cause  the underlying cause of the exception
+	 */
+	public PaginatorException(String string, Throwable cause) {
+		super(string, cause);
 	}
 
 }
