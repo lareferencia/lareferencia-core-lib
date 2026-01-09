@@ -250,6 +250,11 @@
 					<groupId>log4j</groupId>
 					<artifactId>log4j</artifactId>
 				</exclusion>
+				<!-- Exclude old JLine version (3.9.0) that conflicts with Spring Shell 3.x (needs 3.26.x) -->
+				<exclusion>
+					<groupId>org.jline</groupId>
+					<artifactId>jline</artifactId>
+				</exclusion>
 			</exclusions>
 		</dependency>
 
