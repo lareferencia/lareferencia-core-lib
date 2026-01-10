@@ -447,6 +447,12 @@ public class RecordValidationRepository {
     public AggregatedStats getAggregatedStats(Long snapshotId, List<String> filters, List<Long> ruleIds) {
         AggregatedStats stats = new AggregatedStats();
 
+        DataSource ds = dbManager.getDataSource(snapshotId);
+        if (ds == null) {
+            logger.warn("VALIDATION REPO: No DataSource for snapshot {} in getAggregatedStats", snapshotId);
+            return stats;
+        }
+
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) as total, ");
         sql.append("SUM(is_valid) as valid_count, ");
         sql.append("SUM(is_transformed) as transformed_count");
@@ -462,7 +468,6 @@ public class RecordValidationRepository {
 
         applyFilters(sql, filters, params);
 
-        DataSource ds = dbManager.getDataSource(snapshotId);
         try (Connection conn = ds.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
 

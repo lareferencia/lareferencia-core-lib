@@ -27,7 +27,7 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.domain.NetworkSnapshot;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.SnapshotMetadata;
-import org.lareferencia.core.repository.catalog.OAIRecord;
+
 import org.lareferencia.core.repository.validation.*;
 import org.lareferencia.core.util.PathUtils;
 import org.lareferencia.core.worker.validation.ValidatorResult;
@@ -164,7 +164,8 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
 
         // Build ValidationRecord
         ValidationRecord validationRecord = new ValidationRecord();
-        validationRecord.setIdentifierHash(OAIRecord.generateIdFromIdentifier(record.getIdentifier()));
+        // Use pre-calculated hash from OAIRecord instead of recalculating
+        validationRecord.setIdentifierHash(record.getId());
         validationRecord.setIdentifier(record.getIdentifier());
         validationRecord.setDatestamp(record.getDatestamp());
         validationRecord.setValid(validationResult.isValid());
@@ -292,21 +293,15 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                 throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshotID);
             }
 
-            // Open database if not already open
-            if (!dbManager.hasActiveDataSource(snapshotID)) {
-                dbManager.openSnapshotForRead(metadata);
-                // Register rule IDs for reading
-                List<Long> ruleIds = metadata.getRuleDefinitions().keySet()
-                        .stream().sorted().collect(Collectors.toList());
-                recordRepository.registerRuleIds(snapshotID, ruleIds);
-            }
+            // Ensure database is open for reading
+            ensureDatabaseOpenForRead(snapshotID, metadata);
 
             int offset = pageable.getPageNumber() * pageable.getPageSize();
             int limit = pageable.getPageSize();
 
             // Query records
             List<ValidationRecord> records = recordRepository.queryWithPagination(
-                    snapshotID, filters, offset, offset + limit);
+                    snapshotID, filters, offset, limit);
 
             // Convert to observations
             List<ValidationStatObservation> observations = records.stream()
@@ -335,10 +330,8 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                 throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshotID);
             }
 
-            // Open database if needed
-            if (!dbManager.hasActiveDataSource(snapshotID)) {
-                dbManager.openSnapshotForRead(metadata);
-            }
+            // Ensure database is open for reading
+            ensureDatabaseOpenForRead(snapshotID, metadata);
 
             // Get occurrences from rule_occurrences table
             Map<String, Map<String, Integer>> occurrences = occurrenceRepository.getOccurrencesByRule(snapshotID,
@@ -379,13 +372,8 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                 throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshotID);
             }
 
-            // Open database if needed
-            if (!dbManager.hasActiveDataSource(snapshotID)) {
-                dbManager.openSnapshotForRead(metadata);
-                List<Long> ruleIds = metadata.getRuleDefinitions().keySet()
-                        .stream().sorted().collect(Collectors.toList());
-                recordRepository.registerRuleIds(snapshotID, ruleIds);
-            }
+            // Ensure database is open for reading
+            ensureDatabaseOpenForRead(snapshotID, metadata);
 
             ValidationRecord record = recordRepository.getByIdentifier(snapshotID, identifier);
             if (record == null) {
@@ -464,6 +452,19 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
     // PRIVATE HELPERS
     // ========================================
 
+    /**
+     * Ensures database is open for reading and rule IDs are registered.
+     * Extracted to reduce code duplication.
+     */
+    private void ensureDatabaseOpenForRead(Long snapshotId, SnapshotMetadata metadata) throws IOException {
+        if (!dbManager.hasActiveDataSource(snapshotId)) {
+            dbManager.openSnapshotForRead(metadata);
+            List<Long> ruleIds = metadata.getRuleDefinitions().keySet()
+                    .stream().sorted().collect(Collectors.toList());
+            recordRepository.registerRuleIds(snapshotId, ruleIds);
+        }
+    }
+
     private void flushBuffers(Long snapshotId) {
         if (!recordBuffer.isEmpty()) {
             try {
@@ -514,13 +515,8 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
 
         Long snapshotId = metadata.getSnapshotId();
 
-        // Open database if needed
-        if (!dbManager.hasActiveDataSource(snapshotId)) {
-            dbManager.openSnapshotForRead(metadata);
-            List<Long> ruleIds = metadata.getRuleDefinitions().keySet()
-                    .stream().sorted().collect(Collectors.toList());
-            recordRepository.registerRuleIds(snapshotId, ruleIds);
-        }
+        // Ensure database is open for reading
+        ensureDatabaseOpenForRead(snapshotId, metadata);
 
         SnapshotValidationStats stats = new SnapshotValidationStats(metadata);
 
