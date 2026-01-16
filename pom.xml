@@ -220,7 +220,7 @@
 			<version>7.0.0</version>
 		</dependency>
 
-		<!-- Apache Parquet - for legacy catalog migration -->
+		<!-- Apache Parquet - for legacy migration -->
 		<dependency>
 			<groupId>org.apache.parquet</groupId>
 			<artifactId>parquet-hadoop</artifactId>
