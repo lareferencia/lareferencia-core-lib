@@ -152,11 +152,11 @@ public class OAIRecordCatalogRepository {
     }
 
     /**
-     * Batch upsert con transacción.
-     * Más eficiente para operaciones masivas.
+     * Batch upsert with transaction.
+     * More efficient for bulk operations.
      * 
-     * @param snapshotId ID del snapshot
-     * @param records    Lista de registros a insertar/actualizar
+     * @param snapshotId Snapshot ID
+     * @param records    List of records to insert/update
      */
     public void upsertBatch(Long snapshotId, List<OAIRecord> records) {
         if (records == null || records.isEmpty()) {
@@ -168,6 +168,9 @@ public class OAIRecordCatalogRepository {
             throw new IllegalStateException("Snapshot " + snapshotId + " not initialized");
         }
 
+        long startTime = System.currentTimeMillis();
+        int totalRecords = records.size();
+
         try (Connection conn = ds.getConnection()) {
             conn.setAutoCommit(false);
 
@@ -178,20 +181,24 @@ public class OAIRecordCatalogRepository {
                     stmt.addBatch();
                     count++;
 
-                    // Ejecutar batch cada N registros
+                    // Execute batch every N records
                     if (count % batchSize == 0) {
                         stmt.executeBatch();
                         logger.debug("CATALOG REPO: Executed batch of {} records", batchSize);
                     }
                 }
 
-                // Ejecutar registros restantes
+                // Execute remaining records
                 if (count % batchSize != 0) {
                     stmt.executeBatch();
                 }
 
                 conn.commit();
-                logger.debug("CATALOG REPO: Committed {} records", count);
+
+                long elapsedMs = System.currentTimeMillis() - startTime;
+                double recordsPerSec = totalRecords / (elapsedMs / 1000.0);
+                logger.debug("CATALOG REPO: Committed {} records in {}ms ({} records/sec)",
+                        totalRecords, elapsedMs, String.format("%.1f", recordsPerSec));
 
             } catch (SQLException e) {
                 conn.rollback();
@@ -205,13 +212,21 @@ public class OAIRecordCatalogRepository {
     }
 
     /**
-     * Cierra conexión del snapshot.
+     * Closes snapshot connection.
+     * Logs final statistics before closing.
      * 
-     * @param snapshotId ID del snapshot
+     * @param snapshotId Snapshot ID
      */
     public void finalizeSnapshot(Long snapshotId) {
+        // Get statistics before closing
+        long totalRecords = count(snapshotId);
+        long notDeletedRecords = countNotDeleted(snapshotId);
+        long deletedRecords = totalRecords - notDeletedRecords;
+
         dbManager.closeDataSource(snapshotId);
-        logger.info("CATALOG REPO: Snapshot {} finalized", snapshotId);
+
+        logger.info("CATALOG REPO: Snapshot {} finalized - Total: {} records (Active: {}, Deleted: {})",
+                snapshotId, totalRecords, notDeletedRecords, deletedRecords);
     }
 
     // ============================================================================

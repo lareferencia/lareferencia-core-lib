@@ -95,6 +95,7 @@ public class CatalogDatabaseManager {
             );
 
             CREATE INDEX IF NOT EXISTS idx_deleted ON oai_record(deleted);
+            CREATE INDEX IF NOT EXISTS idx_datestamp ON oai_record(datestamp);
             """;
 
     // ============================================================================
@@ -191,16 +192,43 @@ public class CatalogDatabaseManager {
     // ============================================================================
 
     /**
-     * Cierra conexiones y libera recursos de un snapshot.
+     * Closes connections and releases resources for a snapshot.
+     * Executes WAL checkpoint before closing to clean up temporary files.
      * 
-     * @param snapshotId ID del snapshot
+     * @param snapshotId Snapshot ID
      */
     public void closeDataSource(Long snapshotId) {
         SQLiteDataSource ds = dataSources.remove(snapshotId);
         if (ds != null) {
+            // Execute WAL checkpoint to clean up -wal and -shm files
+            checkpointWAL(ds, snapshotId);
             logger.info("CATALOG DB: Closed DataSource for snapshot {}", snapshotId);
-            // SQLiteDataSource no requiere close explícito, las conexiones
-            // se cierran cuando se liberan
+        }
+    }
+
+    /**
+     * Executes WAL checkpoint to consolidate changes and clean up temporary files.
+     * This reduces disk size and improves subsequent open performance.
+     * 
+     * @param ds         Snapshot DataSource
+     * @param snapshotId Snapshot ID (for logging)
+     */
+    private void checkpointWAL(SQLiteDataSource ds, Long snapshotId) {
+        if (!walMode) {
+            return;
+        }
+
+        try (Connection conn = ds.getConnection();
+                Statement stmt = conn.createStatement()) {
+
+            // TRUNCATE mode: checkpoint and then truncate WAL file to zero bytes
+            stmt.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+            logger.debug("CATALOG DB: WAL checkpoint completed for snapshot {}", snapshotId);
+
+        } catch (SQLException e) {
+            // Checkpoint failure is not critical
+            logger.warn("CATALOG DB: WAL checkpoint failed for snapshot {}: {}",
+                    snapshotId, e.getMessage());
         }
     }
 
