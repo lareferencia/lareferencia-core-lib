@@ -21,19 +21,15 @@
 package org.lareferencia.core.worker.indexing;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.text.MessageFormat;
 import java.text.NumberFormat;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import javax.annotation.PostConstruct;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,6 +37,9 @@ import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
+import org.lareferencia.core.api.semantic.EmbeddingRequest;
+import org.lareferencia.core.api.semantic.EmbeddingResponse;
+import org.lareferencia.core.api.semantic.SemanticVectorAPI;
 import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.repository.validation.ValidationRecord;
 import org.lareferencia.core.repository.validation.ValidationRecordPaginator;
@@ -59,6 +58,7 @@ import org.lareferencia.core.util.date.DateHelper;
 import org.lareferencia.core.worker.BaseBatchWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
@@ -79,7 +79,10 @@ import lombok.Setter;
 @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
 public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunningContext> {
 
-	@Autowired
+    public static final int EMBEDDING_SUPPPORTED_NUMBER_OF_ARRAYS = 1;
+    private static Logger logger = LogManager.getLogger(SemanticIndexerWorker.class);
+
+    @Autowired
 	private ISnapshotStore snapshotStore;
 
 	@Autowired
@@ -88,366 +91,142 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Autowired
 	private ValidationDatabaseManager dbManager;
 
-	private static Logger logger = LogManager.getLogger(SemanticIndexerWorker.class);
-
 	@Autowired
 	private SnapshotLogService snapshotLogService;
 
 	@Autowired
-	MDFormatTransformerService trfService;
+	private MDFormatTransformerService metadataTransformerService;
+
+	@Autowired
+	private SemanticVectorAPI semanticVectorAPI;
 
 	private IMDFormatTransformer metadataTransformer;
 
 	private HttpSolrClient solrClient;
-	
-	// HTTP client for embedding API calls
-	private HttpClient httpClient;
-	private ObjectMapper objectMapper;
+
+	@Value("${frontend.solr.url}")
+    private String solrURL;
 
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
-
-	// Counter for generating unique record IDs (incremented in processItem)
 	private int recordCounter = 0;
-	
-	// Counters for embedding statistics
 	private int embeddedRecordsCount = 0;
 	private int failedEmbeddingsCount = 0;
+    private StringBuffer linesToBeSentToIndexing;
+    private NumberFormat percentajeFormat = NumberFormat.getPercentInstance();
 
-	@Getter
-	@Setter
-	private String targetSchemaName;
+    @Setter @Getter private String targetSchemaName;
+	@Setter @Getter private String solrNetworkIDField;
+	@Setter @Getter private boolean executeDeletion = false;
+	@Setter @Getter private boolean executeIndexing = false;
+	@Setter @Getter private boolean indexNetworkAttributes = false;
+	@Setter @Getter private Map<String, List<String>> contentFiltersByFieldName = null;
+	@Setter @Getter private String embeddingApiUrl;
+	@Setter @Getter private String sourceFieldForEmbedding = "dc.title.*";
+	@Setter @Getter private String vectorFieldName;
+	@Setter @Getter private int embeddingApiTimeoutSeconds = 30;
+	@Setter @Getter private boolean skipOnEmbeddingFailure = true;
 
-	@Getter
-	@Setter
-	private String solrNetworkIDField;
-
-	@Getter
-	@Setter
-	private String solrRecordIDField = "id";
-
-	@Getter
-	@Setter
-	private boolean executeDeletion = false;
-
-	@Getter
-	@Setter
-	private boolean executeIndexing = false;
-
-	@Getter
-	@Setter
-	private boolean indexDeletedRecords = false;
-
-	@Getter
-	@Setter
-	private boolean indexNetworkAttributes = false;
-
-	@Getter
-	@Setter
-	private Map<String, List<String>> contentFiltersByFieldName = null;
-	
-	// ==================== Semantic Indexing Parameters ====================
-	
-	/**
-	 * URL of the embedding API endpoint.
-	 * Expected API format: POST with JSON body {"text": "..."} 
-	 * Returns: {"embedding": [0.1, 0.2, ...]} (768-dimensional vector)
-	 */
-	@Getter
-	@Setter
-	private String embeddingApiUrl;
-	
-	/**
-	 * Metadata field pattern to extract text for embedding generation.
-	 * Supports wildcards, e.g., "dc.title.*" to get all title variations.
-	 * Default: "dc.title.*"
-	 */
-	@Getter
-	@Setter
-	private String sourceFieldForEmbedding = "dc.title.*";
-	
-	/**
-	 * Name of the Solr field where the embedding vector will be stored.
-	 * Must be configured as DenseVectorField in Solr schema.
-	 * Default: "semantic_vector"
-	 */
-	@Getter
-	@Setter
-	private String vectorFieldName = "semantic_vector";
-	
-	/**
-	 * Timeout in seconds for embedding API calls.
-	 * Default: 30 seconds
-	 */
-	@Getter
-	@Setter
-	private int embeddingApiTimeoutSeconds = 30;
-	
-	/**
-	 * Whether to skip records that fail embedding generation.
-	 * If true, records without embeddings are still indexed (without vector).
-	 * If false, embedding failures cause the record to be skipped entirely.
-	 * Default: true
-	 */
-	@Getter
-	@Setter
-	private boolean skipOnEmbeddingFailure = true;
-
-	private StringBuffer stringBuffer;
-
-	NumberFormat percentajeFormat = NumberFormat.getPercentInstance();
-
-	/**
-	 * Creates a semantic indexer worker with the specified Solr URL.
-	 * 
-	 * @param solrURL the Solr server URL
-	 */
-	public SemanticIndexerWorker(String solrURL) {
+	public SemanticIndexerWorker() {
 		super();
-		this.solrClient = new HttpSolrClient.Builder(solrURL).build();
-		this.httpClient = HttpClient.newBuilder()
-				.connectTimeout(Duration.ofSeconds(10))
-				.build();
-		this.objectMapper = new ObjectMapper();
 	}
 
-	/**
-	 * Initializes the indexer before processing starts.
-	 */
+	@PostConstruct
+    public void init() {
+        this.solrClient = new HttpSolrClient.Builder(solrURL).build();
+    }
+
+	@Override
 	public void preRun() {
-
-		if (executeDeletion && !executeIndexing) { // si es un borrado sin indexacion
-
-			logger.debug("Executing index deletion (without indexing): " + runningContext.getNetwork().getAcronym());
-
-			// Si es solo un borrado envia el mensaje de borrado
-			delete(runningContext.getNetwork().getAcronym());
-			// establece un paginador nulo para no recorrer los registros
-
-		} else {
-
-			// busca el lgk
-			snapshotId = snapshotStore.findLastGoodKnownSnapshot(runningContext.getNetwork()); // snpshotRepository.findLastGoodKnowByNetworkID(runningContext.getNetwork().getId());
-
-			if (snapshotId != null) { // solo si existe un lgk
-
-				snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
-
-				logger.debug("Executing index deletion: " + runningContext.getNetwork().getAcronym());
-				logInfo("Executing index deletion: " + runningContext.toString() + " (" + this.targetSchemaName + ")");
-				delete(runningContext.getNetwork().getAcronym());
-
-				logger.debug("Full semantic indexing (" + this.targetSchemaName + "): " + snapshotId);
-				logInfo("Full semantic indexing: " + runningContext.toString() + "(" + this.targetSchemaName + ")");
-				logInfo("Embedding API: " + embeddingApiUrl + " | Source field: " + sourceFieldForEmbedding + " | Vector field: " + vectorFieldName);
-
-				// establece el transformador para indexación
-				try {
-					// Create paginator for validation records
-					ValidationRecordPaginator paginator = new ValidationRecordPaginator(
-							snapshotMetadata, dbManager);
-					paginator.setPageSize(getPageSize());
-					this.setPaginator(paginator);
-
-					metadataTransformer = trfService
-							.getMDTransformer(runningContext.getNetwork().getMetadataStoreSchema(), targetSchemaName);
-
-					metadataTransformer.setParameter("networkAcronym", runningContext.getNetwork().getAcronym());
-					metadataTransformer.setParameter("networkName", runningContext.getNetwork().getName());
-					metadataTransformer.setParameter("institutionName",
-							runningContext.getNetwork().getInstitutionName());
-					metadataTransformer.setParameter("institutionAcronym",
-							runningContext.getNetwork().getInstitutionAcronym());
-
-					// Set parameters from network attributes
-					if (indexNetworkAttributes)
-						MDTransformerParameterSetter.setParametersFromMap(metadataTransformer, "attr_",
-								runningContext.getNetwork().getAttributes());
-
-				} catch (MDFormatTranformationException e) {
-					logError("Metadata transformation configuration ERROR at indexing: " + runningContext.toString()
-							+ " " + runningContext.getNetwork().getMetadataStoreSchema() + " >> " + targetSchemaName
-							+ " error: " + e.getMessage());
-					error();
-				}
-
-			} else {
-
-				logError("Didn't find LGKSnapshot on the network: " + runningContext.toString());
-				error();
-			}
-
+		if (isDeletionOnlyMode()) {
+			handleDeletionOnly();
+			return;
 		}
+	
+		if (!initializeSnapshot()) {
+			return;
+		}
+	
+		if (!prepareForIndexing()) {
+			return;
+		}
+	
+		setupPaginator();
 	}
 
+	@Override
 	public void prePage() {
-		stringBuffer = new StringBuffer();
+		linesToBeSentToIndexing = new StringBuffer();
 	}
 
+	@Override
 	public void processItem(ValidationRecord record) {
 
-		// Increment counter for unique ID generation
-		recordCounter++;
-
 		try {
-
 			OAIRecordMetadata metadata = new OAIRecordMetadata(record.getIdentifier(),
 					metadataStore.getMetadata(snapshotMetadata, record.getPublishedMetadataHash()));
-
-			// this filters the records by content, using the contentFiltersByFieldName map
-			if (contentFiltersByFieldName != null) {
-
-				logger.debug("Evaluating record content: " + record.getIdentifierHash());
-
-				boolean allowIndexing = true;
-
-				for (String fieldName : contentFiltersByFieldName.keySet()) {
-
-					boolean isFieldValid = false;
-
-					List<String> validValues = contentFiltersByFieldName.get(fieldName);
-
-					for (String occr : metadata.getFieldOcurrences(fieldName)) {
-						isFieldValid |= validValues.contains(occr);
-					}
-
-					allowIndexing &= isFieldValid;
-
-					logger.debug("fieldName: " + isFieldValid);
-
-				}
-
-				if (!allowIndexing) // si no pertenece al conjunto de este indexador entonces debe ser rechazado
-					return;
-
-			} // end of content filtering
-
-			// fingerprint del registro
-			metadataTransformer.setParameter("fingerprint", runningContext.getNetwork().getAcronym() + "_"
-					+ record.getIdentifierHash());
-
-			// identifier del record
-			metadataTransformer.setParameter("identifier", record.getIdentifier());
-
-			// record_id: use snapshot + counter for unique integer ID
-			metadataTransformer.setParameter("record_id", generateRecordUniqueID(snapshotId).toString());
-
-			// metadata como string
-			if (record.getDatestamp() != null)
-				metadataTransformer.setParameter("timestamp",
-						DateHelper.getDateTimeMachineString(record.getDatestamp()));
-
-			// if the record is invalid, deleted or untested then set the deleted parameter
-			// to true
-			// this parameter is used to filter out deleted records in oai providers
-			// this parameter is not used by frontends solr indices
-			metadataTransformer
-					.setParameter("deleted", Boolean.valueOf(!record.isValid()).toString());
-
-			// metadata como string
-			metadataTransformer.setParameter("metadata", metadata.toString());
-
-			// if the record is valid or if it is a deleted record but indexDeletedRecords
-			// is true then index it
-			// indexDeletedRecords is used to index deleted records in the index, this is
-			// used by oaipmh providers but not by frontends
-			// frontend indexer should set indexDeletedRecords to false and oai provider
-			// indexer should set it to true
-			if (record.isValid()) {
-				String recordStr = metadataTransformer.transformToString(metadata.getDOMDocument());
-				
-				// ==================== Semantic Embedding Generation ====================
-				String textForEmbedding = extractTextForEmbedding(metadata);
-				float[] embedding = null;
-				
-				if (textForEmbedding != null && !textForEmbedding.trim().isEmpty()) {
-					try {
-						embedding = generateEmbedding(textForEmbedding);
-						if (embedding != null) {
-							embeddedRecordsCount++;
-							logger.debug("Generated embedding for record: " + record.getIdentifierHash() + 
-									" | Text length: " + textForEmbedding.length() + 
-									" | Vector dimension: " + embedding.length);
-						}
-					} catch (Exception e) {
-						failedEmbeddingsCount++;
-						logger.warn("Failed to generate embedding for record: " + record.getIdentifierHash() + 
-								" | Error: " + e.getMessage());
-						if (!skipOnEmbeddingFailure) {
-							return; // Skip this record entirely
-						}
-					}
-				} else {
-					logger.debug("No text found for embedding in record: " + record.getIdentifierHash());
-				}
-				
-				// Inject the vector field into the Solr document XML
-				if (embedding != null) {
-					recordStr = injectVectorField(recordStr, embedding);
-				}
-				// ==================== End Semantic Embedding ====================
-				
-				stringBuffer.append(recordStr);
-
-				logger.debug("Transformed record to be indexed: " + record.getIdentifierHash() + " :: "
-						+ record.getIdentifier());
-				logger.debug("Indexed record size in bytes: " + recordStr.length());
-			} else {
-				logger.debug(
-						"Record not indexed: " + record.getIdentifierHash() + " :: " + record.getIdentifier() + " :: "
-								+ record.isValid());
+	
+			if (!passesContentFilter(metadata)) {
+				logger.debug(MessageFormat.format("Record does not pass content filter: {0}", record.getIdentifier()));
+				return;
 			}
-
+	
+			setTransformerParameters(record, metadata);
+	
+			if (record.isValid()) {
+				String recordXml = metadataTransformer.transformToString(metadata.getDOMDocument());
+				String enrichedXml = enrichRecordWithEmbedding(recordXml, metadata, record.getIdentifierHash());
+	
+				if (enrichedXml != null) {
+					linesToBeSentToIndexing.append(enrichedXml);
+					logger.debug(MessageFormat.format("Transformed record to be indexed: {0} :: {1}", record.getIdentifierHash(), record.getIdentifier()));
+					logger.debug(MessageFormat.format("Indexed record size in bytes: {0}", enrichedXml.length()));
+				}
+			} else {
+				logger.debug(MessageFormat.format("Record not indexed: {0} :: {1} :: {2}", record.getIdentifierHash(), record.getIdentifier(), record.isValid()));
+			}
 		} catch (MDFormatTranformationException e) {
-
-			logError("Index::RecordID:" + record.getIdentifierHash() + " oai_id:" + record.getIdentifier()
-					+ " transformation Error xslt with the schema: " + targetSchemaName + " :: " + e.getMessage());
+			logError(MessageFormat.format("Index::RecordID:{0} oai_id:{1} transformation Error xslt with the schema: {2} :: {3}", record.getIdentifierHash(), record.getIdentifier(), targetSchemaName, e.getMessage()));
 			logger.debug(e.getMessage(), e);
-			// logger.debug("Record Metadata: \n" + metadata.toString() + "\n\n");
 			error();
 		} catch (OAIRecordMetadataParseException e) {
-			logError("Index::RecordID:" + record.getIdentifierHash() + " oai_id:" + record.getIdentifier()
-					+ " error getting record metadata: :: " + e.getMessage());
+			logError(MessageFormat.format("Index::RecordID:{0} oai_id:{1} error getting record metadata: :: {2}", record.getIdentifierHash(), record.getIdentifier(), e.getMessage()));
 		} catch (Exception e) {
-			// Catches MetadataRecordStoreException and other exceptions
-			logError("Index::RecordID:" + record.getIdentifierHash() + " oai_id:" + record.getIdentifier()
-					+ " error: :: " + e.getMessage());
+			logError(MessageFormat.format("Index::RecordID:{0} oai_id:{1} error: :: {2}", record.getIdentifierHash(), record.getIdentifier(), e.getMessage()));
 		}
-
 	}
 
+	@Override
 	public void postPage() {
 
-		if (stringBuffer.length() > 0) {
+		if (!linesToBeSentToIndexing.isEmpty()) {
 			try {
-				this.sendUpdateToSolr("<add>" + stringBuffer.toString() + "</add>");
+				this.sendUpdateToSolr(MessageFormat.format("<add>{0}</add>", linesToBeSentToIndexing));
 			} catch (SolrServerException e) {
-				logError("Issues whe connecting to SOLR: " + runningContext.toString() + ": " + e.getMessage());
-				logger.debug(stringBuffer);
+				logError(MessageFormat.format("Issues whe connecting to SOLR: {0}: {1}", runningContext.toString(), e.getMessage()));
+				logger.debug(linesToBeSentToIndexing);
 				solrRollback();
 				error();
 
 			} catch (IOException e) {
-				logError("Issues when sending to SOLR - I/O: " + runningContext.toString()
-						+ ": " + e.getMessage());
-				logger.debug(stringBuffer);
+				logError(MessageFormat.format("Issues when sending to SOLR - I/O: {0}: {1}", runningContext.toString(), e.getMessage()));
+				logger.debug(linesToBeSentToIndexing);
 				solrRollback();
 				error();
 
 			} catch (Exception e) {
-				logError("Issues with the index process - Undetermined: " + runningContext.toString()
-						+ ": " + e.getMessage());
-				logger.debug(stringBuffer);
+				logError(MessageFormat.format("Issues with the index process - Undetermined: {0}: {1}", runningContext.toString(), e.getMessage()));
+				logger.debug(linesToBeSentToIndexing);
 				solrRollback();
 				error();
 			}
 		}
 	}
 
+	@Override
 	public void postRun() {
 
 		try {
-			// Paginator cleanup is handled by BaseBatchWorker
 
 			postPage();
 
@@ -456,20 +235,149 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			if (executeIndexing)
 				snapshotStore.markAsIndexed(snapshotId);
 
-			logInfo("Finishing Semantic Indexing: " + runningContext.toString() + "(" + this.targetSchemaName + ")");
-			logInfo("Indexed documents in " + runningContext.getNetwork().getAcronym() + "::" + this.targetSchemaName
-					+ " = " + this.queryForNetworkDocumentCount(runningContext.getNetwork().getAcronym()));
-			logInfo("Embedding stats - Success: " + embeddedRecordsCount + " | Failed: " + failedEmbeddingsCount);
+			logInfo(MessageFormat.format("Finishing Semantic Indexing: {0}({1})", runningContext.toString(), this.targetSchemaName));
+			logInfo(MessageFormat.format("Indexed documents in {0}::{1} = {2}", runningContext.getNetwork().getAcronym(), this.targetSchemaName, this.queryForNetworkDocumentCount(runningContext.getNetwork().getAcronym())));
+			logInfo(MessageFormat.format("Embedding stats - Success: {0} | Failed: {1}", embeddedRecordsCount, failedEmbeddingsCount));
 
-			logger.debug("Updates snapshot status to " + SnapshotIndexStatus.INDEXED);
+			logger.debug(MessageFormat.format("Updates snapshot status to {0}", SnapshotIndexStatus.INDEXED));
 
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
-			logError("Issues when commiting to SOLR: " + runningContext.toString() + ": " + e.getMessage());
+			logError(MessageFormat.format("Issues when commiting to SOLR: {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
 	}
 
-	/******************* Auxiliares ********** */
+
+	private boolean isDeletionOnlyMode() {
+		return executeDeletion && !executeIndexing;
+	}
+
+	private void handleDeletionOnly() {
+		logger.debug(MessageFormat.format("Executing index deletion (without indexing): {0}", runningContext.getNetwork().getAcronym()));
+		delete(runningContext.getNetwork().getAcronym());
+	}
+	
+	private boolean initializeSnapshot() {
+		snapshotId = snapshotStore.findLastGoodKnownSnapshot(runningContext.getNetwork());
+		if (snapshotId == null) {
+			logError(MessageFormat.format("Didn't find LGKSnapshot on the network: {0}", runningContext.toString()));
+			error();
+			return false;
+		}
+		snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
+		return true;
+	}
+	
+	private boolean prepareForIndexing() {
+		logger.debug(MessageFormat.format("Executing index deletion: {0}", runningContext.getNetwork().getAcronym()));
+		logInfo(MessageFormat.format("Executing index deletion: {0} ({1})", runningContext.toString(), this.targetSchemaName));
+	
+		logger.debug(MessageFormat.format("Full semantic indexing ({0}): {1}", this.targetSchemaName, snapshotId));
+		logInfo(MessageFormat.format("Full semantic indexing: {0}({1})", runningContext.toString(), this.targetSchemaName));
+		logInfo(MessageFormat.format("Embedding API: {0} | Source field: {1} | Vector field: {2}", embeddingApiUrl, sourceFieldForEmbedding, vectorFieldName));
+	
+		return initializeTransformer();
+	}
+	
+	private boolean initializeTransformer() {
+		try {
+			metadataTransformer = metadataTransformerService.getMDTransformer(runningContext.getNetwork().getMetadataStoreSchema(), targetSchemaName);
+			metadataTransformer.setParameter("networkAcronym", runningContext.getNetwork().getAcronym());
+			metadataTransformer.setParameter("networkName", runningContext.getNetwork().getName());
+			metadataTransformer.setParameter("institutionName", runningContext.getNetwork().getInstitutionName());
+			metadataTransformer.setParameter("institutionAcronym", runningContext.getNetwork().getInstitutionAcronym());
+	
+			if (indexNetworkAttributes) {
+				MDTransformerParameterSetter.setParametersFromMap(metadataTransformer, "attr_", runningContext.getNetwork().getAttributes());
+			}
+			return true;
+		} catch (MDFormatTranformationException e) {
+			logError(MessageFormat.format("Metadata transformation configuration ERROR at indexing: {0} {1} >> {2} error: {3}", runningContext.toString(), runningContext.getNetwork().getMetadataStoreSchema(), targetSchemaName, e.getMessage()));
+			error();
+			return false;
+		}
+	}
+	
+	private void setupPaginator() {
+		ValidationRecordPaginator paginator = new ValidationRecordPaginator(snapshotMetadata, dbManager);
+		paginator.setPageSize(getPageSize());
+		this.setPaginator(paginator);
+	}
+	
+	private boolean passesContentFilter(OAIRecordMetadata metadata) {
+		if (contentFiltersByFieldName == null) {
+			return true;
+		}
+	
+		logger.debug(MessageFormat.format("Evaluating record content: {0}", metadata.getIdentifier()));
+	
+		for (Map.Entry<String, List<String>> entry : contentFiltersByFieldName.entrySet()) {
+			String fieldName = entry.getKey();
+			List<String> validValues = entry.getValue();
+			boolean fieldHasValidValue = false;
+	
+			for (String occurrence : metadata.getFieldOcurrences(fieldName)) {
+				if (validValues.contains(occurrence)) {
+					fieldHasValidValue = true;
+					break;
+				}
+			}
+	
+			if (!fieldHasValidValue) {
+				logger.debug(MessageFormat.format("Record fails filter on field: {0}", fieldName));
+				return false;
+			}
+		}
+		return true;
+	}
+	
+	private void setTransformerParameters(ValidationRecord record, OAIRecordMetadata metadata) {
+		metadataTransformer.setParameter("fingerprint", MessageFormat.format("{0}_{1}", runningContext.getNetwork().getAcronym(), record.getIdentifierHash()));
+		metadataTransformer.setParameter("identifier", record.getIdentifier());
+		metadataTransformer.setParameter("record_id", generateRecordUniqueID(snapshotId).toString());
+	
+		if (record.getDatestamp() != null) {
+			metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(record.getDatestamp()));
+		}
+	
+		metadataTransformer.setParameter("deleted", Boolean.valueOf(!record.isValid()).toString());
+		metadataTransformer.setParameter("metadata", metadata.toString());
+	}
+
+	private String enrichRecordWithEmbedding(String recordXml, OAIRecordMetadata metadata, String recordIdentifier) {
+		String textForEmbedding = extractTextForEmbedding(metadata);
+		if (textForEmbedding == null || textForEmbedding.trim().isEmpty()) {
+			logger.debug(MessageFormat.format("No text found for embedding in record: {0}", recordIdentifier));
+			return recordXml;
+		}
+
+		try {
+			EmbeddingResponse response = semanticVectorAPI.generateEmbedding(
+                    new EmbeddingRequest(textForEmbedding,
+                            "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+                            "float",
+                            768,
+                            "lareferencia-harvester"));
+
+			if (response != null && response.getData() != null && response.getData().size() == EMBEDDING_SUPPPORTED_NUMBER_OF_ARRAYS) {
+				embeddedRecordsCount++;
+				logger.debug(MessageFormat.format("Generated embedding for record: {0} | Text length: {1} | Vector dimension: {2}", recordIdentifier, textForEmbedding.length(), response.getData().size()));
+
+                List<Float> embeddingAslist = response.getData().get(0).getEmbedding();
+                Float[] floatObjectArray = embeddingAslist.toArray(new Float[0]);
+
+				return injectVectorField(recordXml, floatObjectArray);
+			}
+		} catch (Exception e) {
+			failedEmbeddingsCount++;
+			logger.error(MessageFormat.format("Failed to generate embedding for record: {0} | Error: {1}", recordIdentifier, e.getMessage()));
+			if (!skipOnEmbeddingFailure) {
+				return null; // Signal to skip the record
+			}
+		}
+		return recordXml;
+	}
+
 	/**
 	 * Generates a unique record ID by combining snapshot ID with counter.
 	 * Uses bit shifting: snapshotId in bits 27-62, counter in bits 0-26.
@@ -479,33 +387,30 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	 * @return unique Long ID for the record
 	 */
 	private Long generateRecordUniqueID(Long snapshotId) {
-		return (snapshotId << 27) | (recordCounter & 0x7FFFFFFFL);
+		return (snapshotId << 27) | (++recordCounter & 0x7FFFFFFFL);
 	}
 
 	private void error() {
-		// With new @Transactional pattern, simply stopping the worker will persist
-		// the current snapshot state. Index status remains FAILED by default.
-		// Paginator cleanup is handled by BaseBatchWorker
 		this.stop();
 	}
 
 	private void logError(String message) {
 		logger.error(message);
-		snapshotLogService.addEntry(snapshotId, "ERROR: " + message);
+		snapshotLogService.addEntry(snapshotId, MessageFormat.format("ERROR: {0}", message));
 	}
 
 	private void logInfo(String message) {
 		logger.info(message);
-		snapshotLogService.addEntry(snapshotId, "INFO: " + message);
+		snapshotLogService.addEntry(snapshotId, MessageFormat.format("INFO: {0}", message));
 	}
 
 	private void delete(String networkAcronym) {
 		// Borrado de la red
 		try {
 			this.sendUpdateToSolr(
-					"<delete><query>" + this.solrNetworkIDField + ":" + networkAcronym + "</query></delete>");
+					MessageFormat.format("<delete><query>{0}:{1}</query></delete>", this.solrNetworkIDField, networkAcronym));
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
-			logError("Issues when deleting index: " + runningContext.toString() + ": " + e.getMessage());
+			logError(MessageFormat.format("Issues when deleting index: {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
 	}
@@ -513,11 +418,10 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	private Long queryForNetworkDocumentCount(String networkAcronym) {
 
 		try {
-			return this.sendCountQueryToSolr(this.solrNetworkIDField + ":" + networkAcronym);
+			return this.sendCountQueryToSolr(MessageFormat.format("{0}:{1}", this.solrNetworkIDField, networkAcronym));
 
 		} catch (Exception e) {
-			logError("Issues when querying for network document count: " + runningContext.toString() + ": "
-					+ e.getMessage());
+			logError(MessageFormat.format("Issues when querying for network document count: {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
 		return 0L;
@@ -528,7 +432,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 		try {
 			this.sendUpdateToSolr("<rollback/>");
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
-			logError("Issues with rollback  " + runningContext.toString() + ": " + e.getMessage());
+			logError(MessageFormat.format("Issues with rollback  {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
 	}
@@ -538,6 +442,8 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 		DirectXmlRequest request = new DirectXmlRequest("/update", data);
 		solrClient.request(request);
 	}
+
+
 
 	private Long sendCountQueryToSolr(String queryString) {
 		try {
@@ -549,7 +455,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			return solrClient.query(query).getResults().getNumFound();
 
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
-			logError("Issues with query  " + runningContext.toString() + ": " + e.getMessage());
+			logError(MessageFormat.format("Issues with query  {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
 		return 0L;
@@ -557,12 +463,10 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 	@Override
 	public String toString() {
-		return "SemanticIndexer[" + ((executeDeletion && !executeIndexing) ? "Delete:" : "") + targetSchemaName + "]("
-				+ percentajeFormat.format(this.getCompletionRate()) + ")";
+		return MessageFormat.format("SemanticIndexer[{0}{1}]({2})", ((executeDeletion && !executeIndexing) ? "Delete:" : ""), targetSchemaName, percentajeFormat.format(this.getCompletionRate()));
 	}
 	
-	// ==================== Embedding Helper Methods ====================
-	
+
 	/**
 	 * Extracts text from the configured source field for embedding generation.
 	 * Concatenates multiple occurrences with spaces.
@@ -576,58 +480,8 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			return null;
 		}
 		return occurrences.stream()
-				.filter(s -> s != null && !s.trim().isEmpty())
+				.filter(metadataValue -> metadataValue != null && !metadataValue.trim().isEmpty())
 				.collect(Collectors.joining(" "));
-	}
-	
-	/**
-	 * Calls the embedding API to generate a vector for the given text.
-	 * 
-	 * Expected API contract:
-	 * - Request: POST with JSON body {"text": "..."}
-	 * - Response: JSON with {"embedding": [float, float, ...]}
-	 * 
-	 * @param text the text to embed
-	 * @return the embedding vector (768 dimensions), or null on failure
-	 * @throws IOException if API call fails
-	 * @throws InterruptedException if API call is interrupted
-	 */
-	private float[] generateEmbedding(String text) throws IOException, InterruptedException {
-		if (embeddingApiUrl == null || embeddingApiUrl.trim().isEmpty()) {
-			logger.warn("Embedding API URL not configured, skipping embedding generation");
-			return null;
-		}
-		
-		// Prepare JSON request body
-		String requestBody = objectMapper.writeValueAsString(Map.of("text", text));
-		
-		HttpRequest request = HttpRequest.newBuilder()
-				.uri(URI.create(embeddingApiUrl))
-				.header("Content-Type", "application/json")
-				.timeout(Duration.ofSeconds(embeddingApiTimeoutSeconds))
-				.POST(HttpRequest.BodyPublishers.ofString(requestBody))
-				.build();
-		
-		HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-		
-		if (response.statusCode() != 200) {
-			throw new IOException("Embedding API returned status " + response.statusCode() + ": " + response.body());
-		}
-		
-		// Parse response
-		JsonNode jsonResponse = objectMapper.readTree(response.body());
-		JsonNode embeddingNode = jsonResponse.get("embedding");
-		
-		if (embeddingNode == null || !embeddingNode.isArray()) {
-			throw new IOException("Invalid embedding API response: missing 'embedding' array");
-		}
-		
-		float[] embedding = new float[embeddingNode.size()];
-		for (int i = 0; i < embeddingNode.size(); i++) {
-			embedding[i] = (float) embeddingNode.get(i).asDouble();
-		}
-		
-		return embedding;
 	}
 	
 	/**
@@ -638,22 +492,17 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	 * @param embedding the embedding vector to inject
 	 * @return the modified XML with the vector field
 	 */
-	private String injectVectorField(String recordXml, float[] embedding) {
-		// Convert float array to Solr-compatible string format: [0.1, 0.2, ...]
-		String vectorString = Arrays.toString(embedding);
-		
-		// Create the vector field XML element
-		String vectorFieldXml = "<field name=\"" + vectorFieldName + "\">" + vectorString + "</field>";
-		
-		// Insert before the closing </doc> tag
+	private String injectVectorField(String recordXml, Float[] embedding) {
+        String vectorFieldXml = Arrays.stream(embedding).map(vectorValue ->
+                MessageFormat.format("<field name=\"{0}\">{1}</field>", vectorFieldName, String.format(Locale.US, "%f", vectorValue))).collect(Collectors.joining());
+
 		int closeDocIndex = recordXml.lastIndexOf("</doc>");
 		if (closeDocIndex != -1) {
-			return recordXml.substring(0, closeDocIndex) + vectorFieldXml + recordXml.substring(closeDocIndex);
+			return new StringBuilder(recordXml).insert(closeDocIndex, vectorFieldXml).toString();
 		}
 		
-		// Fallback: if no </doc> found, append at the end
 		logger.warn("Could not find </doc> tag in record XML, appending vector field at end");
-		return recordXml + vectorFieldXml;
+		return new StringBuilder(recordXml).append(vectorFieldXml).toString();
 	}
 
 }

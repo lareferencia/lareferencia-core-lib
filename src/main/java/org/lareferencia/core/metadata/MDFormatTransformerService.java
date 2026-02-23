@@ -20,11 +20,11 @@
 
 package org.lareferencia.core.metadata;
 
+import org.w3c.dom.Document;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-
-import org.w3c.dom.Document;
 
 /**
  * Service for managing and executing metadata format transformations.
