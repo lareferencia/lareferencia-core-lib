@@ -107,6 +107,18 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Value("${frontend.solr.url}")
     private String solrURL;
 
+	@Value("${embedding.model.name}")
+	private String embeddingModelName;
+
+	@Value("${embedding.model.datatype}")
+	private String embeddingModelDataType;
+
+	@Value("${embedding.model.dimension}")
+	private int embeddingModelDimension;
+
+	@Value("${embedding.model.applicationId}")
+	private String embeddingApplicationId;
+
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
 	private int recordCounter = 0;
@@ -354,10 +366,10 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 		try {
 			EmbeddingResponse response = semanticVectorAPI.generateEmbedding(
                     new EmbeddingRequest(textForEmbedding,
-                            "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-                            "float",
-                            768,
-                            "lareferencia-harvester"));
+                            embeddingModelName,
+                            embeddingModelDataType,
+                            embeddingModelDimension,
+                            embeddingApplicationId));
 
 			if (response != null && response.getData() != null && response.getData().size() == EMBEDDING_SUPPPORTED_NUMBER_OF_ARRAYS) {
 				embeddedRecordsCount++;
