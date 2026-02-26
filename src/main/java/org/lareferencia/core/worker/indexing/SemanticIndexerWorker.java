@@ -23,10 +23,7 @@ package org.lareferencia.core.worker.indexing;
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.text.NumberFormat;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
@@ -486,15 +483,15 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	 * @param metadata the OAI record metadata
 	 * @return concatenated text from source field, or null if empty
 	 */
-	private String extractTextForEmbedding(OAIRecordMetadata metadata) {
-		List<String> occurrences = metadata.getFieldOcurrences(sourceFieldForEmbedding);
-		if (occurrences == null || occurrences.isEmpty()) {
-			return null;
-		}
-		return occurrences.stream()
-				.filter(metadataValue -> metadataValue != null && !metadataValue.trim().isEmpty())
-				.collect(Collectors.joining(" "));
-	}
+    private String extractTextForEmbedding(OAIRecordMetadata metadata) {
+        return Arrays.stream(sourceFieldForEmbedding.split(","))
+                .map(String::trim)
+                .map(metadata::getFieldOcurrences)
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .filter(metadataValue -> metadataValue != null && !metadataValue.trim().isEmpty())
+                .collect(Collectors.joining(" "));
+    }
 	
 	/**
 	 * Injects the vector field into the Solr document XML.
