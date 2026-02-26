@@ -20,20 +20,27 @@
 
 package org.lareferencia.core.api.semantic;
 
+import java.io.IOException;
 import java.time.Duration;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.support.WebClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
 import reactor.netty.http.client.HttpClient;
+import reactor.util.retry.Retry;
 
 @Configuration
 public class SemanticVectorAPIConfig {
+
+    private static final Logger logger = LogManager.getLogger(SemanticVectorAPIConfig.class);
 
     @Value("${embedding.api.url}")
     private String embeddingApiUrl;
@@ -46,11 +53,20 @@ public class SemanticVectorAPIConfig {
         HttpClient httpClient = HttpClient.create()
                 .responseTimeout(Duration.ofSeconds(embeddingApiTimeoutSeconds));
 
+        // Define the retry strategy
+        Retry retryStrategy = Retry.backoff(3, Duration.ofSeconds(1))
+                .jitter(0.75)
+                .doBeforeRetry(retrySignal ->
+                        logger.warn("Retrying API call. Attempt: {}. Cause: {}",
+                                retrySignal.totalRetries() + 1,
+                                retrySignal.failure().getMessage()));
+
         WebClient webClient = WebClient.builder()
                 .baseUrl(embeddingApiUrl)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))
                 .defaultHeaders(headers -> headers.set("Content-Type", "application/json"))
+                .filter((request, next) -> next.exchange(request).retryWhen(retryStrategy))
                 .build();
 
         HttpServiceProxyFactory factory = HttpServiceProxyFactory.builder()
