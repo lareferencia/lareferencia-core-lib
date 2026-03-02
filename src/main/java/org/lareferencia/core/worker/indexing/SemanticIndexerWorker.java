@@ -77,6 +77,7 @@ import lombok.Setter;
 public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunningContext> {
 
     public static final int EMBEDDING_SUPPPORTED_NUMBER_OF_ARRAYS = 1;
+    public static final int MAX_EMBEDDING_TEXT_LENGTH = 8000;
     private static Logger logger = LogManager.getLogger(SemanticIndexerWorker.class);
 
     @Autowired
@@ -484,13 +485,27 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	 * @return concatenated text from source field, or null if empty
 	 */
     private String extractTextForEmbedding(OAIRecordMetadata metadata) {
-        return Arrays.stream(sourceFieldForEmbedding.split(","))
+        String text = Arrays.stream(sourceFieldForEmbedding.split(","))
                 .map(String::trim)
                 .map(metadata::getFieldOcurrences)
                 .filter(Objects::nonNull)
                 .flatMap(List::stream)
                 .filter(metadataValue -> metadataValue != null && !metadataValue.trim().isEmpty())
                 .collect(Collectors.joining(" "));
+
+        if (text.length() <= MAX_EMBEDDING_TEXT_LENGTH) {
+            return text;
+        }
+
+        // If it exceeds the limit, truncate to the limit and find the last space to avoid cutting a word
+        String truncated = text.substring(0, MAX_EMBEDDING_TEXT_LENGTH);
+        int lastSpaceIndex = truncated.lastIndexOf(' ');
+
+        if (lastSpaceIndex != -1) {
+            return truncated.substring(0, lastSpaceIndex).trim();
+        }
+
+        return truncated;
     }
 	
 	/**
