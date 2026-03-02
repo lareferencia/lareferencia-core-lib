@@ -34,6 +34,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import org.springframework.web.reactive.function.client.support.WebClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
+import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 import reactor.util.retry.Retry;
 
@@ -66,7 +67,14 @@ public class SemanticVectorAPIConfig {
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))
                 .defaultHeaders(headers -> headers.set("Content-Type", "application/json"))
-                .filter((request, next) -> next.exchange(request).retryWhen(retryStrategy))
+                .filter((request, next) -> next.exchange(request)
+                        .flatMap(response -> {
+                            if (!response.statusCode().is2xxSuccessful()) {
+                                return response.createException().flatMap(Mono::error);
+                            }
+                            return Mono.just(response);
+                        })
+                        .retryWhen(retryStrategy))
                 .build();
 
         HttpServiceProxyFactory factory = HttpServiceProxyFactory.builder()
