@@ -132,7 +132,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Setter @Getter private boolean indexNetworkAttributes = false;
 	@Setter @Getter private Map<String, List<String>> contentFiltersByFieldName = null;
 	@Setter @Getter private String embeddingApiUrl;
-	@Setter @Getter private String sourceFieldForEmbedding = "dc.title.*";
+	@Setter @Getter private String sourceFieldForEmbedding;
 	@Setter @Getter private String vectorFieldName;
 	@Setter @Getter private int embeddingApiTimeoutSeconds = 30;
 	@Setter @Getter private boolean skipOnEmbeddingFailure = true;
