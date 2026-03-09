@@ -203,6 +203,8 @@ public class CatalogDatabaseManager {
             // Execute WAL checkpoint to clean up -wal and -shm files
             checkpointWAL(ds, snapshotId);
             logger.info("CATALOG DB: Closed DataSource for snapshot {}", snapshotId);
+        } else {
+            logger.debug("CATALOG DB: No active DataSource found for snapshot {}", snapshotId);
         }
     }
 

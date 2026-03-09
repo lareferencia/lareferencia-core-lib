@@ -229,6 +229,17 @@ public class OAIRecordCatalogRepository {
                 snapshotId, totalRecords, notDeletedRecords, deletedRecords);
     }
 
+    /**
+     * Closes a snapshot DataSource without logging write-finalization statistics.
+     * Intended for read-only use cases such as exports or validation.
+     *
+     * @param snapshotId Snapshot ID
+     */
+    public void closeSnapshot(Long snapshotId) {
+        dbManager.closeDataSource(snapshotId);
+        logger.debug("CATALOG REPO: Snapshot {} closed", snapshotId);
+    }
+
     // ============================================================================
     // READ OPERATIONS
     // ============================================================================
