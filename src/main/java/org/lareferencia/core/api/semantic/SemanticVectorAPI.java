@@ -34,6 +34,6 @@ public interface SemanticVectorAPI {
      * @param request The request containing the text to embed.
      * @return A response containing the embedding vector.
      */
-    @PostExchange("/v1/embeddings")
+    @PostExchange("")
     EmbeddingResponse generateEmbedding(@RequestBody EmbeddingRequest request);
 }
