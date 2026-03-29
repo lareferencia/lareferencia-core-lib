@@ -33,7 +33,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
-import org.apache.solr.client.solrj.request.DirectXmlRequest;
+import org.apache.solr.common.SolrInputDocument;
 import org.lareferencia.core.api.semantic.EmbeddingRequest;
 import org.lareferencia.core.api.semantic.EmbeddingResponse;
 import org.lareferencia.core.api.semantic.SemanticVectorAPI;
@@ -59,6 +59,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -117,12 +120,17 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Value("${embedding.model.applicationId}")
 	private String embeddingApplicationId;
 
-	private Long snapshotId;
+    @Setter
+    private boolean useMultiValuedVector;
+
+
+
+    private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
 	private int recordCounter = 0;
 	private int embeddedRecordsCount = 0;
 	private int failedEmbeddingsCount = 0;
-    private StringBuffer linesToBeSentToIndexing;
+    private List<SolrInputDocument> documentsToBeIndexed;
     private NumberFormat percentajeFormat = NumberFormat.getPercentInstance();
 
     @Setter @Getter private String targetSchemaName;
@@ -144,6 +152,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@PostConstruct
     public void init() {
         this.solrClient = new HttpSolrClient.Builder(solrURL).build();
+        logger.info(MessageFormat.format("SemanticIndexerWorker initialized with expected dimension: {0}", embeddingModelDimension));
     }
 
 	@Override
@@ -166,7 +175,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 	@Override
 	public void prePage() {
-		linesToBeSentToIndexing = new StringBuffer();
+		documentsToBeIndexed = new ArrayList<>();
 	}
 
 	@Override
@@ -184,14 +193,13 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			setTransformerParameters(record, metadata);
 	
 			if (record.isValid()) {
-				String recordXml = metadataTransformer.transformToString(metadata.getDOMDocument());
-				String enrichedXml = enrichRecordWithEmbedding(recordXml, metadata, record.getIdentifierHash());
-	
-				if (enrichedXml != null) {
-					linesToBeSentToIndexing.append(enrichedXml);
-					logger.debug(MessageFormat.format("Transformed record to be indexed: {0} :: {1}", record.getIdentifierHash(), record.getIdentifier()));
-					logger.debug(MessageFormat.format("Indexed record size in bytes: {0}", enrichedXml.length()));
-				}
+				Document transformedDoc = metadataTransformer.transform(metadata.getDOMDocument());
+                SolrInputDocument solrDoc = xmlDocumentToSolrInputDocument(transformedDoc);
+				
+                enrichRecordWithEmbedding(solrDoc, metadata, record.getIdentifierHash());
+                documentsToBeIndexed.add(solrDoc);
+                logger.debug(MessageFormat.format("Transformed record to be indexed: {0} :: {1}", record.getIdentifierHash(), record.getIdentifier()));
+
 			} else {
 				logger.debug(MessageFormat.format("Record not indexed: {0} :: {1} :: {2}", record.getIdentifierHash(), record.getIdentifier(), record.isValid()));
 			}
@@ -209,24 +217,21 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Override
 	public void postPage() {
 
-		if (!linesToBeSentToIndexing.isEmpty()) {
+		if (documentsToBeIndexed != null && !documentsToBeIndexed.isEmpty()) {
 			try {
-				this.sendUpdateToSolr(MessageFormat.format("<add>{0}</add>", linesToBeSentToIndexing));
+				solrClient.add(documentsToBeIndexed);
 			} catch (SolrServerException e) {
 				logError(MessageFormat.format("Issues whe connecting to SOLR: {0}: {1}", runningContext.toString(), e.getMessage()));
-				logger.debug(linesToBeSentToIndexing);
 				solrRollback();
 				error();
 
 			} catch (IOException e) {
 				logError(MessageFormat.format("Issues when sending to SOLR - I/O: {0}: {1}", runningContext.toString(), e.getMessage()));
-				logger.debug(linesToBeSentToIndexing);
 				solrRollback();
 				error();
 
 			} catch (Exception e) {
 				logError(MessageFormat.format("Issues with the index process - Undetermined: {0}: {1}", runningContext.toString(), e.getMessage()));
-				logger.debug(linesToBeSentToIndexing);
 				solrRollback();
 				error();
 			}
@@ -240,7 +245,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 			postPage();
 
-			this.sendUpdateToSolr("<commit/>");
+			solrClient.commit();
 
 			if (executeIndexing)
 				snapshotStore.markAsIndexed(snapshotId);
@@ -251,7 +256,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 			logger.debug(MessageFormat.format("Updates snapshot status to {0}", SnapshotIndexStatus.INDEXED));
 
-		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
+		} catch (SolrServerException | IOException e) {
 			logError(MessageFormat.format("Issues when commiting to SOLR: {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
@@ -354,41 +359,49 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 		metadataTransformer.setParameter("metadata", metadata.toString());
 	}
 
-	private String enrichRecordWithEmbedding(String recordXml, OAIRecordMetadata metadata, String recordIdentifier) {
-		String textForEmbedding = extractTextForEmbedding(metadata);
-		if (textForEmbedding == null || textForEmbedding.trim().isEmpty()) {
-			logger.debug(MessageFormat.format("No text found for embedding in record: {0}", recordIdentifier));
-			return recordXml;
-		}
+	private void enrichRecordWithEmbedding(SolrInputDocument recordDoc, OAIRecordMetadata metadata, String recordIdentifier) {
 
-		try {
-			EmbeddingResponse response = semanticVectorAPI.generateEmbedding(
+        List<String> metadataValues = new ArrayList<>();
+        for (String metadataField : sourceFieldForEmbedding.split(",")) {
+            String textForEmbedding = extractMetataValue(metadata, metadataField.trim());
+            metadataValues.add(textForEmbedding);
+        }
+
+        if(useMultiValuedVector) {
+            metadataValues.forEach(textForEmbedding -> {
+                callEmbeddingAPIAndAddResonseToDoc(recordDoc, recordIdentifier, truncEmbeddingTextIfNeeded(textForEmbedding));
+            });
+        } else {
+            callEmbeddingAPIAndAddResonseToDoc(recordDoc, recordIdentifier,
+                    truncEmbeddingTextIfNeeded(String.join("", metadataValues)));
+        }
+
+
+
+	}
+
+    private void callEmbeddingAPIAndAddResonseToDoc(SolrInputDocument recordDoc, String recordIdentifier, String textForEmbedding) {
+        try {
+            EmbeddingResponse response = semanticVectorAPI.generateEmbedding(
                     new EmbeddingRequest(textForEmbedding,
                             embeddingModelName,
                             embeddingModelDataType,
                             embeddingModelDimension,
                             embeddingApplicationId));
 
-			if (response != null && response.getData() != null && response.getData().size() == EMBEDDING_SUPPPORTED_NUMBER_OF_ARRAYS) {
-				embeddedRecordsCount++;
-				logger.debug(MessageFormat.format("Generated embedding for record: {0} | Text length: {1} | Vector dimension: {2}", recordIdentifier, textForEmbedding.length(), response.getData().size()));
-
+            if (response != null && response.getData() != null) {
+                embeddedRecordsCount++;
                 List<Float> embeddingAslist = response.getData().get(0).getEmbedding();
-                Float[] floatObjectArray = embeddingAslist.toArray(new Float[0]);
+                recordDoc.addField(vectorFieldName, embeddingAslist);
+            }
+        } catch (Exception e) {
+            failedEmbeddingsCount++;
+            logger.error(MessageFormat.format("Failed to generate embedding for record: {0} | Error: {1}", recordIdentifier, e.getMessage()));
 
-				return injectVectorField(recordXml, floatObjectArray);
-			}
-		} catch (Exception e) {
-			failedEmbeddingsCount++;
-			logger.error(MessageFormat.format("Failed to generate embedding for record: {0} | Error: {1}", recordIdentifier, e.getMessage()));
-			if (!skipOnEmbeddingFailure) {
-				return null; // Signal to skip the record
-			}
-		}
-		return recordXml;
-	}
+        }
+    }
 
-	/**
+    /**
 	 * Generates a unique record ID by combining snapshot ID with counter.
 	 * Uses bit shifting: snapshotId in bits 27-62, counter in bits 0-26.
 	 * NOTE: Counter must be incremented before calling this method.
@@ -415,11 +428,9 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	}
 
 	private void delete(String networkAcronym) {
-		// Borrado de la red
 		try {
-			this.sendUpdateToSolr(
-					MessageFormat.format("<delete><query>{0}:{1}</query></delete>", this.solrNetworkIDField, networkAcronym));
-		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
+			solrClient.deleteByQuery(MessageFormat.format("{0}:{1}", this.solrNetworkIDField, networkAcronym));
+		} catch (SolrServerException | IOException e) {
 			logError(MessageFormat.format("Issues when deleting index: {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
@@ -440,31 +451,22 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	private void solrRollback() {
 
 		try {
-			this.sendUpdateToSolr("<rollback/>");
-		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
+			solrClient.rollback();
+		} catch (SolrServerException | IOException e) {
 			logError(MessageFormat.format("Issues with rollback  {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
 	}
 
-	private void sendUpdateToSolr(String data)
-			throws SolrServerException, IOException, HttpSolrClient.RemoteSolrException {
-		DirectXmlRequest request = new DirectXmlRequest("/update", data);
-		solrClient.request(request);
-	}
-
-
-
 	private Long sendCountQueryToSolr(String queryString) {
 		try {
-			// Create select query
 			SolrQuery query = new SolrQuery();
 			query.setQuery(queryString);
 			query.setRows(0);
 
 			return solrClient.query(query).getResults().getNumFound();
 
-		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
+		} catch (SolrServerException | IOException e) {
 			logError(MessageFormat.format("Issues with query  {0}: {1}", runningContext.toString(), e.getMessage()));
 			error();
 		}
@@ -484,49 +486,38 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	 * @param metadata the OAI record metadata
 	 * @return concatenated text from source field, or null if empty
 	 */
-    private String extractTextForEmbedding(OAIRecordMetadata metadata) {
-        String text = Arrays.stream(sourceFieldForEmbedding.split(","))
-                .map(String::trim)
-                .map(metadata::getFieldOcurrences)
+    private String extractMetataValue(OAIRecordMetadata metadata, String metadataField) {
+        return metadata.getFieldOcurrences(metadataField).stream()
                 .filter(Objects::nonNull)
-                .flatMap(List::stream)
-                .filter(metadataValue -> metadataValue != null && !metadataValue.trim().isEmpty())
+                .filter(metadataValue -> !metadataValue.trim().isEmpty())
                 .collect(Collectors.joining(" "));
 
-        if (text.length() <= MAX_EMBEDDING_TEXT_LENGTH) {
-            return text;
-        }
-
-        // If it exceeds the limit, truncate to the limit and find the last space to avoid cutting a word
-        String truncated = text.substring(0, MAX_EMBEDDING_TEXT_LENGTH);
-        int lastSpaceIndex = truncated.lastIndexOf(' ');
-
-        if (lastSpaceIndex != -1) {
-            return truncated.substring(0, lastSpaceIndex).trim();
-        }
-
-        return truncated;
     }
-	
-	/**
-	 * Injects the vector field into the Solr document XML.
-	 * Inserts a new field element before the closing </doc> tag.
-	 * 
-	 * @param recordXml the Solr document XML string
-	 * @param embedding the embedding vector to inject
-	 * @return the modified XML with the vector field
-	 */
-	private String injectVectorField(String recordXml, Float[] embedding) {
-        String vectorFieldXml = Arrays.stream(embedding).map(vectorValue ->
-                MessageFormat.format("<field name=\"{0}\">{1}</field>", vectorFieldName, String.format(Locale.US, "%f", vectorValue))).collect(Collectors.joining());
 
-		int closeDocIndex = recordXml.lastIndexOf("</doc>");
-		if (closeDocIndex != -1) {
-			return new StringBuilder(recordXml).insert(closeDocIndex, vectorFieldXml).toString();
-		}
-		
-		logger.warn("Could not find </doc> tag in record XML, appending vector field at end");
-		return new StringBuilder(recordXml).append(vectorFieldXml).toString();
-	}
+    private static String truncEmbeddingTextIfNeeded(String text) {
+        if (text.length() > MAX_EMBEDDING_TEXT_LENGTH) {
+            String truncated = text.substring(0, MAX_EMBEDDING_TEXT_LENGTH);
+            int lastSpaceIndex = truncated.lastIndexOf(' ');
+
+            if (lastSpaceIndex != -1) {
+                return truncated.substring(0, lastSpaceIndex).trim();
+            }
+        }
+        return text;
+    }
+
+    private SolrInputDocument xmlDocumentToSolrInputDocument(Document doc) {
+        SolrInputDocument solrDoc = new SolrInputDocument();
+        NodeList fields = doc.getElementsByTagName("field");
+        for (int i = 0; i < fields.getLength(); i++) {
+            Element field = (Element) fields.item(i);
+            String name = field.getAttribute("name");
+            String value = field.getTextContent();
+            solrDoc.addField(name, value);
+        }
+        return solrDoc;
+    }
+
+
 
 }
