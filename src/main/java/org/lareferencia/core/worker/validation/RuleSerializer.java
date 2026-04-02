@@ -23,6 +23,8 @@ package org.lareferencia.core.worker.validation;
 import java.io.IOException;
 
 
+import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.JsonParseException;
@@ -45,6 +47,9 @@ public class RuleSerializer {
 
 	// JsonObject Mapper
 	private ObjectMapper mapper;
+
+	@Autowired(required = false)
+	private AutowireCapableBeanFactory autowireCapableBeanFactory;
 
 	/**
 	 * Constructs a new RuleSerializer and initializes the JSON mapper.
@@ -147,6 +152,7 @@ public class RuleSerializer {
 
 		try {
 			AbstractValidatorRule rule =  mapper.readValue(jsonString, AbstractValidatorRule.class);
+			autowireIfPossible(rule);
 			
 			return rule;
 			
@@ -175,7 +181,9 @@ public class RuleSerializer {
 	public ITransformerRule deserializeTransformerFromJsonString(String jsonString) {
 
 		try {
-			return mapper.readValue(jsonString, AbstractTransformerRule.class);
+			AbstractTransformerRule rule = mapper.readValue(jsonString, AbstractTransformerRule.class);
+			autowireIfPossible(rule);
+			return rule;
 		} catch (JsonParseException e) {
 
 			e.printStackTrace();
@@ -188,6 +196,13 @@ public class RuleSerializer {
 		}
 
 		return null;
+	}
+
+	private void autowireIfPossible(Object rule) {
+		if (rule == null || autowireCapableBeanFactory == null) {
+			return;
+		}
+		autowireCapableBeanFactory.autowireBean(rule);
 	}
 
 }

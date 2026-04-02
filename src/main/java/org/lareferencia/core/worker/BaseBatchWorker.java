@@ -153,13 +153,20 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 						transactionManager.rollback(transactionStatus);
 
 				} catch (Exception e) {
-					logger.error(e);
+					String errorMessage = "BatchWorker runtime error processing in page: " + actualPage + " : " + e.getMessage();
+					if (shouldSuppressPageExceptionStackTrace(e)) {
+						logger.error(errorMessage);
+					} else {
+						logger.error(errorMessage, e);
+					}
+					onPageFailure(e);
 					this.stop();
 					transactionManager.rollback(transactionStatus);
 
-					Thread t = Thread.currentThread();
-					t.getUncaughtExceptionHandler().uncaughtException(t, new WorkerRuntimeException(
-							"BatchWorker runtime error processing in page: " + actualPage + " : " + e.getMessage()));
+					if (!shouldSuppressPageExceptionStackTrace(e)) {
+						Thread t = Thread.currentThread();
+						t.getUncaughtExceptionHandler().uncaughtException(t, new WorkerRuntimeException(errorMessage));
+					}
 				}
 
 			}
@@ -190,6 +197,13 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 	@Override
 	public double getCompletionRate() {
 		return (totalPages == 0) ? 1d : Double.valueOf(actualPage) / totalPages;
+	}
+
+	protected boolean shouldSuppressPageExceptionStackTrace(Exception e) {
+		return false;
+	}
+
+	protected void onPageFailure(Exception e) {
 	}
 
 }
