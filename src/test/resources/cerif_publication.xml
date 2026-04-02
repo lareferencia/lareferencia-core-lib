@@ -1,0 +1,51 @@
+<Publication xmlns="https://www.openaire.eu/cerif-profile/1.2/">
+    <Type>http://purl.org/coar/resource_type/c_6501</Type>
+    <Language>eng</Language>
+    <Title xml:lang="en">Open science from CERIF</Title>
+    <Title xml:lang="es">Ciencia abierta desde CERIF</Title>
+    <PublicationDate>2025-03-12</PublicationDate>
+    <DOI>10.1234/impactu.42</DOI>
+    <ISSN>2049-3630</ISSN>
+    <URL>https://impactu.example/publication/42</URL>
+    <Authors>
+        <Author>
+            <Person>
+                <PersonName>
+                    <FirstNames>Ana Maria</FirstNames>
+                    <FamilyNames>Perez</FamilyNames>
+                </PersonName>
+                <ORCID>0000-0002-1825-0097</ORCID>
+            </Person>
+        </Author>
+        <Author>
+            <Person>
+                <DisplayName>Juan Gomez</DisplayName>
+            </Person>
+        </Author>
+    </Authors>
+    <Publishers>
+        <Publisher>
+            <DisplayName>Impactu Press</DisplayName>
+        </Publisher>
+    </Publishers>
+    <Keyword>Open science</Keyword>
+    <Keyword>CERIF</Keyword>
+    <Abstract xml:lang="en">A publication harvested from a CERIF provider.</Abstract>
+    <Access>openAccess</Access>
+    <FileLocations>
+        <Medium>
+            <URI>https://impactu.example/files/42.pdf</URI>
+            <MimeType>application/pdf</MimeType>
+        </Medium>
+    </FileLocations>
+    <PublishedIn id="journal-123">
+        <Title xml:lang="en">Journal of CERIF Studies</Title>
+        <ISSN>1234-5678</ISSN>
+    </PublishedIn>
+    <OriginatesFrom>
+        <Project id="proj-77">
+            <Acronym>CERIFNEXT</Acronym>
+            <Title xml:lang="en">CERIF Next</Title>
+        </Project>
+    </OriginatesFrom>
+</Publication>

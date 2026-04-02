@@ -1,0 +1,42 @@
+<oai20:OAI-PMH xmlns:oai20="http://www.openarchives.org/OAI/2.0/" xmlns:cerif="https://www.openaire.eu/cerif-profile/1.2/">
+    <oai20:responseDate>2026-03-26T10:00:00Z</oai20:responseDate>
+    <oai20:request verb="ListRecords" metadataPrefix="oai_cerif_openaire" set="openaire_cris_publications">https://oai.impactu.colav.co/oai</oai20:request>
+    <oai20:ListRecords>
+        <oai20:record>
+            <oai20:header>
+                <oai20:identifier>oai:impactu.colav.co:0000000004</oai20:identifier>
+                <oai20:datestamp>2025-06-17T18:55:20Z</oai20:datestamp>
+            </oai20:header>
+            <oai20:metadata>
+                <cerif:Publication>
+                    <cerif:Type>http://purl.org/coar/resource_type/c_6501</cerif:Type>
+                    <cerif:Language>eng</cerif:Language>
+                    <cerif:Title xml:lang="en">Open science from CERIF</cerif:Title>
+                    <cerif:PublicationDate>2025-03-12</cerif:PublicationDate>
+                    <cerif:DOI>10.1234/impactu.42</cerif:DOI>
+                    <cerif:URL>https://impactu.example/publication/42</cerif:URL>
+                    <cerif:Authors>
+                        <cerif:Author>
+                            <cerif:Person>
+                                <cerif:PersonName>
+                                    <cerif:FirstNames>Ana Maria</cerif:FirstNames>
+                                    <cerif:FamilyNames>Perez</cerif:FamilyNames>
+                                </cerif:PersonName>
+                                <cerif:ORCID>0000-0002-1825-0097</cerif:ORCID>
+                            </cerif:Person>
+                        </cerif:Author>
+                    </cerif:Authors>
+                    <cerif:Keyword>Open science</cerif:Keyword>
+                    <cerif:Abstract xml:lang="en">A publication harvested from a CERIF provider.</cerif:Abstract>
+                    <cerif:Access>openAccess</cerif:Access>
+                    <cerif:FileLocations>
+                        <cerif:Medium>
+                            <cerif:URI>https://impactu.example/files/42.pdf</cerif:URI>
+                            <cerif:MimeType>application/pdf</cerif:MimeType>
+                        </cerif:Medium>
+                    </cerif:FileLocations>
+                </cerif:Publication>
+            </oai20:metadata>
+        </oai20:record>
+    </oai20:ListRecords>
+</oai20:OAI-PMH>

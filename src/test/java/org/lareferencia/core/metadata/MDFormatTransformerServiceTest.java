@@ -27,6 +27,9 @@ import org.w3c.dom.Document;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -176,6 +179,21 @@ class MDFormatTransformerServiceTest {
         
         IMDFormatTransformer retrieved = assertDoesNotThrow(() -> 
             service.getMDTransformer("oai_dc", "xoai"));
+        assertSame(transformer, retrieved);
+    }
+
+    @Test
+    @DisplayName("getMDTransformer should resolve CERIF OpenAIRE to xoai_openaire")
+    void testGetMDTransformerCerifOpenaireToXoaiOpenaire() {
+        XsltMDFormatTransformer transformer = new XsltMDFormatTransformer(
+            "oai_cerif_openaire",
+            "xoai_openaire",
+            resolveAppFile("config/mdfcrosswalks/oai_cerif_openaire2xoai_openaire.xsl").toString()
+        );
+        service.setTransformers(Collections.singletonList(transformer));
+
+        IMDFormatTransformer retrieved = assertDoesNotThrow(() ->
+            service.getMDTransformer("oai_cerif_openaire", "xoai_openaire"));
         assertSame(transformer, retrieved);
     }
     
@@ -405,5 +423,25 @@ class MDFormatTransformerServiceTest {
         public void setParameter(String name, List<String> values) {
             // Not used in these tests
         }
+    }
+
+    private Path resolveAppFile(String relativePath) {
+        Path cwd = Paths.get(System.getProperty("user.dir")).toAbsolutePath();
+        Path candidate = cwd.resolve(relativePath).normalize();
+        if (Files.exists(candidate)) {
+            return candidate;
+        }
+
+        candidate = cwd.resolve("../lareferencia-lrharvester-app").resolve(relativePath).normalize();
+        if (Files.exists(candidate)) {
+            return candidate;
+        }
+
+        candidate = cwd.resolve("lareferencia-lrharvester-app").resolve(relativePath).normalize();
+        if (Files.exists(candidate)) {
+            return candidate;
+        }
+
+        throw new IllegalStateException("Unable to resolve app resource: " + relativePath + " from " + cwd);
     }
 }

@@ -1,0 +1,10 @@
+<oai20:OAI-PMH xmlns:oai20="http://www.openarchives.org/OAI/2.0/">
+    <oai20:ListRecords>
+        <oai20:record>
+            <oai20:header>
+                <oai20:identifier>oai:impactu.colav.co:missing</oai20:identifier>
+                <oai20:datestamp>2025-06-17T18:55:20Z</oai20:datestamp>
+            </oai20:header>
+        </oai20:record>
+    </oai20:ListRecords>
+</oai20:OAI-PMH>

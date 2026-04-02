@@ -342,8 +342,12 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 				identifier = listRecords.getSingleString(nodes.item(i), namespace + ":header/" + namespace + ":identifier");
 				datestamp = dateHelper.parseDate( listRecords.getSingleString(nodes.item(i), namespace + ":header/" + namespace + ":datestamp") );
 				
-				String setSpec = listRecords.getSingleString(nodes.item(i), namespace + ":header/" + namespace + ":setSpec");
-				status = listRecords.getSingleString(nodes.item(i), namespace + ":header/@status");
+				// Some valid OAI-PMH providers omit setSpec in record headers.
+				String setSpec = getOptionalHeaderValue(listRecords, nodes.item(i), namespace + ":header/" + namespace + ":setSpec");
+				String headerStatus = getOptionalHeaderValue(listRecords, nodes.item(i), namespace + ":header/@status");
+				if (headerStatus != null) {
+					status = headerStatus;
+				}
 
 				if (!status.equals(STATUS_DELETED)) {
 					
@@ -394,6 +398,16 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 		
 
 		return reusableEvent;
+	}
+
+	private String getOptionalHeaderValue(ListRecords listRecords, Node node, String xpath) throws TransformerException {
+		String value = listRecords.getSingleString(node, xpath);
+		if (value == null) {
+			return null;
+		}
+
+		String normalized = value.trim();
+		return normalized.isEmpty() ? null : normalized;
 	}
 
 
