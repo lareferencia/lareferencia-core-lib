@@ -18,26 +18,24 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.api.semantic;
+package org.lareferencia.core.semantic.embedding.client;
 
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.codehaus.jackson.annotate.JsonProperty;
 
 /**
- * DTO for the embedding generation request.
+ * DTO for the embedding generation response (OpenAI-compatible format).
  */
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class EmbeddingRequest {
-    private String input;
+public class EmbeddingResponse {
+    private String object;
+    private List<EmbeddingItem> data;
     private String model;
-    @JsonProperty("encoding_format")
-    private String encodingFormat;
-    private Integer dimensions;
-    private String user;
+    private Usage usage;
 }

@@ -37,9 +37,7 @@ import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.common.SolrInputDocument;
-import org.lareferencia.core.api.semantic.EmbeddingRequest;
-import org.lareferencia.core.api.semantic.EmbeddingResponse;
-import org.lareferencia.core.api.semantic.SemanticVectorAPI;
+import org.lareferencia.core.semantic.embedding.IEmbeddingService;
 import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.metadata.IMDFormatTransformer;
 import org.lareferencia.core.metadata.IMetadataStore;
@@ -102,7 +100,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	private MDFormatTransformerService metadataTransformerService;
 
 	@Autowired
-	private SemanticVectorAPI semanticVectorAPI;
+	private IEmbeddingService embeddingService;
 
 	private IMDFormatTransformer metadataTransformer;
 
@@ -111,17 +109,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Value("${frontend.solr.url}")
 	private String solrURL;
 
-	@Value("${embedding.model.name}")
-	private String embeddingModelName;
 
-	@Value("${embedding.model.datatype}")
-	private String embeddingModelDataType;
-
-	@Value("${embedding.model.dimension}")
-	private int embeddingModelDimension;
-
-	@Value("${embedding.model.applicationId}")
-	private String embeddingApplicationId;
 
 	@Setter
 	private boolean useMultiValuedVector;
@@ -176,7 +164,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	public void init() {
 		this.solrClient = new HttpSolrClient.Builder(solrURL).build();
 		logger.info(MessageFormat.format("SemanticIndexerWorker initialized with expected dimension: {0}",
-				embeddingModelDimension));
+				embeddingService.getEmbeddingDimension()));
 	}
 
 	@Override
@@ -436,51 +424,33 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 	}
 
+	/**
+	 * Delegates embedding generation to {@link IEmbeddingService}.
+	 * The service handles model selection, HTTP transport, retries, and dimension validation.
+	 * The worker only counts successes/failures and applies its own skip-on-failure policy.
+	 *
+	 * @param recordIdentifier identifier used for logging
+	 * @param textForEmbedding pre-truncated text to embed
+	 * @return the embedding vector, or {@code null} if unavailable
+	 */
 	private List<Float> callEmbeddingAPI(String recordIdentifier, String textForEmbedding) {
 		if (textForEmbedding == null || textForEmbedding.trim().isEmpty()) {
-			logger.debug(
-					MessageFormat.format("Skipping embedding generation for record {0}: empty source text", recordIdentifier));
+			logger.debug(MessageFormat.format(
+					"Skipping embedding for record {0}: empty source text", recordIdentifier));
 			return null;
 		}
 
-		try {
-			EmbeddingResponse response = semanticVectorAPI.generateEmbedding(
-					new EmbeddingRequest(textForEmbedding,
-							embeddingModelName,
-							embeddingModelDataType,
-							embeddingModelDimension,
-							embeddingApplicationId));
-
-			if (response != null && response.getData() != null && !response.getData().isEmpty()) {
-				List<Float> embeddingAslist = response.getData().get(0).getEmbedding();
-
-				if (embeddingAslist == null || embeddingAslist.isEmpty()) {
-					failedEmbeddingsCount++;
-					logger.warn(MessageFormat.format("Embedding API returned empty vector for record: {0}", recordIdentifier));
-					return null;
-				}
-
-				if (embeddingModelDimension > 0 && embeddingAslist.size() != embeddingModelDimension) {
+		return embeddingService.embed(textForEmbedding)
+				.map(vector -> {
+					embeddedRecordsCount++;
+					return vector;
+				})
+				.orElseGet(() -> {
 					failedEmbeddingsCount++;
 					logger.warn(MessageFormat.format(
-							"Embedding dimension mismatch for record {0}: expected {1}, got {2}",
-							recordIdentifier,
-							embeddingModelDimension,
-							embeddingAslist.size()));
+							"Failed to generate embedding for record: {0}", recordIdentifier));
 					return null;
-				}
-
-				embeddedRecordsCount++;
-				return embeddingAslist;
-			}
-		} catch (Exception e) {
-			failedEmbeddingsCount++;
-			logger.error(MessageFormat.format("Failed to generate embedding for record: {0} | Error: {1}", recordIdentifier,
-					e.getMessage()));
-
-		}
-
-		return null;
+				});
 	}
 
 	/**

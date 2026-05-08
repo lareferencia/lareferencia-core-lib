@@ -35,6 +35,7 @@ import org.lareferencia.core.service.validation.IValidationStatisticsService;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.repository.jpa.NetworkRepository;
 import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
+import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -194,6 +195,7 @@ class NetworkCleanWorkerTest {
     // Helper method
     private NetworkRunningContext createMockContext() {
         Network network = new Network();
+        ReflectionTestUtils.setField(network, "id", 0L);
         network.setAcronym("TEST");
         network.setName("Test Network");
         return new NetworkRunningContext(network);

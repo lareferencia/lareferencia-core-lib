@@ -88,7 +88,7 @@ class OCLCBasedHarvesterImplTest {
         assertEquals("xoai_openaire", record.getStoreSchema());
         assertNull(record.getSetSpec());
         assertEquals(List.of("Open science from CERIF"), record.getFieldOcurrences("datacite.titles.title"));
-        assertEquals(List.of("Ana Maria Perez"), record.getFieldOcurrences("datacite.creators.creator.creatorName"));
+        assertEquals(List.of("Perez, Ana Maria"), record.getFieldOcurrences("datacite.creators.creator.creatorName"));
         assertEquals(List.of("10.1234/impactu.42"), record.getFieldOcurrences("datacite.identifier"));
         assertEquals(List.of("journal article"), record.getFieldOcurrences("oaire.resourceType"));
         assertEquals(List.of("https://impactu.example/files/42.pdf"), record.getFieldOcurrences("oaire.files.file"));

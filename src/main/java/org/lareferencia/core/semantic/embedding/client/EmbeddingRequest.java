@@ -18,22 +18,26 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.api.semantic;
+package org.lareferencia.core.semantic.embedding.client;
 
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.service.annotation.PostExchange;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 /**
- * Declarative HTTP client interface for the semantic vector embedding API using Spring 6.
+ * DTO for the embedding generation request (OpenAI-compatible format).
  */
-public interface SemanticVectorAPI {
-
-    /**
-     * Generates an embedding vector for the given text.
-     *
-     * @param request The request containing the text to embed.
-     * @return A response containing the embedding vector.
-     */
-    @PostExchange("")
-    EmbeddingResponse generateEmbedding(@RequestBody EmbeddingRequest request);
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class EmbeddingRequest {
+    private String input;
+    private String model;
+    @JsonProperty("encoding_format")
+    private String encodingFormat;
+    private Integer dimensions;
+    private String user;
 }

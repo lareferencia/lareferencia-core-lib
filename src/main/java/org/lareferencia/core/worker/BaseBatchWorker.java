@@ -131,6 +131,12 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 
 					Page<I> page = paginator.nextPage();
 					List<I> items = page.getContent();
+					if (items.isEmpty()) {
+						logger.info("WORKER: " + getName() + " :: No items returned for page: " + actualPage
+								+ " of " + totalPages + ". Stopping pagination.");
+						transactionManager.commit(transactionStatus);
+						break;
+					}
 
 					for (I item : items) {
 
