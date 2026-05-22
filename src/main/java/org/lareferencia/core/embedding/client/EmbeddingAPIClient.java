@@ -18,28 +18,37 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.semantic.embedding.client;
+package org.lareferencia.core.embedding.client;
 
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.service.annotation.PostExchange;
 
 /**
- * Declarative HTTP client for the semantic vector embedding API (Spring 6 HTTP Interface).
+ * Declarative HTTP client for the semantic vector embedding API (Spring 6 HTTP
+ * Interface).
  *
- * <p>This is a low-level transport interface that maps directly to the OpenAI-compatible
- * embedding endpoint. It should <strong>not</strong> be used directly by domain components
- * (workers, pipelines). Use {@link org.lareferencia.core.semantic.embedding.IEmbeddingService}
- * instead.</p>
+ * <p>
+ * This is a low-level transport interface that maps directly to the
+ * OpenAI-compatible
+ * embedding endpoint. It should <strong>not</strong> be used directly by domain
+ * components
+ * (workers, pipelines). Use
+ * {@link org.lareferencia.core.embedding.IEmbeddingService}
+ * instead.
+ * </p>
  *
- * <p>The bean is instantiated and configured by
- * {@link org.lareferencia.core.semantic.embedding.config.SemanticVectorAPIConfig}.</p>
+ * <p>
+ * The bean is instantiated and configured by
+ * {@link org.lareferencia.core.EmbeddingAPIConfig.embedding.config.SemanticVectorAPIConfig}.
+ * </p>
  */
-public interface SemanticVectorAPIClient {
+public interface EmbeddingAPIClient {
 
     /**
      * Calls the remote embedding endpoint and returns the raw API response.
      *
-     * @param request the embedding request payload (model, input, format, dimensions)
+     * @param request the embedding request payload (model, input, format,
+     *                dimensions)
      * @return the raw API response containing one or more embedding vectors
      */
     @PostExchange("")

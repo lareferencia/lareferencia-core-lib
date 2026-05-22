@@ -18,7 +18,7 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.semantic.embedding;
+package org.lareferencia.core.embedding;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,20 +26,26 @@ import java.util.Optional;
 /**
  * Domain-level service for semantic embedding generation.
  *
- * <p>This interface decouples the domain (workers, pipelines) from the concrete
+ * <p>
+ * This interface decouples the domain (workers, pipelines) from the concrete
  * embedding transport mechanism (HTTP, local model, etc.).
  * Multiple implementations can coexist (e.g., OpenAI-compatible HTTP API,
- * an embedded local model, a no-op stub for testing).</p>
+ * an embedded local model, a no-op stub for testing).
+ * </p>
  *
- * <p>Implementations are responsible for:</p>
+ * <p>
+ * Implementations are responsible for:
+ * </p>
  * <ul>
- *   <li>Choosing the model and encoding format</li>
- *   <li>Validating the returned vector dimension</li>
- *   <li>Handling transport-level errors and retries</li>
+ * <li>Choosing the model and encoding format</li>
+ * <li>Validating the returned vector dimension</li>
+ * <li>Handling transport-level errors and retries</li>
  * </ul>
  *
- * <p>Callers receive an {@link Optional} so they can decide the fallback strategy
- * without catching exceptions from lower layers.</p>
+ * <p>
+ * Callers receive an {@link Optional} so they can decide the fallback strategy
+ * without catching exceptions from lower layers.
+ * </p>
  */
 public interface IEmbeddingService {
 
@@ -47,10 +53,20 @@ public interface IEmbeddingService {
      * Generates a semantic embedding vector for the given text.
      *
      * @param text the text to embed (pre-truncated to model limits if necessary)
-     * @return an {@link Optional} containing the embedding vector as a list of floats,
+     * @return an {@link Optional} containing the embedding vector as a list of
+     *         floats,
      *         or {@link Optional#empty()} if generation fails for any reason
      */
     Optional<List<Float>> embed(String text);
+
+    /**
+     * Generates semantic embedding vectors for multiple texts in one request.
+     *
+     * @param texts the texts to embed
+     * @return an {@link Optional} containing one vector per input text,
+     *         or {@link Optional#empty()} if generation fails
+     */
+    Optional<List<List<Float>>> embed(List<String> texts);
 
     /**
      * Returns the configured embedding dimension for this service instance.

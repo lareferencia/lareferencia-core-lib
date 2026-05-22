@@ -18,17 +18,18 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.semantic.embedding.config;
+package org.lareferencia.core.embedding.config;
 
 import java.time.Duration;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.lareferencia.core.semantic.embedding.client.SemanticVectorAPIClient;
+import org.lareferencia.core.embedding.client.EmbeddingAPIClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.support.WebClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
@@ -41,27 +42,30 @@ import reactor.util.retry.Retry;
  * Spring configuration for the semantic vector embedding infrastructure.
  *
  * <p>
- * Registers the {@link SemanticVectorAPIClient} bean with a resilient WebClient
+ * Registers the {@link EmbeddingAPIClient} bean with a resilient WebClient
  * (configurable timeout + exponential back-off retry).
  * </p>
  */
 @Configuration
-public class SemanticVectorAPIConfig {
+public class EmbeddingAPIConfig {
 
-        private static final Logger logger = LogManager.getLogger(SemanticVectorAPIConfig.class);
+        private static final Logger logger = LogManager.getLogger(EmbeddingAPIConfig.class);
 
         @Value("${embedding.api.url:http://localhost:11434/api}")
         private String embeddingApiUrl;
 
-        @Value("${embedding.api.timeout.seconds:30}")
+        @Value("${embedding.api.timeout.seconds:60}")
         private int embeddingApiTimeoutSeconds;
 
+        @Value("${embedding.api.key:}")
+        private String embeddingApiKey;
+
         @Bean
-        public SemanticVectorAPIClient semanticVectorAPIClient() {
+        public EmbeddingAPIClient semanticVectorAPIClient() {
                 HttpClient httpClient = HttpClient.create()
                                 .responseTimeout(Duration.ofSeconds(embeddingApiTimeoutSeconds));
 
-                Retry retryStrategy = Retry.backoff(3, Duration.ofSeconds(1))
+                Retry retryStrategy = Retry.backoff(3, Duration.ofSeconds(5))
                                 .jitter(0.75)
                                 .doBeforeRetry(retrySignal -> logger.warn(
                                                 "Retrying embedding API call. Attempt: {}. Cause: {}",
@@ -72,7 +76,12 @@ public class SemanticVectorAPIConfig {
                                 .baseUrl(embeddingApiUrl)
                                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))
-                                .defaultHeaders(headers -> headers.set("Content-Type", "application/json"))
+                                .defaultHeaders(headers -> {
+                                        headers.set("Content-Type", "application/json");
+                                        if (StringUtils.hasText(embeddingApiKey)) {
+                                                headers.setBearerAuth(embeddingApiKey);
+                                        }
+                                })
                                 .filter((request, next) -> next.exchange(request)
                                                 .flatMap(response -> {
                                                         if (!response.statusCode().is2xxSuccessful()) {
@@ -87,6 +96,6 @@ public class SemanticVectorAPIConfig {
                                 .exchangeAdapter(WebClientAdapter.create(webClient))
                                 .build();
 
-                return factory.createClient(SemanticVectorAPIClient.class);
+                return factory.createClient(EmbeddingAPIClient.class);
         }
 }
