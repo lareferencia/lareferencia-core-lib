@@ -54,7 +54,7 @@ public class EmbeddingAPIConfig {
         @Value("${embedding.api.url:http://localhost:11434/api}")
         private String embeddingApiUrl;
 
-        @Value("${embedding.api.timeout.seconds:60}")
+        @Value("${embedding.api.timeout.seconds:30}")
         private int embeddingApiTimeoutSeconds;
 
         @Value("${embedding.api.key:}")

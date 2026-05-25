@@ -113,9 +113,6 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Value("${frontend.solr.url}")
 	private String solrURL;
 
-	@Setter
-	private boolean useMultiValuedVector;
-
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
 	private int recordCounter = 0;
@@ -144,22 +141,23 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	private Map<String, List<String>> contentFiltersByFieldName = null;
 	@Setter
 	@Getter
+	@Value("${embedding.api.url:}")
 	private String embeddingApiUrl;
 	@Setter
 	@Getter
+	@Value("${embedding.title.field:dc.title.*}")
 	private String titleFieldForEmbedding;
 	@Setter
 	@Getter
+	@Value("${embedding.abstract.field:dc.description.*}")
 	private String abstractFieldForEmbedding;
 	@Setter
 	@Getter
+	@Value("${embedding.vector.field.name:vector_multivalued}")
 	private String vectorFieldName;
+	@Value("${embedding.use.multivalued.vector:false}")
 	@Setter
-	@Getter
-	private int embeddingApiTimeoutSeconds = 30;
-	@Setter
-	@Getter
-	private boolean skipOnEmbeddingFailure = true;
+	private boolean useMultiValuedVector;
 
 	public SemanticIndexerWorker() {
 		super();
@@ -280,7 +278,8 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 					this.targetSchemaName));
 			logInfo(MessageFormat.format("Indexed documents in {0}::{1} = {2}", runningContext.getNetwork().getAcronym(),
 					this.targetSchemaName, this.queryForNetworkDocumentCount(runningContext.getNetwork().getAcronym())));
-			logInfo(MessageFormat.format("Embedding stats: Success: {0} | Failed: {1}", (embeddedRecordsCount - failedEmbeddingsCount),
+			logInfo(MessageFormat.format("Embedding stats: Success: {0} | Failed: {1}",
+					(embeddedRecordsCount - failedEmbeddingsCount),
 					failedEmbeddingsCount));
 
 			logger.debug(MessageFormat.format("Updates snapshot status to {0}", SnapshotIndexStatus.INDEXED));
@@ -412,7 +411,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			List<String> textsToEmbedding = new ArrayList<>();
 			textsToEmbedding.add(title);
 
-            textsToEmbedding.addAll(chunkingService.chunkTitleAndAbstract(title, abstractText));
+			textsToEmbedding.addAll(chunkingService.chunkTitleAndAbstract(title, abstractText));
 
 			embeddingService.embed(textsToEmbedding)
 					.filter(vectors -> !vectors.isEmpty())
@@ -426,11 +425,11 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 							vector -> recordDoc.setField(vectorFieldName, vector),
 							() -> logEmbeddingFailure(title));
 		}
-        embeddedRecordsCount++;
+		embeddedRecordsCount++;
 	}
 
 	private void logEmbeddingFailure(String title) {
-        failedEmbeddingsCount++;
+		failedEmbeddingsCount++;
 		logger.warn(MessageFormat.format("Failed to generate embedding for record: {0}", title));
 	}
 
