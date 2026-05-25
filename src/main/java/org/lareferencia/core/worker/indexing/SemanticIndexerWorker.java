@@ -420,7 +420,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 							vectors -> recordDoc.setField(vectorFieldName, vectors),
 							() -> logEmbeddingFailure(title));
 		} else {
-			embeddingService.embed(title)
+			embeddingService.embed(chunkingService.normalizeText(title))
 					.filter(vector -> !vector.isEmpty())
 					.ifPresentOrElse(
 							vector -> recordDoc.setField(vectorFieldName, vector),

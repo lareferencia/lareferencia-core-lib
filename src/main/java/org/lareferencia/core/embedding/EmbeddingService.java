@@ -74,7 +74,7 @@ public class EmbeddingService implements IEmbeddingService {
    */
   @Override
   public Optional<List<List<Float>>> embed(List<String> texts) {
-    logger.info(MessageFormat.format("Count of texts for embeddings: {0}", texts.size()));
+    logger.debug(MessageFormat.format("Count of texts for embeddings: {0}", texts.size()));
     return callEmbeddingAPI(texts);
   }
 
@@ -115,7 +115,7 @@ public class EmbeddingService implements IEmbeddingService {
           return Optional.empty();
         }
 
-        logger.info(MessageFormat.format("Count of vectors: {0}", embeddings.size()));
+        logger.debug(MessageFormat.format("Count of vectors: {0}", embeddings.size()));
 
         var vectorsDimension = embeddings.get(0).size();
 
