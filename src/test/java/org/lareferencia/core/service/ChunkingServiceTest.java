@@ -1,3 +1,23 @@
+/*
+ *   Copyright (c) 2013-2026. LA Referencia / Red CLARA and others
+ *
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU Affero General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU Affero General Public License for more details.
+ *
+ *   You should have received a copy of the GNU Affero General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *   This file is part of LA Referencia software platform LRHarvester v5.x
+ *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
+ */
+
 package org.lareferencia.core.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -13,6 +33,14 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.lareferencia.core.embedding.chunks.ChunkingService;
 
+/**
+ * Unit tests for {@link ChunkingService} chunk generation behavior.
+ *
+ * <p>
+ * The suite validates formatting, boundary constraints, overlap expectations,
+ * and null/blank input handling with deterministic synthetic abstracts.
+ * </p>
+ */
 class ChunkingServiceTest {
 
   private static final int TEST_MAX_CHUNK_SIZE = 128;
@@ -24,6 +52,10 @@ class ChunkingServiceTest {
   private final ChunkingService chunkingService = new ChunkingService(TEST_MAX_CHUNK_SIZE, TEST_MAX_OVERLAP_SIZE,
       TEST_MAX_CHUNKS_SIZE);
 
+  /**
+   * Verifies that short abstracts are kept in a single chunk with exact
+   * title-fragment formatting.
+   */
   @Test
   void shouldFormatSingleChunkExactlyForShortAbstract() {
     String title = "Transformer Architectures for Multilingual Repositories";
@@ -37,6 +69,10 @@ class ChunkingServiceTest {
         chunks.get(0));
   }
 
+  /**
+   * Verifies that long abstracts are split into multiple chunks and keep the
+   * required title prefix template.
+   */
   @Test
   void shouldSplitLongAbstractIntoExpectedChunkRangeAndPreserveTemplate() {
     String title = "Semantic Interoperability in Regional Open Access Networks";
@@ -54,6 +90,10 @@ class ChunkingServiceTest {
     }
   }
 
+  /**
+   * Verifies that overlap between consecutive fragments respects the configured
+   * overlap upper bound.
+   */
   @Test
   void shouldRespectConfiguredOverlapBoundaryBetweenConsecutiveChunks() {
     String title = "Cross-Repository Semantic Similarity";
@@ -79,6 +119,10 @@ class ChunkingServiceTest {
     }
   }
 
+  /**
+   * Verifies that chunk generation is capped by the configured maximum chunk
+   * count.
+   */
   @Test
   void shouldRespectConfiguredMaxChunksLimit() {
     ChunkingService limitedChunkingService = new ChunkingService(TEST_MAX_CHUNK_SIZE, TEST_MAX_OVERLAP_SIZE, 2);
@@ -89,6 +133,9 @@ class ChunkingServiceTest {
     assertTrue(chunks.size() <= 2, "Expected chunk count to be capped by configured max chunks");
   }
 
+  /**
+   * Verifies null and blank values for title/abstract return an empty result.
+   */
   @Test
   void shouldHandleNullOrBlankInputsGracefully() {
     assertTrue(chunkingService.chunkTitleAndAbstract(null, "valid").isEmpty());
@@ -97,11 +144,24 @@ class ChunkingServiceTest {
     assertTrue(chunkingService.chunkTitleAndAbstract("valid", " \n\t ").isEmpty());
   }
 
+  /**
+   * Extracts the fragment part from a formatted chunk.
+   *
+   * @param chunk chunk in title + newline + fragment format
+   * @return fragment text after the first newline
+   */
   private static String extractFragment(String chunk) {
     int index = chunk.indexOf('\n');
     return chunk.substring(index + 1);
   }
 
+  /**
+   * Tokenizes text using whitespace and strips non-alphanumeric separators from
+   * each token.
+   *
+   * @param text source text
+   * @return normalized token list used for overlap checks
+   */
   private static List<String> words(String text) {
     return Arrays.stream(WORD_PATTERN.split(text.trim()))
         .filter(token -> !token.isBlank())
@@ -110,6 +170,13 @@ class ChunkingServiceTest {
         .toList();
   }
 
+  /**
+   * Builds a synthetic multi-sentence abstract for chunking tests.
+   *
+   * @param sentenceCount    number of sentences to generate
+   * @param wordsPerSentence number of numbered tokens to inject per sentence
+   * @return generated abstract text
+   */
   private static String buildLongAbstract(int sentenceCount, int wordsPerSentence) {
     StringBuilder sb = new StringBuilder();
 
@@ -130,6 +197,12 @@ class ChunkingServiceTest {
     return sb.toString();
   }
 
+  /**
+   * Builds a single long sentence with numbered tokens.
+   *
+   * @param words number of tokens to generate
+   * @return generated sentence ending with a period
+   */
   private static String buildSingleSentenceAbstract(int words) {
     StringBuilder sb = new StringBuilder();
     for (int i = 1; i <= words; i++) {

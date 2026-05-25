@@ -1,3 +1,23 @@
+/*
+ *   Copyright (c) 2013-2026. LA Referencia / Red CLARA and others
+ *
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU Affero General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU Affero General Public License for more details.
+ *
+ *   You should have received a copy of the GNU Affero General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *   This file is part of LA Referencia software platform LRHarvester v5.x
+ *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
+ */
+
 package org.lareferencia.core.embedding.chunks;
 
 import java.util.regex.Matcher;
@@ -11,8 +31,11 @@ import dev.langchain4j.model.TokenCountEstimator;
 /**
  * Lightweight estimator designed for semantic chunking when a model tokenizer
  * is unavailable.
+ *
+ * <p>
  * The strategy blends lexical units, punctuation and CJK-aware character
- * counts.
+ * counts to approximate token budgets for splitter decisions.
+ * </p>
  */
 @Component
 public class CustomTokenCountEstimator implements TokenCountEstimator {
@@ -20,6 +43,12 @@ public class CustomTokenCountEstimator implements TokenCountEstimator {
     private static final Pattern WORD_OR_NUMBER = Pattern.compile("[\\p{L}\\p{N}]+(?:['’-][\\p{L}\\p{N}]+)*");
     private static final Pattern PUNCTUATION = Pattern.compile("[\\p{Punct}]");
 
+    /**
+     * Estimates token count for plain text.
+     *
+     * @param text source text
+     * @return estimated token count; returns 0 for null/blank input
+     */
     @Override
     public int estimateTokenCountInText(String text) {
         if (text == null || text.isBlank()) {
@@ -40,6 +69,14 @@ public class CustomTokenCountEstimator implements TokenCountEstimator {
         return count;
     }
 
+    /**
+     * Estimates token count for supported LangChain4j message types.
+     *
+     * @param message chat message to inspect
+     * @return estimated token count; returns 0 for null message
+     * @throws IllegalArgumentException if the message type is not recognized by
+     *                                  this estimator
+     */
     @Override
     public int estimateTokenCountInMessage(ChatMessage message) {
         if (message == null) {
@@ -59,6 +96,12 @@ public class CustomTokenCountEstimator implements TokenCountEstimator {
         throw new IllegalArgumentException("Unknown message type: " + message.getClass().getName());
     }
 
+    /**
+     * Aggregates token estimates for a collection of chat messages.
+     *
+     * @param messages iterable message collection
+     * @return total estimated tokens across all messages
+     */
     @Override
     public int estimateTokenCountInMessages(Iterable<ChatMessage> messages) {
         int tokens = 0;
@@ -68,6 +111,13 @@ public class CustomTokenCountEstimator implements TokenCountEstimator {
         return tokens;
     }
 
+    /**
+     * Counts regex matches in a text.
+     *
+     * @param pattern compiled pattern to apply
+     * @param text    source text
+     * @return number of matches
+     */
     private static int countMatches(Pattern pattern, String text) {
         Matcher matcher = pattern.matcher(text);
         int count = 0;
@@ -77,6 +127,12 @@ public class CustomTokenCountEstimator implements TokenCountEstimator {
         return count;
     }
 
+    /**
+     * Counts code points that belong to CJK-related Unicode blocks.
+     *
+     * @param text source text
+     * @return number of CJK code points detected in the text
+     */
     private static int countCjkCodePoints(String text) {
         int count = 0;
         for (int i = 0; i < text.length();) {
@@ -90,6 +146,12 @@ public class CustomTokenCountEstimator implements TokenCountEstimator {
         return count;
     }
 
+    /**
+     * Indicates whether a Unicode block should be treated as CJK for estimation.
+     *
+     * @param block Unicode block to evaluate
+     * @return true when the block belongs to supported CJK families
+     */
     private static boolean isCjkBlock(Character.UnicodeBlock block) {
         return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS
                 || block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A

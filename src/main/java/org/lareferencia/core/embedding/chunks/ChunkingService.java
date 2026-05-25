@@ -1,3 +1,23 @@
+/*
+ *   Copyright (c) 2013-2026. LA Referencia / Red CLARA and others
+ *
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU Affero General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU Affero General Public License for more details.
+ *
+ *   You should have received a copy of the GNU Affero General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *   This file is part of LA Referencia software platform LRHarvester v5.x
+ *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
+ */
+
 package org.lareferencia.core.embedding.chunks;
 
 import java.text.Normalizer;
@@ -11,11 +31,28 @@ import dev.langchain4j.data.document.DocumentSplitter;
 import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
 
+/**
+ * Service responsible for normalizing and splitting textual metadata into
+ * embedding-ready chunks.
+ *
+ * <p>
+ * The resulting chunks follow a title + fragment template so each segment
+ * preserves the original document context during vectorization.
+ * </p>
+ */
 @Service
 public class ChunkingService {
   private final DocumentSplitter documentSplitter;
   private final int maxChunksSize;
 
+  /**
+   * Builds a chunking service with token-aware limits.
+   *
+   * @param maxChunkSize   maximum token budget for a generated fragment
+   * @param maxOverlapSize overlap budget in tokens between consecutive fragments
+   * @param maxChunksSize  maximum number of chunks returned by
+   *                       {@link #chunkTitleAndAbstract(String, String)}
+   */
   public ChunkingService(
       @Value("${embedding.max.segment.size.tokens:128}") int maxChunkSize,
       @Value("${embedding.max.overlap.size.tokens:0}") int maxOverlapSize,
@@ -28,6 +65,13 @@ public class ChunkingService {
     this.maxChunksSize = maxChunksSize;
   }
 
+  /**
+   * Applies lightweight text normalization suitable for chunking and
+   * embedding.
+   *
+   * @param t input text, potentially null or blank
+   * @return normalized text, or an empty string when the input is null/blank
+   */
   public String normalizeText(String t) {
     if (t == null || t.isBlank()) {
       return "";
@@ -43,16 +87,20 @@ public class ChunkingService {
   }
 
   /**
-   * Recommended splitter for document title/abstract processing.
-   * 
-   * It first tries to split by paragraphs and packs as many as possible into each
-   * segment. If a paragraph is still too large, it recursively splits by lines,
-   * then
-   * sentences, then words, and finally characters until the segment fits.
+   * Splits a document abstract into chunks and prefixes each fragment with the
+   * normalized title.
    *
-   * Effective behavior is controlled by the configured splitter parameters:
-   * DEFAULT_MAX_CHUNK_SIZE, DEFAULT_MAX_OVERLAP_SIZE, and
-   * CustomTokenCountEstimator.
+   * <p>
+   * The splitter first tries to preserve larger structures (paragraphs and
+   * lines) and recursively falls back to sentences, words, and characters when
+   * needed to respect token limits.
+   * </p>
+   *
+   * @param title        document title to prepend to each chunk
+   * @param abstractText document abstract/body to split
+   * @return a list of non-blank chunks formatted as title + newline + fragment,
+   *         limited by {@code maxChunksSize}; returns an empty list for null or
+   *         blank title/abstract inputs
    */
   public List<String> chunkTitleAndAbstract(String title, String abstractText) {
     String normalizedTitle = normalizeText(title);
@@ -72,6 +120,13 @@ public class ChunkingService {
         .toList();
   }
 
+  /**
+   * Formats a chunk payload with title context.
+   *
+   * @param title    normalized title
+   * @param fragment split abstract fragment
+   * @return chunk text in two lines: title and fragment
+   */
   private static String formatChunk(String title, String fragment) {
     return title + "\n" + fragment;
   }

@@ -1,3 +1,23 @@
+/*
+ *   Copyright (c) 2013-2026. LA Referencia / Red CLARA and others
+ *
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU Affero General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU Affero General Public License for more details.
+ *
+ *   You should have received a copy of the GNU Affero General Public License
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *   This file is part of LA Referencia software platform LRHarvester v5.x
+ *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
+ */
+
 package org.lareferencia.core.embedding;
 
 import java.text.MessageFormat;
@@ -14,6 +34,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+/**
+ * Default {@link IEmbeddingService} implementation backed by
+ * {@link EmbeddingAPIClient}.
+ *
+ * <p>
+ * This service encapsulates request construction, basic response validation,
+ * and dimension checks so callers receive a domain-oriented
+ * {@link Optional} contract.
+ * </p>
+ */
 @Service
 public class EmbeddingService implements IEmbeddingService {
 
@@ -22,13 +52,16 @@ public class EmbeddingService implements IEmbeddingService {
   private EmbeddingAPIClient embeddingAPIClient;
   @Value("${embedding.model.name}")
   private String embeddingModelName;
-  @Value("${embedding.model.datatype}")
+  @Value("${embedding.model.datatype:float}")
   private String embeddingModelDataType;
   @Value("${embedding.model.dimension}")
   private int embeddingModelDimension;
-  @Value("${embedding.model.applicationId}")
+  @Value("${embedding.model.applicationId:lareferencia}")
   private String embeddingApplicationId;
 
+  /**
+   * {@inheritDoc}
+   */
   @Override
   public Optional<List<Float>> embed(String text) {
     return callEmbeddingAPI(text)
@@ -36,17 +69,31 @@ public class EmbeddingService implements IEmbeddingService {
         .map(list -> list.get(0));
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Override
   public Optional<List<List<Float>>> embed(List<String> texts) {
     logger.info(MessageFormat.format("Count of texts for embeddings: {0}", texts.size()));
     return callEmbeddingAPI(texts);
   }
 
+  /**
+   * {@inheritDoc}
+   */
   @Override
   public int getEmbeddingDimension() {
     return embeddingModelDimension;
   }
 
+  /**
+   * Calls the remote embedding API and validates the returned vectors.
+   *
+   * @param textForEmbedding source payload accepted by the API endpoint
+   *                         (single text or list of texts)
+   * @return an {@link Optional} with all returned vectors when the API call and
+   *         validation succeed, otherwise {@link Optional#empty()}
+   */
   private Optional<List<List<Float>>> callEmbeddingAPI(Object textForEmbedding) {
     try {
       EmbeddingResponse response = embeddingAPIClient.generateEmbedding(
@@ -70,7 +117,7 @@ public class EmbeddingService implements IEmbeddingService {
 
         logger.info(MessageFormat.format("Count of vectors: {0}", embeddings.size()));
 
-        var  vectorsDimension = embeddings.get(0).size();
+        var vectorsDimension = embeddings.get(0).size();
 
         if (vectorsDimension != embeddingModelDimension) {
           logger.warn(MessageFormat.format(

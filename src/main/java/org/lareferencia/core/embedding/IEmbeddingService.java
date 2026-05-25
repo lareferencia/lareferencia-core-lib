@@ -1,5 +1,5 @@
 /*
- *   Copyright (c) 2013-2022. LA Referencia / Red CLARA and others
+ *   Copyright (c) 2013-2026. LA Referencia / Red CLARA and others
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU Affero General Public License as published by
@@ -14,7 +14,7 @@
  *   You should have received a copy of the GNU Affero General Public License
  *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- *   This file is part of LA Referencia software platform LRHarvester v4.x
+ *   This file is part of LA Referencia software platform LRHarvester v5.x
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
