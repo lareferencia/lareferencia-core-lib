@@ -18,23 +18,26 @@
  *   For any further information please contact Lautaro Matas <lmatas@gmail.com>
  */
 
-package org.lareferencia.core.semantic.embedding.client;
+package org.lareferencia.core.embedding.client;
 
-import java.util.List;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * DTO for a single embedding item (OpenAI-compatible format).
+ * DTO for API token usage statistics (OpenAI-compatible format).
  */
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class EmbeddingItem {
-    private String object;
-    private List<Float> embedding;
-    private int index;
+public class Usage {
+
+    @JsonProperty("prompt_tokens")
+    private int promptTokens;
+
+    @JsonProperty("total_tokens")
+    private int totalTokens;
 }
