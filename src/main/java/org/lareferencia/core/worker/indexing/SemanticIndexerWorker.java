@@ -158,6 +158,9 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Value("${embedding.use.multivalued.vector:false}")
 	@Setter
 	private boolean useMultiValuedVector;
+    @Value("${embedding.title.standalone.indexing.min.words:5}")
+    @Setter
+    private int minTitleWordsForEmbedding;
 
 	public SemanticIndexerWorker() {
 		super();
@@ -406,10 +409,17 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			return;
 		}
 
-		if (useMultiValuedVector) {
-			String abstractText = extractMetadataValue(metadata, abstractFieldForEmbedding);
-			List<String> textsToEmbedding = new ArrayList<>();
-			textsToEmbedding.add(title);
+        if (useMultiValuedVector) {
+            String abstractText = extractMetadataValue(metadata, abstractFieldForEmbedding);
+            List<String> textsToEmbedding = new ArrayList<>();
+            int titleWordCount = title.trim().split("\\s+").length;
+            if (titleWordCount < minTitleWordsForEmbedding) {
+                logger.info(MessageFormat.format(
+                        "Title: {0}, has {1} words, which is below the minimum threshold of {2} for standalone embedding. Skipping embedding for this record: {3}",
+                        title, titleWordCount, minTitleWordsForEmbedding, metadata.getIdentifier()));
+            } else {
+                textsToEmbedding.add(title);
+            }
 
 			textsToEmbedding.addAll(chunkingService.chunkTitleAndAbstract(title, abstractText));
 
@@ -531,7 +541,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 				.filter(metadataValue -> !metadataValue.trim().isEmpty())
 				.collect(Collectors.joining(" "));
 
-	}
+    }
 
 	private SolrInputDocument xmlDocumentToSolrInputDocument(Document doc) {
 		SolrInputDocument solrDoc = new SolrInputDocument();
