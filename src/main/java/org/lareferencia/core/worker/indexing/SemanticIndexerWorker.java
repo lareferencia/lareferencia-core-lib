@@ -423,6 +423,10 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 			textsToEmbedding.addAll(chunkingService.chunkTitleAndAbstract(title, abstractText));
 
+            if (textsToEmbedding.isEmpty()){
+                return;
+            }
+
 			embeddingService.embed(textsToEmbedding)
 					.filter(vectors -> !vectors.isEmpty())
 					.ifPresentOrElse(
