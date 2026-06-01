@@ -117,6 +117,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	private SnapshotMetadata snapshotMetadata;
 	private int recordCounter = 0;
 	private int embeddedRecordsCount = 0;
+	private int emptyRecordsCount = 0;
 	private int failedEmbeddingsCount = 0;
 	private List<SolrInputDocument> documentsToBeIndexed;
 	private NumberFormat percentajeFormat = NumberFormat.getPercentInstance();
@@ -281,8 +282,8 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 					this.targetSchemaName));
 			logInfo(MessageFormat.format("Indexed documents in {0}::{1} = {2}", runningContext.getNetwork().getAcronym(),
 					this.targetSchemaName, this.queryForNetworkDocumentCount(runningContext.getNetwork().getAcronym())));
-			logInfo(MessageFormat.format("Embedding stats: Success: {0} | Failed: {1}",
-					(embeddedRecordsCount - failedEmbeddingsCount),
+			logInfo(MessageFormat.format("Embedding stats: Success: {0} | Empty: {1} | Failed: {2}",
+					(embeddedRecordsCount - (failedEmbeddingsCount + emptyRecordsCount)), emptyRecordsCount,
 					failedEmbeddingsCount));
 
 			logger.debug(MessageFormat.format("Updates snapshot status to {0}", SnapshotIndexStatus.INDEXED));
@@ -406,6 +407,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	private void enrichRecordWithEmbedding(SolrInputDocument recordDoc, OAIRecordMetadata metadata) {
 		String title = extractMetadataValue(metadata, titleFieldForEmbedding);
 		if (title.isBlank()) {
+            emptyRecordsCount++;
 			return;
 		}
 
@@ -424,6 +426,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			textsToEmbedding.addAll(chunkingService.chunkTitleAndAbstract(title, abstractText));
 
             if (textsToEmbedding.isEmpty()){
+                emptyRecordsCount++;
                 return;
             }
 
