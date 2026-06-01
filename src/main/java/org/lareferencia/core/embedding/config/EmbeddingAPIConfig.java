@@ -31,6 +31,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.support.WebClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
@@ -67,6 +69,7 @@ public class EmbeddingAPIConfig {
 
                 Retry retryStrategy = Retry.backoff(3, Duration.ofSeconds(5))
                                 .jitter(0.75)
+                                .filter(this::isRetryableError)
                                 .doBeforeRetry(retrySignal -> logger.warn(
                                                 "Retrying embedding API call. Attempt: {}. Cause: {}",
                                                 retrySignal.totalRetries() + 1,
@@ -97,5 +100,18 @@ public class EmbeddingAPIConfig {
                                 .build();
 
                 return factory.createClient(EmbeddingAPIClient.class);
+        }
+
+        private boolean isRetryableError(Throwable error) {
+                if (error instanceof WebClientRequestException) {
+                        return true;
+                }
+
+                if (error instanceof WebClientResponseException responseException) {
+                        int status = responseException.getStatusCode().value();
+                        return status >= 500;
+                }
+
+                return false;
         }
 }
