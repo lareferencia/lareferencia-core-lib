@@ -50,11 +50,11 @@ public class EmbeddingService implements IEmbeddingService {
   private static Logger logger = LogManager.getLogger(EmbeddingService.class);
   @Autowired
   private EmbeddingAPIClient embeddingAPIClient;
-  @Value("${embedding.model.name}")
+  @Value("${embedding.model.name:e8a730bb-e48f-4cd8-94c4-4f2be2530d8f}")
   private String embeddingModelName;
   @Value("${embedding.model.datatype:float}")
   private String embeddingModelDataType;
-  @Value("${embedding.model.dimension}")
+  @Value("${embedding.model.dimension:1024}")
   private int embeddingModelDimension;
   @Value("${embedding.model.applicationId:lareferencia}")
   private String embeddingApplicationId;
