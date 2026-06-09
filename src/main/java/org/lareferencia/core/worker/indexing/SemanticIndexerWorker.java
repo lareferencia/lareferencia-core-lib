@@ -142,8 +142,11 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	private Map<String, List<String>> contentFiltersByFieldName = null;
 	@Setter
 	@Getter
-	@Value("${embedding.api.url:}")
-	private String embeddingApiUrl;
+	@Value("${embedding.api.url}")
+	private String embeddingApiUrl;	@Setter
+	@Getter
+	@Value("${embedding.model.name}")
+	private String embeddingModel;
 	@Setter
 	@Getter
 	@Value("${embedding.title.field:dc.title.*}")
@@ -323,8 +326,8 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 		logger.debug(MessageFormat.format("Full semantic indexing ({0}): {1}", this.targetSchemaName, snapshotId));
 		logInfo(MessageFormat.format("Full semantic indexing: {0}({1})", runningContext.toString(), this.targetSchemaName));
-		logInfo(MessageFormat.format("Embedding API: {0} | Title field: {1} | Abstract field: {2} | Vector field: {3}",
-				embeddingApiUrl, titleFieldForEmbedding, abstractFieldForEmbedding, vectorFieldName));
+		logInfo(MessageFormat.format("Embedding API: {0} | Model: {1} | Title field: {2} | Abstract field: {3} | Vector field: {4} | MultiValued vector: {5}",
+				embeddingApiUrl, embeddingModel, titleFieldForEmbedding, abstractFieldForEmbedding, vectorFieldName, useMultiValuedVector));
 
 		return initializeTransformer();
 	}
