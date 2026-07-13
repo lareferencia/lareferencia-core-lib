@@ -50,7 +50,7 @@ public class EmbeddingService implements IEmbeddingService {
   private static Logger logger = LogManager.getLogger(EmbeddingService.class);
   @Autowired
   private EmbeddingAPIClient embeddingAPIClient;
-  @Value("${embedding.model.name}")
+  @Value("${embedding.model.name:bge-m3}")
   private String embeddingModelName;
   @Value("${embedding.model.datatype:float}")
   private String embeddingModelDataType;

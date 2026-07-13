@@ -30,6 +30,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.util.StringUtils;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -88,7 +89,9 @@ public class EmbeddingAPIConfig {
                                 .filter((request, next) -> next.exchange(request)
                                                 .flatMap(response -> {
                                                         if (!response.statusCode().is2xxSuccessful()) {
-                                                                return response.createException().flatMap(Mono::error);
+                                                                return response.createException()
+                                                                                .flatMap(exception -> Mono.<ClientResponse>error(
+                                                                                                exception));
                                                         }
                                                         return Mono.just(response);
                                                 })
