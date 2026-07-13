@@ -22,7 +22,10 @@ package org.lareferencia.core.repository.jpa;
 
 import org.lareferencia.core.domain.ValidatorRule;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
+import org.springframework.data.repository.query.Param;
 
 /**
  * JPA repository for managing {@link ValidatorRule} entities.
@@ -30,5 +33,13 @@ import org.springframework.data.rest.core.annotation.RepositoryRestResource;
  */
 @RepositoryRestResource(path = "validatorRule", collectionResourceRel = "validatorRule")
 public interface ValidatorRuleRepository extends JpaRepository<ValidatorRule, Long> {
+
+	long countByJsonserializationContaining(String packageName);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("update ValidatorRule r set r.jsonserialization = replace(r.jsonserialization, :oldPackage, :newPackage) where r.jsonserialization like concat('%', :oldPackage, '%')")
+	int replaceJsonserializationPackage(
+			@Param("oldPackage") String oldPackage,
+			@Param("newPackage") String newPackage);
 
 }
