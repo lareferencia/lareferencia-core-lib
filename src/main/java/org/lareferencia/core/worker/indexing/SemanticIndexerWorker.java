@@ -110,7 +110,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 	private HttpSolrClient solrClient;
 
-	@Value("${frontend.solr.url}")
+	@Value("${semantic.solr.url:${frontend.solr.url}}")
 	private String solrURL;
 
 	private Long snapshotId;
