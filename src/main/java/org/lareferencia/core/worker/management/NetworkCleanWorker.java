@@ -60,6 +60,7 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	@Autowired
 	private OAIRecordCatalogRepository catalogRepo;
 
+
 	/**
 	 * Flag indicating whether to delete the entire network or just clean snapshot
 	 * data.
@@ -134,6 +135,7 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 		}
 
 	}
+
 
 	private void cleanSnapshotStatsData(Long snapshotId) throws ValidationStatisticsException {
 

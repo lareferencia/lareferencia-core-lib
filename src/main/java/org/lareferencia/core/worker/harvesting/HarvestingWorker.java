@@ -261,7 +261,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			// Caso de harvesting incremental
 
 			// Forzar full harvesting si está configurado
-			if (runningContext.getNetwork().getBooleanPropertyValue("FORCE_FULL_HARVESTING")) {
+			if (runningContext.getBooleanActionOption("FORCE_FULL_HARVESTING", "FORCE_FULL_HARVESTING", false)) {
 				logger.debug("Forcing full harvesting");
 				this.setIncremental(false);
 			}

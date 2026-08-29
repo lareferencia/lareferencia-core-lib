@@ -169,10 +169,10 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 			// INITIALIZE: Create fresh writers AFTER cleanup
 			logInfo("Initializing validation statistics for snapshot: " + snapshotId);
 			validationStatisticsService.initializeValidationForSnapshot(this.snapshotMetadata);
-			logger.debug(
-					"Detailed diagnose: " + runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE"));
-			validationStatisticsService
-					.setDetailedDiagnose(runningContext.getNetwork().getBooleanPropertyValue("DETAILED_DIAGNOSE"));
+			boolean detailedDiagnose = runningContext.getBooleanActionOption(
+					"DETAILED_DIAGNOSE", "DETAILED_DIAGNOSE", false);
+			logger.debug("Detailed diagnose: " + detailedDiagnose);
+			validationStatisticsService.setDetailedDiagnose(detailedDiagnose);
 
 			try {
 

@@ -22,6 +22,7 @@ package org.lareferencia.core.flowable.dto;
 
 import lombok.Builder;
 import lombok.Data;
+import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * DTO containing information about a Flowable workflow definition (process
@@ -41,9 +42,6 @@ public class WorkflowDefinitionInfo {
     /** Key of the workflow (used to start process instances) */
     private String workflowKey;
 
-    /** Display order for listing workflows (lower numbers appear first) */
-    private Integer displayOrder;
-
     /** Human-readable name of the workflow */
     private String name;
 
@@ -52,4 +50,9 @@ public class WorkflowDefinitionInfo {
 
     /** Version number (latest by default) */
     private int version;
+
+    /** Optional catalog form metadata loaded from BPMN-referenced JSON resources. */
+    private JsonNode configurationSchema;
+    private JsonNode uiSchema;
+    private JsonNode defaultConfiguration;
 }

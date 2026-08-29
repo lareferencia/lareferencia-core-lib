@@ -67,10 +67,13 @@ public class NetworkActionExecutorConfig {
     public INetworkActionExecutor legacyNetworkActionExecutor(
             TaskManager taskManager,
             ApplicationContext applicationContext,
-            NetworkRepository networkRepository) {
+            NetworkRepository networkRepository,
+            ApplicationActionCatalogService actionCatalog,
+            NetworkActionConfigurationService networkActionConfiguration,
+            WorkerConfigurationApplier workerConfigurationApplier) {
 
         logger.info("Initializing LEGACY network action executor (TaskManager-based)");
-        return new LegacyNetworkActionExecutor(taskManager, applicationContext, networkRepository);
+        return new LegacyNetworkActionExecutor(taskManager, applicationContext, networkRepository, actionCatalog, networkActionConfiguration, workerConfigurationApplier);
     }
 
     /**
@@ -87,9 +90,11 @@ public class NetworkActionExecutorConfig {
     @ConditionalOnProperty(name = "workflow.engine", havingValue = "flowable")
     public INetworkActionExecutor flowableNetworkActionExecutor(
             WorkflowService workflowService,
-            NetworkRepository networkRepository) {
+            NetworkRepository networkRepository,
+            ApplicationActionCatalogService actionCatalog,
+            NetworkActionConfigurationService networkActionConfiguration) {
 
         logger.info("Initializing FLOWABLE network action executor (WorkflowService-based)");
-        return new FlowableNetworkActionExecutor(workflowService, networkRepository);
+        return new FlowableNetworkActionExecutor(workflowService, networkRepository, actionCatalog, networkActionConfiguration);
     }
 }

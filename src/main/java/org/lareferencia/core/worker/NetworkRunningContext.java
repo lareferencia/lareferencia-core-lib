@@ -21,6 +21,8 @@
 
 package org.lareferencia.core.worker;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.lareferencia.core.domain.Network;
 
 import lombok.Getter;
@@ -54,14 +56,33 @@ public class NetworkRunningContext implements IRunningContext {
 	@Setter
 	Network network;
 
+	@Getter
+	final String actionKey;
+
+	@Getter
+	final JsonNode actionConfiguration;
+
 	/**
 	 * Constructs a new network running context for the specified network.
 	 * 
 	 * @param network the network to associate with this context
 	 */
 	public NetworkRunningContext(Network network) {
-		super();
+		this(network, null, JsonNodeFactory.instance.objectNode());
+	}
+
+	public NetworkRunningContext(Network network, String actionKey, JsonNode actionConfiguration) {
 		this.network = network;
+		this.actionKey = actionKey;
+		this.actionConfiguration = actionConfiguration != null && actionConfiguration.isObject()
+				? actionConfiguration.deepCopy() : JsonNodeFactory.instance.objectNode();
+	}
+
+	public boolean getBooleanActionOption(String name, String legacyPropertyName, boolean defaultValue) {
+		JsonNode configured = actionConfiguration.get(name);
+		if (configured != null && configured.isBoolean()) return configured.asBoolean();
+		if (network != null && legacyPropertyName != null) return network.getBooleanPropertyValue(legacyPropertyName);
+		return defaultValue;
 	}
 
 	@Override

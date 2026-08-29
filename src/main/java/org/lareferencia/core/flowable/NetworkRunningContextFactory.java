@@ -28,6 +28,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.Map;
 
 /**
@@ -46,6 +49,9 @@ public class NetworkRunningContextFactory implements IWorkerContextFactory {
 
     @Autowired
     private NetworkRepository networkRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     /**
      * Creates a NetworkRunningContext from process variables.
@@ -66,6 +72,10 @@ public class NetworkRunningContextFactory implements IWorkerContextFactory {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Network not found with id: " + networkId));
 
-        return new NetworkRunningContext(network);
+        String actionKey = variables.get("actionName") instanceof String value ? value : null;
+        Object rawConfiguration = variables.get("actionConfiguration");
+        JsonNode configuration = rawConfiguration == null
+                ? objectMapper.createObjectNode() : objectMapper.valueToTree(rawConfiguration);
+        return new NetworkRunningContext(network, actionKey, configuration);
     }
 }

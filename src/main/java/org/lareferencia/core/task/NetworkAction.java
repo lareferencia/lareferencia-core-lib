@@ -23,6 +23,9 @@ package org.lareferencia.core.task;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.databind.JsonNode;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -58,6 +61,11 @@ public class NetworkAction {
 	@Setter
 	List<NetworkProperty> properties;
 
+	/** Safe runtime configuration descriptors for the prototype workers in this action. */
+	@Getter
+	@Setter
+	List<WorkerConfigurationDescriptor> workerConfigurations = new ArrayList<>();
+
 	/**
 	 * Flag indicating whether this action should run on schedule.
 	 */
@@ -87,13 +95,21 @@ public class NetworkAction {
 	@Setter
 	String description = "DUMMY";
 
-	/**
-	 * Display order for listing actions (lower numbers appear first).
-	 * Used to control the order in which actions appear in UI lists.
-	 */
-	@Getter
-	@Setter
-	Integer displayOrder = 0;
+	/** Optional v5 catalog metadata; hidden from the legacy action DTO. */
+	@JsonIgnore @Getter @Setter
+	JsonNode configurationSchema;
+
+	@JsonIgnore @Getter @Setter
+	JsonNode uiSchema;
+
+	@JsonIgnore @Getter @Setter
+	JsonNode defaultConfiguration;
+
+	@JsonIgnore @Getter @Setter
+	String version;
+
+	@JsonIgnore @Getter @Setter
+	String processKey;
 
 	/**
 	 * Checks if this action operates in incremental mode.
@@ -111,6 +127,17 @@ public class NetworkAction {
 	 */
 	public void setIncremental(boolean incremental) {
 		this.incremental = incremental;
+	}
+
+	/**
+	 * Returns the legacy properties that are execution modifiers rather than the
+	 * switch that used to opt an action into the scheduled chain.
+	 */
+	@JsonIgnore
+	public List<NetworkProperty> getConfigurationProperties() {
+		if (properties == null || properties.isEmpty()) return List.of();
+		if (Boolean.TRUE.equals(allwaysRunOnSchedule)) return List.copyOf(properties);
+		return properties.size() > 1 ? List.copyOf(properties.subList(1, properties.size())) : List.of();
 	}
 
 }

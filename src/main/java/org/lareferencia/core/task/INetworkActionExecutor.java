@@ -48,6 +48,9 @@ import java.util.List;
  */
 public interface INetworkActionExecutor {
 
+    /** Stable catalog namespace for this executor. */
+    String getEngineType();
+
     /**
      * Executes a specific action for a network.
      *

@@ -55,17 +55,32 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
     private final ApplicationContext applicationContext;
     private final NetworkRepository networkRepository;
 
+    private final ApplicationActionCatalogService actionCatalog;
+    private final NetworkActionConfigurationService networkActionConfiguration;
+    private final WorkerConfigurationApplier workerConfigurationApplier;
+
     private List<NetworkAction> actions;
     private Map<String, NetworkAction> actionsByName;
 
     public LegacyNetworkActionExecutor(TaskManager taskManager,
             ApplicationContext applicationContext,
-            NetworkRepository networkRepository) {
+            NetworkRepository networkRepository,
+            ApplicationActionCatalogService actionCatalog,
+            NetworkActionConfigurationService networkActionConfiguration,
+            WorkerConfigurationApplier workerConfigurationApplier) {
         this.taskManager = taskManager;
         this.applicationContext = applicationContext;
         this.networkRepository = networkRepository;
+        this.actionCatalog = actionCatalog;
+        this.networkActionConfiguration = networkActionConfiguration;
+        this.workerConfigurationApplier = workerConfigurationApplier;
         this.actions = new ArrayList<>();
         this.actionsByName = new HashMap<>();
+    }
+
+    @Override
+    public String getEngineType() {
+        return "legacy";
     }
 
     /**
@@ -89,7 +104,14 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
      */
     @Override
     public List<NetworkAction> getAvailableActions() {
-        return actions;
+        // Legacy actions remain discovered from the same Spring beans/XML as
+        // before. Bean name order is only the deterministic bootstrap order;
+        // after reconciliation the installation catalogue is authoritative.
+        List<NetworkAction> discovered = applicationContext.getBeansOfType(NetworkAction.class).entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue).toList();
+        if (!discovered.isEmpty()) setActions(discovered);
+        return actionCatalog.order(getEngineType(), actions);
     }
 
     /**
@@ -110,6 +132,8 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
     public void executeAction(String actionName, boolean isIncremental, Network network) {
         logger.debug("Executing action: {}", actionName);
 
+        actionCatalog.requireEnabled(getEngineType(), actionName);
+
         NetworkAction action = actionsByName.get(actionName);
 
         if (action != null) {
@@ -120,8 +144,9 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
                     @SuppressWarnings("unchecked")
                     IWorker<NetworkRunningContext> worker = (IWorker<NetworkRunningContext>) applicationContext
                             .getBean(workerBeanName);
+                    workerConfigurationApplier.apply(worker, getEngineType(), action, workerBeanName);
                     worker.setIncremental(isIncremental);
-                    worker.setRunningContext(new NetworkRunningContext(network));
+                    worker.setRunningContext(actionContext(network, action));
                     taskManager.launchWorker(worker);
 
                 } catch (Exception e) {
@@ -137,25 +162,20 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
 
     @Override
     public void executeAllActions(Network network) {
-        for (NetworkAction action : actions) {
-            // Check if any property is true
-            boolean anyPropertyIsTrue = false;
-            for (NetworkProperty property : action.getProperties()) {
-                anyPropertyIsTrue |= network.getBooleanPropertyValue(property.getName());
+        for (NetworkAction action : getAvailableActions()) {
+            if (!actionCatalog.isEffectivelyEnabled(getEngineType(), action.getName())) {
+                logger.info("Skipping globally disabled action '{}' for network '{}'", action.getName(), network.getAcronym());
+                continue;
             }
-
-            // Always run overrides property check
-            anyPropertyIsTrue |= action.getAllwaysRunOnSchedule();
-
-            // Run if scheduled AND some property is true (or always run is set)
-            if (action.getRunOnSchedule() && anyPropertyIsTrue) {
+            if (networkActionConfiguration.canSchedule(network, getEngineType(), action)) {
                 for (String workerBeanName : action.getWorkers()) {
                     try {
                         @SuppressWarnings("unchecked")
                         IWorker<NetworkRunningContext> worker = (IWorker<NetworkRunningContext>) applicationContext
                                 .getBean(workerBeanName);
+                        workerConfigurationApplier.apply(worker, getEngineType(), action, workerBeanName);
                         worker.setIncremental(action.isIncremental());
-                        worker.setRunningContext(new NetworkRunningContext(network));
+                        worker.setRunningContext(actionContext(network, action));
                         taskManager.launchWorker(worker);
 
                     } catch (Exception e) {
@@ -166,6 +186,11 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
                 }
             }
         }
+    }
+
+    private NetworkRunningContext actionContext(Network network, NetworkAction action) {
+        return new NetworkRunningContext(network, action.getName(),
+                networkActionConfiguration.effectiveConfiguration(network, getEngineType(), action.getName()));
     }
 
     @Override

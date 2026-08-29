@@ -44,6 +44,10 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
+import org.springframework.core.io.ResourceLoader;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -55,6 +59,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 /**
@@ -74,6 +79,13 @@ public class WorkflowService {
 
     private static final Logger logger = LogManager.getLogger(WorkflowService.class);
 
+    private volatile BiConsumer<String, Map<String, Object>> scheduledProcessGuard = (processKey, variables) -> { };
+
+    /** Installs an application policy checked immediately before each scheduled submission. */
+    public void setScheduledProcessGuard(BiConsumer<String, Map<String, Object>> scheduledProcessGuard) {
+        this.scheduledProcessGuard = scheduledProcessGuard == null ? (processKey, variables) -> { } : scheduledProcessGuard;
+    }
+
     @Autowired
     private RuntimeService runtimeService;
 
@@ -88,6 +100,12 @@ public class WorkflowService {
 
     @Autowired
     private WorkflowProperties config;
+
+    @Autowired
+    private ResourceLoader resourceLoader;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     // ========== Concurrency Control State ==========
 
@@ -489,20 +507,7 @@ public class WorkflowService {
                 .list()
                 .stream()
                 .map(this::buildWorkflowDefinitionInfo)
-                .sorted((w1, w2) -> {
-                    // Sort by displayOrder (nulls last), then by workflowKey
-                    if (w1.getDisplayOrder() == null && w2.getDisplayOrder() == null) {
-                        return w1.getWorkflowKey().compareTo(w2.getWorkflowKey());
-                    }
-                    if (w1.getDisplayOrder() == null)
-                        return 1;
-                    if (w2.getDisplayOrder() == null)
-                        return -1;
-                    int orderCompare = w1.getDisplayOrder().compareTo(w2.getDisplayOrder());
-                    if (orderCompare != 0)
-                        return orderCompare;
-                    return w1.getWorkflowKey().compareTo(w2.getWorkflowKey());
-                })
+                .sorted(Comparator.comparing(WorkflowDefinitionInfo::getWorkflowKey))
                 .collect(Collectors.toList());
     }
 
@@ -627,7 +632,9 @@ public class WorkflowService {
                 () -> {
                     try {
                         logger.info("Scheduled trigger fired for schedule '{}'", scheduleId);
-                        submitProcess(processKey, new HashMap<>(varsWithLane));
+                        Map<String, Object> executionVariables = new HashMap<>(varsWithLane);
+                        scheduledProcessGuard.accept(processKey, executionVariables);
+                        submitProcess(processKey, executionVariables);
                     } catch (Exception e) {
                         logger.error("Error executing scheduled process '{}': {}", scheduleId, e.getMessage(), e);
                     }
@@ -695,7 +702,9 @@ public class WorkflowService {
                     () -> {
                         try {
                             logger.info("Scheduled trigger fired for schedule '{}'", scheduleId);
-                            submitProcess(task.processKey, new HashMap<>(task.variables));
+                            Map<String, Object> executionVariables = new HashMap<>(task.variables);
+                            scheduledProcessGuard.accept(task.processKey, executionVariables);
+                            submitProcess(task.processKey, executionVariables);
                         } catch (Exception e) {
                             logger.error("Error executing scheduled process '{}': {}", scheduleId, e.getMessage(), e);
                         }
@@ -834,8 +843,9 @@ public class WorkflowService {
 
     private WorkflowDefinitionInfo buildWorkflowDefinitionInfo(ProcessDefinition definition) {
         logger.info(">>> Building workflow info for: {}", definition.getKey());
-        // Extract display order from flowable:order attribute in BPMN
-        Integer displayOrder = null;
+        JsonNode configurationSchema = null;
+        JsonNode uiSchema = null;
+        JsonNode defaultConfiguration = null;
         try {
             org.flowable.bpmn.model.BpmnModel bpmnModel = repositoryService.getBpmnModel(definition.getId());
             org.flowable.bpmn.model.Process process = bpmnModel.getMainProcess();
@@ -845,48 +855,47 @@ public class WorkflowService {
                         .getAttributes();
 
                 if (attributes != null && !attributes.isEmpty()) {
-                    // Try different possible keys for the order attribute
-                    // Flowable may store it as "order", "flowable:order", or with full namespace
-                    for (String key : new String[] { "order", "flowable:order", "{http://flowable.org/bpmn}order" }) {
-                        if (attributes.containsKey(key)) {
-                            java.util.List<org.flowable.bpmn.model.ExtensionAttribute> orderAttrs = attributes.get(key);
-                            if (orderAttrs != null && !orderAttrs.isEmpty()) {
-                                String orderValue = orderAttrs.get(0).getValue();
-                                if (orderValue != null && !orderValue.isBlank()) {
-                                    displayOrder = Integer.parseInt(orderValue);
-                                    logger.info("  ✓ Found display order {} using key '{}'",
-                                            displayOrder, key);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    // Log available keys for debugging if order was not found
-                    if (displayOrder == null) {
-                        logger.info("  ✗ No order found. Available keys: {}", attributes.keySet());
-                    }
+                    configurationSchema = readOptionalJsonAttribute(attributes, "actionSchema");
+                    uiSchema = readOptionalJsonAttribute(attributes, "actionUiSchema");
+                    defaultConfiguration = readOptionalJsonAttribute(attributes, "actionDefaults");
                 }
             }
         } catch (Exception e) {
-            // If order attribute is not set or invalid, leave as null
-            logger.warn("Error parsing display order for workflow '{}': {}",
+            logger.warn("Error reading optional action metadata for workflow '{}': {}",
                     definition.getKey(), e.getMessage(), e);
         }
 
         WorkflowDefinitionInfo result = WorkflowDefinitionInfo.builder()
                 .processDefinitionId(definition.getId())
                 .workflowKey(definition.getKey())
-                .displayOrder(displayOrder)
                 .name(definition.getName())
                 .description(definition.getDescription())
                 .version(definition.getVersion())
+                .configurationSchema(configurationSchema)
+                .uiSchema(uiSchema)
+                .defaultConfiguration(defaultConfiguration)
                 .build();
 
-        logger.info("  → Returning: key={}, displayOrder={}, name={}",
-                result.getWorkflowKey(), result.getDisplayOrder(), result.getName());
+        logger.info("  → Returning: key={}, name={}", result.getWorkflowKey(), result.getName());
 
         return result;
+    }
+
+    private JsonNode readOptionalJsonAttribute(
+            Map<String, List<org.flowable.bpmn.model.ExtensionAttribute>> attributes, String name) {
+        for (String key : new String[] { name, "flowable:" + name, "{http://flowable.org/bpmn}" + name }) {
+            List<org.flowable.bpmn.model.ExtensionAttribute> values = attributes.get(key);
+            if (values != null && !values.isEmpty() && values.get(0).getValue() != null
+                    && !values.get(0).getValue().isBlank()) {
+                String location = values.get(0).getValue();
+                try (var input = resourceLoader.getResource(location).getInputStream()) {
+                    return objectMapper.readTree(input);
+                } catch (Exception exception) {
+                    throw new IllegalStateException("Cannot load Flowable action metadata " + location, exception);
+                }
+            }
+        }
+        return null;
     }
 
     private LocalDateTime convertToLocalDateTime(Date date) {

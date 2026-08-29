@@ -59,10 +59,23 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
     private final WorkflowService workflowService;
     private final NetworkRepository networkRepository;
 
+    private final ApplicationActionCatalogService actionCatalog;
+    private final NetworkActionConfigurationService networkActionConfiguration;
+
     public FlowableNetworkActionExecutor(WorkflowService workflowService,
-            NetworkRepository networkRepository) {
+            NetworkRepository networkRepository,
+            ApplicationActionCatalogService actionCatalog,
+            NetworkActionConfigurationService networkActionConfiguration) {
         this.workflowService = workflowService;
         this.networkRepository = networkRepository;
+        this.actionCatalog = actionCatalog;
+        this.networkActionConfiguration = networkActionConfiguration;
+        this.workflowService.setScheduledProcessGuard(this::refreshScheduledPolicy);
+    }
+
+    @Override
+    public String getEngineType() {
+        return "flowable";
     }
 
     @Override
@@ -70,11 +83,13 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
         logger.info("Executing action '{}' for network '{}' via Flowable",
                 actionName, network.getAcronym());
 
+        actionCatalog.requireEnabled(getEngineType(), actionName);
+
         // Use actionName directly as processKey (e.g., "harvesting" -> process
         // "harvesting")
         String processKey = actionName;
 
-        Map<String, Object> variables = buildProcessVariables(network, isIncremental);
+        Map<String, Object> variables = buildProcessVariables(network, actionName, isIncremental);
         variables.put("actionName", actionName);
 
         try {
@@ -92,9 +107,13 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
     public void executeAllActions(Network network) {
         // In Flowable mode, "all actions" means running the main harvesting process
         // which includes all steps defined in the BPMN
+        actionCatalog.requireEnabled(getEngineType(), DEFAULT_ALL_ACTIONS_PROCESS);
+        if (!networkActionConfiguration.canExecute(network, getEngineType(), DEFAULT_ALL_ACTIONS_PROCESS)) {
+            throw new ApplicationActionPolicyException("ACTION_DISABLED", "networkProcessing is disabled for this network");
+        }
         logger.info("Executing all actions for network '{}' via Flowable", network.getAcronym());
 
-        Map<String, Object> variables = buildProcessVariables(network, false);
+        Map<String, Object> variables = buildProcessVariables(network, DEFAULT_ALL_ACTIONS_PROCESS, false);
 
         try {
             ProcessInstanceInfo instance = workflowService.submitProcess(DEFAULT_ALL_ACTIONS_PROCESS, variables);
@@ -134,7 +153,7 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
         String scheduleId = buildScheduleId(network);
         String laneId = buildLaneId(network);
 
-        Map<String, Object> variables = buildProcessVariables(network, false);
+        Map<String, Object> variables = buildProcessVariables(network, DEFAULT_ALL_ACTIONS_PROCESS, false);
 
         try {
             workflowService.scheduleProcess(scheduleId, DEFAULT_ALL_ACTIONS_PROCESS,
@@ -227,19 +246,22 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
         List<NetworkAction> actions = new ArrayList<>();
 
         // Get workflow definitions from WorkflowService and convert to NetworkAction
-        // The workflows are already sorted by displayOrder
         for (var workflowInfo : workflowService.getAvailableWorkflows()) {
             NetworkAction action = new NetworkAction();
             action.setName(workflowInfo.getWorkflowKey());
             action.setDescription(
                     workflowInfo.getName() != null ? workflowInfo.getName() : workflowInfo.getWorkflowKey());
-            action.setDisplayOrder(workflowInfo.getDisplayOrder());
             action.setRunOnSchedule(true);
             action.setIncremental(false);
+            action.setVersion(Integer.toString(workflowInfo.getVersion()));
+            action.setProcessKey(workflowInfo.getWorkflowKey());
+            action.setConfigurationSchema(workflowInfo.getConfigurationSchema());
+            action.setUiSchema(workflowInfo.getUiSchema());
+            action.setDefaultConfiguration(workflowInfo.getDefaultConfiguration());
             actions.add(action);
         }
 
-        return actions;
+        return actionCatalog.order(getEngineType(), actions);
     }
 
     /**
@@ -307,13 +329,38 @@ public class FlowableNetworkActionExecutor implements INetworkActionExecutor {
 
     // ========== Helper Methods ==========
 
-    private Map<String, Object> buildProcessVariables(Network network, boolean incremental) {
+    private Map<String, Object> buildProcessVariables(Network network, String actionKey, boolean incremental) {
         Map<String, Object> variables = new HashMap<>();
         variables.put("networkId", network.getId());
         variables.put("networkAcronym", network.getAcronym());
         variables.put("laneId", buildLaneId(network));
         variables.put("incremental", incremental);
+        variables.put("actionName", actionKey);
+        variables.put("actionConfiguration", networkActionConfiguration
+                .effectiveConfiguration(network, getEngineType(), actionKey));
         return variables;
+    }
+
+    private void refreshScheduledPolicy(String processKey, Map<String, Object> variables) {
+        actionCatalog.requireEnabled(getEngineType(), processKey);
+        Object rawNetworkId = variables.get("networkId");
+        if (!(rawNetworkId instanceof Number number)) {
+            throw new ApplicationActionPolicyException("NETWORK_NOT_FOUND", "Scheduled process has no networkId");
+        }
+        Network network = networkRepository.findById(number.longValue())
+                .orElseThrow(() -> new ApplicationActionPolicyException("NETWORK_NOT_FOUND",
+                        "Scheduled network was not found"));
+        NetworkAction descriptor = getAvailableActions().stream()
+                .filter(action -> processKey.equals(action.getName())).findFirst()
+                .orElseThrow(() -> new ApplicationActionPolicyException("ACTION_NOT_FOUND",
+                        "Action was not discovered"));
+        if (!networkActionConfiguration.canSchedule(network, getEngineType(), descriptor)) {
+            throw new ApplicationActionPolicyException("ACTION_DISABLED",
+                    "Action is disabled for this network schedule");
+        }
+        variables.put("actionName", processKey);
+        variables.put("actionConfiguration", networkActionConfiguration
+                .effectiveConfiguration(network, getEngineType(), processKey));
     }
 
     private String buildLaneId(Network network) {

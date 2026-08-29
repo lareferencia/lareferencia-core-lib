@@ -21,6 +21,7 @@
 package org.lareferencia.core.task;
 
 import org.lareferencia.core.domain.Network;
+import org.lareferencia.core.repository.jpa.NetworkRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import jakarta.annotation.PostConstruct;
@@ -48,6 +49,18 @@ public class NetworkActionkManager {
 	@Autowired
 	private INetworkActionExecutor executor;
 
+	@Autowired
+	private ApplicationActionCatalogService actionCatalog;
+
+	@Autowired
+	private NetworkActionConfigurationService networkActionConfiguration;
+
+	@Autowired
+	private ApplicationWorkerConfigurationService workerConfiguration;
+
+	@Autowired
+	private NetworkRepository networkRepository;
+
 	/**
 	 * Constructs a new network action manager.
 	 */
@@ -60,7 +73,12 @@ public class NetworkActionkManager {
 	 */
 	@PostConstruct
 	public void initialize() {
-		// Schedule all networks
+		var actions = executor.getAvailableActions();
+		actionCatalog.reconcile(executor.getEngineType(), actions, "system:startup");
+		workerConfiguration.reconcile(executor.getEngineType(), actions, "system:startup");
+		actionCatalog.removeWorkerConfiguration(executor.getEngineType(), actions);
+		networkRepository.findAll().forEach(network -> networkActionConfiguration.reconcile(network,
+				executor.getEngineType(), executor.getAvailableActions()));
 		scheduleAllNetworks();
 	}
 
@@ -73,6 +91,24 @@ public class NetworkActionkManager {
 	 */
 	public List<NetworkAction> getActions() {
 		return executor.getAvailableActions();
+	}
+
+	/** v5-visible actions after applying installation policy. */
+	public List<NetworkAction> getEnabledActions() {
+		return executor.getAvailableActions().stream()
+				.filter(action -> actionCatalog.isEffectivelyEnabled(executor.getEngineType(), action.getName())).toList();
+	}
+
+	public String getEngineType() {
+		return executor.getEngineType();
+	}
+
+	public ApplicationActionCatalogService.ReconciliationResult refreshActionCatalog(String updatedBy) {
+		var actions = executor.getAvailableActions();
+		var result = actionCatalog.reconcile(executor.getEngineType(), actions, updatedBy);
+		workerConfiguration.reconcile(executor.getEngineType(), actions, updatedBy);
+		actionCatalog.removeWorkerConfiguration(executor.getEngineType(), actions);
+		return result;
 	}
 
 	/**
@@ -90,6 +126,10 @@ public class NetworkActionkManager {
 	 * @param network the network to execute actions for
 	 */
 	public void executeActions(Network network) {
+		if ("flowable".equals(executor.getEngineType())
+				&& !networkActionConfiguration.canExecute(network, executor.getEngineType(), "networkProcessing")) {
+			throw new ApplicationActionPolicyException("ACTION_DISABLED", "networkProcessing is disabled for this network");
+		}
 		executor.executeAllActions(network);
 	}
 
@@ -101,6 +141,9 @@ public class NetworkActionkManager {
 	 * @param network       the network to execute the action for
 	 */
 	public synchronized void executeAction(String actionName, boolean isIncremental, Network network) {
+		if (!networkActionConfiguration.canExecute(network, executor.getEngineType(), actionName)) {
+			throw new ApplicationActionPolicyException("ACTION_DISABLED", "Action is disabled for this network");
+		}
 		executor.executeAction(actionName, isIncremental, network);
 	}
 
