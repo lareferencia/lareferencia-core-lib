@@ -41,7 +41,7 @@ import lombok.Setter;
  * Transformer rule that reduces heavy records by removing specified fields.
  * Useful for handling oversized metadata records that exceed processing limits.
  */
-@ValidatorRuleMeta(name = "Remover campos específicos de registros pesados", help = "Transformer rule that reduces heavy records by removing specified fields.")
+@ValidatorRuleMeta
 public class ReduceHeavyRecords extends AbstractTransformerRule {
 
 	/**
@@ -52,7 +52,7 @@ public class ReduceHeavyRecords extends AbstractTransformerRule {
 	@Setter
 	@Getter
 	@JsonProperty("maxRecordSize")
-	@SchemaProperty(title = "Tamaño máximo de registro", description = "Tamaño máximo permitido (actualmente no usado).", defaultValue = "1", order = 1)
+	@SchemaProperty(defaultValue = "1", order = 1)
 	int maxRecordSize = 1;
 
 	/**
@@ -61,7 +61,7 @@ public class ReduceHeavyRecords extends AbstractTransformerRule {
 	@Setter
 	@Getter
 	@JsonProperty("fieldsToRemove")
-	@SchemaProperty(title = "Campos a remover", description = "Lista de campos a remover para reducir tamaño.", order = 2)
+	@SchemaProperty(order = 2)
 	List<String> fieldsToRemove;
 
 	/**

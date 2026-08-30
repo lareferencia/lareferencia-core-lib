@@ -41,7 +41,7 @@ import org.w3c.dom.Node;
  * 
  * @author LA Referencia Team
  */
-@ValidatorRuleMeta(name = "Traducción de nombres de campo (Condicional)", help = "Transformation rule that conditionally translates field names based on XPath expressions.")
+@ValidatorRuleMeta
 public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
 
 	static int MAX_NODE_COUNT = 100;
@@ -51,11 +51,11 @@ public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
 	 */
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Nombre de campo destino", description = "El nuevo nombre del campo.", order = 2)
+	@SchemaProperty(order = 2)
 	String targetFieldName;
 
 	@Getter
-	@SchemaProperty(title = "Expresión XPath origen", description = "Expresión XPath para identificar campos a renombrar.", order = 1)
+	@SchemaProperty(order = 1)
 	String sourceXPathExpression;
 
 	/**

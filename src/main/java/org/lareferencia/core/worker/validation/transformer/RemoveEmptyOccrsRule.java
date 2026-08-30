@@ -42,7 +42,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * Cleans up fields by eliminating nodes that contain only whitespace or are
  * empty.
  */
-@ValidatorRuleMeta(name = "Remover ocurrencias vacías", help = "Transformer rule that removes empty or whitespace-only occurrences from a metadata field.")
+@ValidatorRuleMeta
 public class RemoveEmptyOccrsRule extends AbstractTransformerRule {
 
 	/**
@@ -51,7 +51,7 @@ public class RemoveEmptyOccrsRule extends AbstractTransformerRule {
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
-	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover ocurrencias vacías.", order = 1)
+	@SchemaProperty(order = 1)
 	String fieldName;
 
 	/**

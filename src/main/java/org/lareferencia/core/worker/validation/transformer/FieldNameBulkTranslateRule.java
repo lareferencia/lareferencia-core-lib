@@ -44,12 +44,12 @@ import org.w3c.dom.Node;
  * 
  * @author LA Referencia Team
  */
-@ValidatorRuleMeta(name = "Traducción de nombres de campo (múltiple)", help = "Applies a list of field name translations to the metadata.")
+@ValidatorRuleMeta
 public class FieldNameBulkTranslateRule extends AbstractTransformerRule {
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Listado de traducciones", description = "Lista de pares origen-destino para renombrar campos.", order = 1)
+	@SchemaProperty(order = 1)
 	List<Translation> translationArray;
 
 	/**

@@ -36,7 +36,7 @@ import java.util.List;
  * storage.
  */
 @JsonIgnoreProperties({ "controlledValues" })
-@ValidatorRuleMeta(name = "Validación por valores controlados (large)", help = "Esta regla es válida si el campo contiene ocurrencias con valores de una lista grande (CSV)")
+@ValidatorRuleMeta
 public class LargeControlledValueFieldContentValidatorRule extends ControlledValueFieldContentValidatorRule {
 
 	private static Logger logger = LogManager.getLogger(LargeControlledValueFieldContentValidatorRule.class);
@@ -54,7 +54,7 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 	/**
 	 * CSV string containing controlled values separated by semicolons.
 	 */
-	@SchemaProperty(title = "CSV Valores Controlados", description = "Texto con valores separados por ; sin espacios", uiType = "textarea", order = 2)
+	@SchemaProperty(uiType = "textarea", order = 2)
 	@JsonProperty("controlledValuesCSV")
 	private String controlledValuesCSV;
 

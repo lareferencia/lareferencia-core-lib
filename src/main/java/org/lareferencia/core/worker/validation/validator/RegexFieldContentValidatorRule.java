@@ -38,7 +38,7 @@ import lombok.ToString;
  * Checks if the content matches the specified regex pattern.
  */
 @ToString(exclude = { "pattern" })
-@ValidatorRuleMeta(name = "Validación por expresiones regulares", help = "Esta regla es válida si el campo contiene ocurrencias que cumplen con la expresión regular")
+@ValidatorRuleMeta
 public class RegexFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
 	private static final int MAX_EXPECTED_LENGTH = 100;
@@ -54,7 +54,7 @@ public class RegexFieldContentValidatorRule extends AbstractValidatorFieldConten
 	 * The regular expression string used for validation.
 	 */
 	@Getter
-	@SchemaProperty(title = "Expresión regular", description = "Expresión regular que debe ser válida para la ocurrencia", uiType = "textarea", order = 2)
+	@SchemaProperty(uiType = "textarea", order = 2)
 	@JsonProperty("regexString")
 	private String regexString;
 

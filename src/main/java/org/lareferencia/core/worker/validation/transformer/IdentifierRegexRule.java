@@ -42,19 +42,19 @@ import java.util.Set;
  * 
  * @author LA Referencia Team
  */
-@ValidatorRuleMeta(name = "Transformar oai identifier del registro", help = "Transformation rule that applies regex replacement to record identifiers.")
+@ValidatorRuleMeta
 public class IdentifierRegexRule extends AbstractTransformerRule {
 
 	/**
 	 * Regex pattern for searching in identifiers.
 	 */
 	@Getter
-	@SchemaProperty(title = "Expresión regular de búsqueda", description = "Patrón regex para buscar en el identificador.", order = 1)
+	@SchemaProperty(order = 1)
 	String regexSearch;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Expresión de reemplazo", description = "Valor de reemplazo.", order = 2)
+	@SchemaProperty(order = 2)
 	String regexReplace;
 
 	/**

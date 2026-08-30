@@ -46,7 +46,7 @@ import lombok.Setter;
  * Useful for normalizing controlled vocabulary fields that may contain repeated
  * values.
  */
-@ValidatorRuleMeta(name = "Remover ocurrencias redundantes de un vocabulario", help = "Transformer rule that removes duplicate occurrences of vocabulary terms in a metadata field.")
+@ValidatorRuleMeta
 public class RemoveDuplicateVocabularyOccrsRule extends AbstractTransformerRule {
 
 	/**
@@ -55,7 +55,7 @@ public class RemoveDuplicateVocabularyOccrsRule extends AbstractTransformerRule 
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
-	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover duplicados de vocabulario.", order = 1)
+	@SchemaProperty(order = 1)
 	String fieldName;
 
 	/**
@@ -64,7 +64,7 @@ public class RemoveDuplicateVocabularyOccrsRule extends AbstractTransformerRule 
 	@Setter
 	@Getter
 	@JsonProperty("vocabulary")
-	@SchemaProperty(title = "Vocabulario", description = "Lista ordenada de términos del vocabulario.", order = 2)
+	@SchemaProperty(order = 2)
 	protected List<String> vocabulary;
 
 	/**

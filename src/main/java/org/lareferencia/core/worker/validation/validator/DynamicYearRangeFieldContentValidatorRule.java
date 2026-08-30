@@ -48,7 +48,7 @@ import lombok.ToString;
  * @see AbstractValidatorFieldContentRule
  */
 @ToString(exclude = { "pattern" })
-@ValidatorRuleMeta(name = "Validación de fechas por rango dinámico de años", help = "Esta regla es válida sólo si valor de año (year) capturado por la expresión regular cumple: year <= año actual - límite inferior Y year >= año actual + limite superior")
+@ValidatorRuleMeta
 public class DynamicYearRangeFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
 	/**
@@ -65,19 +65,19 @@ public class DynamicYearRangeFieldContentValidatorRule extends AbstractValidator
 	private static final String DEFAULT_REGEX = "^([0-9]{3,4})";
 
 	@Getter
-	@SchemaProperty(title = "Expresión regular", description = "Expresión regular que debe ser válida para la ocurrencia", uiType = "textarea", order = 2, defaultValue = "^([0-9]{3,4})")
+	@SchemaProperty(uiType = "textarea", order = 2, defaultValue = "^([0-9]{3,4})")
 	@JsonProperty("regexString")
 	private String regexString = DEFAULT_REGEX;
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "límite superior", description = "Cantidad de años a partir del año actual hacia adelante. Ej: valor=2, año actual=2019 => años <= 2021 válidos", order = 4, defaultValue = "2")
+	@SchemaProperty(order = 4, defaultValue = "2")
 	@JsonProperty("upperLimit")
 	private int upperLimit;
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "límite inferior", description = "Cantidad de años a partir del año actual hacia atrás. Ej: valor=30, año actual=2019 => años >= 1989 válidos", order = 3, defaultValue = "100")
+	@SchemaProperty(order = 3, defaultValue = "100")
 	@JsonProperty("lowerLimit")
 	private int lowerLimit;
 

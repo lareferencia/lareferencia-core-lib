@@ -43,7 +43,7 @@ import java.net.UnknownHostException;
  */
 @Getter
 @Setter
-@ValidatorRuleMeta(name = "Validación de existencia de enlaces", help = "Esta regla es válida si la URL apuntada por el metadato existe y es accesible")
+@ValidatorRuleMeta
 public class URLExistFieldValidatorRule extends AbstractValidatorFieldContentRule {
 
 	private static Logger logger = LogManager.getLogger(URLExistFieldValidatorRule.class);

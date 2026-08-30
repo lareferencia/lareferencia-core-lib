@@ -41,7 +41,7 @@ import lombok.Setter;
  * in a blacklist.
  * Used to filter out unwanted values from metadata fields.
  */
-@ValidatorRuleMeta(name = "Remover ocurrencias por blacklist", help = "Transformer rule that removes field occurrences whose content matches entries in a blacklist.")
+@ValidatorRuleMeta
 public class RemoveBlacklistOccrsRule extends AbstractTransformerRule {
 
 	/**
@@ -51,7 +51,7 @@ public class RemoveBlacklistOccrsRule extends AbstractTransformerRule {
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
-	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover valores en blacklist.", order = 1)
+	@SchemaProperty(order = 1)
 	String fieldName;
 
 	/**
@@ -61,7 +61,7 @@ public class RemoveBlacklistOccrsRule extends AbstractTransformerRule {
 	@Setter
 	@Getter
 	@JsonProperty("blacklist")
-	@SchemaProperty(title = "Blacklist", description = "Lista de valores a remover.", order = 2)
+	@SchemaProperty(order = 2)
 	protected List<String> blacklist;
 
 	/**

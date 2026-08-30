@@ -57,112 +57,112 @@ import org.lareferencia.core.worker.validation.SchemaProperty;
  * @see AbstractTransformerRule
  * @see Network
  */
-@ValidatorRuleMeta(name = "Agregado de metadatos provenance", help = "Enriches metadata records with information about their source repository and institution.")
+@ValidatorRuleMeta
 public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo tipo de repositorio", defaultValue = "repository:repositoryType", order = 1)
+	@SchemaProperty(defaultValue = "repository:repositoryType", order = 1)
 	private static String repoTypeField = "repository:repositoryType";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo URL de repositorio", defaultValue = "repository:repositoryURL", order = 2)
+	@SchemaProperty(defaultValue = "repository:repositoryURL", order = 2)
 	private static String repoUrlField = "repository:repositoryURL";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo tipo de institución", defaultValue = "repository:institutionType", order = 3)
+	@SchemaProperty(defaultValue = "repository:institutionType", order = 3)
 	private static String instTypeField = "repository:institutionType";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo URL de institución", defaultValue = "repository:institutionURL", order = 4)
+	@SchemaProperty(defaultValue = "repository:institutionURL", order = 4)
 	private static String instUrlField = "repository:institutionURL";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo URL OAI", defaultValue = "repository:baseURL", order = 5)
+	@SchemaProperty(defaultValue = "repository:baseURL", order = 5)
 	private static String oaiUrlField = "repository:baseURL";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo responsable", defaultValue = "repository.responsible", order = 6)
+	@SchemaProperty(defaultValue = "repository.responsible", order = 6)
 	private static String lastFirstResponsibleField = "repository.responsible";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo cargo responsable", defaultValue = "repository:responsibleCharge", order = 7)
+	@SchemaProperty(defaultValue = "repository:responsibleCharge", order = 7)
 	private static String responsibleChargeField = "repository:responsibleCharge";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo email contacto", defaultValue = "repository:mail", order = 8)
+	@SchemaProperty(defaultValue = "repository:mail", order = 8)
 	private static String contactEmailField = "repository:mail";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo país", defaultValue = "repository:country", order = 9)
+	@SchemaProperty(defaultValue = "repository:country", order = 9)
 	private static String countryField = "repository:country";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo ciudad", defaultValue = "repository:city", order = 10)
+	@SchemaProperty(defaultValue = "repository:city", order = 10)
 	private static String cityField = "repository:city";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo teléfono", defaultValue = "repository:phone", order = 11)
+	@SchemaProperty(defaultValue = "repository:phone", order = 11)
 	private static String phoneField = "repository:phone";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo software", defaultValue = "repository:software", order = 12)
+	@SchemaProperty(defaultValue = "repository:software", order = 12)
 	private static String softwareField = "repository:software";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo título revista", defaultValue = "repository:journalTitle", order = 13)
+	@SchemaProperty(defaultValue = "repository:journalTitle", order = 13)
 	private static String journalTitleField = "repository:journalTitle";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo DOI", defaultValue = "repository:DOI", order = 14)
+	@SchemaProperty(defaultValue = "repository:DOI", order = 14)
 	private static String doiField = "repository:DOI";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo ISSN", defaultValue = "repository:ISSN", order = 15)
+	@SchemaProperty(defaultValue = "repository:ISSN", order = 15)
 	private static String issnField = "repository:ISSN";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo ISSN-L", defaultValue = "repository:ISSN_L", order = 16)
+	@SchemaProperty(defaultValue = "repository:ISSN_L", order = 16)
 	private static String issnLField = "repository:ISSN_L";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo ID repositorio", defaultValue = "repository:repositoryID", order = 17)
+	@SchemaProperty(defaultValue = "repository:repositoryID", order = 17)
 	private static String repoIdField = "repository:repositoryID";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo nombre repositorio", defaultValue = "repository:name", order = 18)
+	@SchemaProperty(defaultValue = "repository:name", order = 18)
 	private static String repoNameField = "repository:name";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo fecha cosecha", defaultValue = "repository:harvestDate", order = 19)
+	@SchemaProperty(defaultValue = "repository:harvestDate", order = 19)
 	private static String harvestDateField = "repository:harvestDate";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo estado", defaultValue = "repository:altered", order = 20)
+	@SchemaProperty(defaultValue = "repository:altered", order = 20)
 	private static String statusField = "repository:altered";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo identificador OAI", defaultValue = "others:identifier", order = 21)
+	@SchemaProperty(defaultValue = "others:identifier", order = 21)
 	private static String oaiIdentifierField = "others:identifier";
 
 	/**

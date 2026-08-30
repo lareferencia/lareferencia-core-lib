@@ -53,7 +53,7 @@ import lombok.Setter;
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
-@ValidatorRuleMeta(name = "Remover ocurrencias duplicadas en un campo", help = "Identifies and removes duplicate values within a specified field, keeping only the first occurrence.")
+@ValidatorRuleMeta
 public class RemoveDuplicateOccrsRule extends AbstractTransformerRule {
 
 	/**
@@ -62,7 +62,7 @@ public class RemoveDuplicateOccrsRule extends AbstractTransformerRule {
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
-	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover duplicados.", order = 1)
+	@SchemaProperty(order = 1)
 	String fieldName;
 
 	/**

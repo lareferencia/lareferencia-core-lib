@@ -46,12 +46,12 @@ import lombok.Setter;
 @Getter
 @Setter
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
-@ValidatorRuleMeta(name = "Validación por expresiones de contenido", help = "Esta regla es válida si el contenido de los campos enunciados cumple la expresión booleana")
+@ValidatorRuleMeta
 public class FieldExpressionValidatorRule extends AbstractValidatorRule {
 
 	private static Logger logger = LogManager.getLogger(FieldExpressionValidatorRule.class);
 
-	@SchemaProperty(title = "Expresión", description = "Es importante dejar espacios entre los paréntesis. Ej: ( dc.type=='info:eu-repo/semantics/article' AND dc.rights=%'info.+' ) OR ( dc.type=='info:eu-repo/semantics/bachelorThesis' )", uiType = "textarea", order = 1)
+	@SchemaProperty(uiType = "textarea", order = 1)
 	@JsonProperty("expression")
 	private String expression;
 

@@ -40,19 +40,19 @@ import org.w3c.dom.Node;
  * 
  * @author LA Referencia Team
  */
-@ValidatorRuleMeta(name = "Traducción de nombres de campo", help = "Renames all occurrences of the source field to the target field name.")
+@ValidatorRuleMeta
 public class FieldNameTranslateRule extends AbstractTransformerRule {
 
 	static int MAX_NODE_COUNT = 100;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Nombre de campo origen", description = "El nombre del campo que será renombrado.", order = 1)
+	@SchemaProperty(order = 1)
 	String sourceFieldName;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Nombre de campo destino", description = "El nuevo nombre del campo.", order = 2)
+	@SchemaProperty(order = 2)
 	String targetFieldName;
 
 	/**

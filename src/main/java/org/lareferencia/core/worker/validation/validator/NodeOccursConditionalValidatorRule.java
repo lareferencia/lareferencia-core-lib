@@ -44,7 +44,7 @@ import lombok.Setter;
  * on configuration.
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = As.PROPERTY, property = "@class")
-@ValidatorRuleMeta(name = "Validación de ocurrencias de nodos (Condicional)", help = "Esta regla es válida dependiendo del número de ocurrencias de un nodo")
+@ValidatorRuleMeta
 public class NodeOccursConditionalValidatorRule extends AbstractValidatorRule {
 
     private static Logger logger = LogManager.getLogger(NodeOccursConditionalValidatorRule.class);
@@ -60,7 +60,7 @@ public class NodeOccursConditionalValidatorRule extends AbstractValidatorRule {
      * The XPath expression used to find nodes for validation.
      */
     @Getter
-    @SchemaProperty(title = "XPATH expression para selector de nodos", description = "Expresión XPATH para la selección de nodos. Ej: //*[local-name()='element' and @name='datacite']/*[local-name()='element' and @name='titles']/*[local-name()='element' and @name='title']/*[local-name()='field' and @name='value']", uiType = "textarea", order = 1)
+    @SchemaProperty(uiType = "textarea", order = 1)
     @JsonProperty("xpathExpression")
     String sourceXPathExpression;
 

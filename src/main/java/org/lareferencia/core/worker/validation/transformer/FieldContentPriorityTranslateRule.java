@@ -52,38 +52,38 @@ import lombok.Setter;
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
-@ValidatorRuleMeta(name = "Traducción de valores de campos con orden de prioridad", help = "Matches field values against a prioritized list of translations and replaces them with corresponding target values.")
+@ValidatorRuleMeta
 public class FieldContentPriorityTranslateRule extends AbstractTransformerRule {
 
 	private static Logger logger = LogManager.getLogger(FieldContentPriorityTranslateRule.class);
 
 	@Getter
-	@SchemaProperty(title = "Listado de traducciones", description = "Si se encuentra una ocurrencia con alguno de los valores listado se reemplaza.", order = 5)
+	@SchemaProperty(order = 5)
 	List<Translation> translationArray;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Campo de búsqueda", description = "El nombre del campo oai_dc donde se buscara el valor. Ej: dc.type", order = 1)
+	@SchemaProperty(order = 1)
 	String testFieldName;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Campo de escritura", description = "El nombre del campo oai_dc que se creará con la ocurrencia de reemplazo Ej: dc.type", order = 2)
+	@SchemaProperty(order = 2)
 	String writeFieldName;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "¿Se reemplaza la ocurrencia encontrada?", description = "Indica si se eliminará la ocurrencia en el campo de búsqueda", defaultValue = "true", order = 3)
+	@SchemaProperty(defaultValue = "true", order = 3)
 	Boolean replaceOccurrence = true;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "¿Evaluar como prefijo?", description = "Indica si el valor de búsqueda se evaluará como prefijo del contenido del campo de búsqueda.", defaultValue = "false", order = 4)
+	@SchemaProperty(defaultValue = "false", order = 4)
 	Boolean testValueAsPrefix = false;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "¿Reemplazar todas las ocurrencias?", description = "Indica si se deben reemplazar todas las ocurrencias coincidentes o solo la primera.", defaultValue = "true", order = 6)
+	@SchemaProperty(defaultValue = "true", order = 6)
 	Boolean replaceAllMatchingOccurrences = true;
 
 	/**

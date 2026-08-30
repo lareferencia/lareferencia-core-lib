@@ -35,11 +35,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @ToString
 public class Translation {
 
-	@SchemaProperty(title = "Buscar")
+	@SchemaProperty
 	@JsonProperty("search")
 	String search;
 
-	@SchemaProperty(title = "Reemplazo")
+	@SchemaProperty
 	@JsonProperty("replace")
 	String replace;
 

@@ -156,7 +156,7 @@ public class ValidatorRuleSchemaService {
         }
 
         RuleSchemaDefinition definition = new RuleSchemaDefinition();
-        definition.setName(meta.name()); // Default name from annotation
+        definition.setName(fallbackLabel(clazz.getSimpleName()));
         definition.setClassName(clazz.getName());
 
         // Collect fields from class hierarchy
@@ -169,7 +169,7 @@ public class ValidatorRuleSchemaService {
         definition.setSchema(buildJsonSchema(fields, null));
 
         // Build form (structure only)
-        definition.setForm(buildForm(fields, meta.help(), null));
+        definition.setForm(buildForm(fields, "", null));
 
         return definition;
     }
@@ -192,7 +192,7 @@ public class ValidatorRuleSchemaService {
 
             // Localize Name
             String nameKey = "rule." + clazz.getSimpleName() + ".name";
-            localized.setName(messageSource.getMessage(nameKey, null, meta.name(), locale));
+            localized.setName(message(nameKey, fallbackLabel(clazz.getSimpleName()), locale));
 
             // Re-collect fields to rebuild schema/form with localization
             List<FieldInfo> fields = collectAnnotatedFields(clazz);
@@ -201,7 +201,7 @@ public class ValidatorRuleSchemaService {
             localized.setSchema(buildJsonSchema(fields, locale));
 
             String helpKey = "rule." + clazz.getSimpleName() + ".help";
-            String helpText = messageSource.getMessage(helpKey, null, meta.help(), locale);
+            String helpText = message(helpKey, "", locale);
 
             localized.setForm(buildForm(fields, helpText, locale));
 
@@ -259,13 +259,8 @@ public class ValidatorRuleSchemaService {
                 String titleKey = "rule." + className + ".field." + fieldName + ".title";
                 String descKey = "rule." + className + ".field." + fieldName + ".description";
 
-                String title = info.schemaProperty.title();
-                String desc = info.schemaProperty.description();
-
-                if (locale != null) {
-                    title = messageSource.getMessage(titleKey, null, title, locale);
-                    desc = messageSource.getMessage(descKey, null, desc, locale);
-                }
+                String title = locale == null ? fallbackLabel(fieldName) : message(titleKey, fallbackLabel(fieldName), locale);
+                String desc = locale == null ? "" : message(descKey, "", locale);
 
                 prop.put("title", title);
                 if (!desc.isEmpty()) {
@@ -275,7 +270,8 @@ public class ValidatorRuleSchemaService {
                     prop.put("default", parseDefault(info.schemaProperty.defaultValue(), type));
                 }
             } else {
-                prop.put("title", info.name);
+                String titleKey = "rule." + className + ".field." + fieldName + ".title";
+                prop.put("title", locale == null ? fallbackLabel(fieldName) : message(titleKey, fallbackLabel(fieldName), locale));
             }
 
             // Handle array types
@@ -297,13 +293,14 @@ public class ValidatorRuleSchemaService {
             if (genericType == String.class) {
                 Map<String, Object> items = new LinkedHashMap<>();
                 items.put("type", "string");
-                items.put("title", "valor");
+                items.put("title", locale == null ? "value" : message("rule.common.arrayItem", "value", locale));
                 prop.put("items", items);
             } else {
                 // Assume complex type, build schema for it
                 Map<String, Object> items = new LinkedHashMap<>();
                 items.put("type", "object");
-                items.put("title", genericType.getSimpleName()); // Default title
+                String itemKey = "rule." + genericType.getSimpleName() + ".name";
+                items.put("title", locale == null ? fallbackLabel(genericType.getSimpleName()) : message(itemKey, fallbackLabel(genericType.getSimpleName()), locale));
 
                 // Recursively build properties for the complex type
                 List<FieldInfo> nestedFields = collectAnnotatedFields(genericType);
@@ -318,7 +315,7 @@ public class ValidatorRuleSchemaService {
             // Fallback for unknown generic type
             Map<String, Object> items = new LinkedHashMap<>();
             items.put("type", "string");
-            items.put("title", "valor");
+            items.put("title", locale == null ? "value" : message("rule.common.arrayItem", "value", locale));
             prop.put("items", items);
         }
     }
@@ -413,6 +410,15 @@ public class ValidatorRuleSchemaService {
             default:
                 return value;
         }
+    }
+
+    private String message(String key, String fallback, Locale locale) {
+        return messageSource.getMessage(key, null, fallback, locale == null ? Locale.ROOT : locale);
+    }
+
+    /** Human-readable technical fallback for an extension without a message bundle. */
+    private String fallbackLabel(String identifier) {
+        return identifier.replaceAll("([a-z])([A-Z])", "$1 $2").replace('_', ' ');
     }
 
     private static class FieldInfo {

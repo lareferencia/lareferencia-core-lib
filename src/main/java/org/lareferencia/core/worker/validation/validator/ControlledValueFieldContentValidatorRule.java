@@ -46,7 +46,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  */
 @Getter
 @Setter
-@ValidatorRuleMeta(name = "Validación por valores controlados", help = "Esta regla es válida si el campo contiene ocurrencias con estos valores")
+@ValidatorRuleMeta
 public class ControlledValueFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
 	private static final int MAX_EXPECTED_LENGTH = 100;
@@ -54,7 +54,7 @@ public class ControlledValueFieldContentValidatorRule extends AbstractValidatorF
 	/**
 	 * List of allowed values for field content validation.
 	 */
-	@SchemaProperty(title = "Valores Controlados", type = "array", order = 2)
+	@SchemaProperty(type = "array", order = 2)
 	protected List<String> controlledValues;
 
 	/**

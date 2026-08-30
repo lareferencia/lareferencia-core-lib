@@ -38,7 +38,7 @@ import org.lareferencia.core.worker.validation.SchemaProperty;
  * Useful for cleaning repository names and other prefixed values that may
  * appear multiple times.
  */
-@ValidatorRuleMeta(name = "Remover ocurrencias con prefijo repetido", help = "Transformer rule that removes duplicate occurrences with a specific prefix from a metadata field.")
+@ValidatorRuleMeta
 public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 
 	/**
@@ -47,7 +47,7 @@ public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 	 */
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover duplicados con prefijo.", defaultValue = "dc.source.none", order = 1)
+	@SchemaProperty(defaultValue = "dc.source.none", order = 1)
 	private String fieldName = "dc.source.none";
 
 	/**
@@ -56,7 +56,7 @@ public class RemoveDuplicatePrefixedOccrs extends AbstractTransformerRule {
 	 */
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Prefijo", description = "Prefijo para identificar duplicados.", defaultValue = "instname:", order = 2)
+	@SchemaProperty(defaultValue = "instname:", order = 2)
 	private String prefix = "instname:";
 
 	/**

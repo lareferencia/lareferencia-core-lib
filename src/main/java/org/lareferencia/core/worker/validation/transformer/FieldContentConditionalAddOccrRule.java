@@ -53,7 +53,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
-@ValidatorRuleMeta(name = "Agregado condicional de ocurrencias de campo", help = "Evaluates a conditional expression against metadata and adds a field value if true.")
+@ValidatorRuleMeta
 public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule {
 
 	/** Expression evaluator for conditional logic. */
@@ -63,21 +63,21 @@ public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule 
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
-	@SchemaProperty(title = "Nombre del campo", description = "Campo donde se agregará el valor.", order = 1)
+	@SchemaProperty(order = 1)
 	String fieldName;
 
 	/** Value to be added to the field when condition is met. */
 	@Setter
 	@Getter
 	@JsonProperty("valueToAdd")
-	@SchemaProperty(title = "Valor a agregar", description = "El valor que se agregará si la condición es verdadera.", order = 2)
+	@SchemaProperty(order = 2)
 	String valueToAdd;
 
 	/** Conditional expression to evaluate for adding the field occurrence. */
 	@Setter
 	@Getter
 	@JsonProperty("conditionalExpression")
-	@SchemaProperty(title = "Expresión condicional", description = "Expresión para evaluar (ej: dc.type exists).", order = 3)
+	@SchemaProperty(order = 3)
 	private String conditionalExpression;
 
 	/** Default quantifier for expression evaluation. */
@@ -97,7 +97,7 @@ public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule 
 	@Setter
 	@Getter
 	@JsonProperty("removeDuplicatedOccurrences")
-	@SchemaProperty(title = "¿Remover duplicados?", description = "Si es verdadero, remueve duplicados después de agregar.", defaultValue = "false", order = 4)
+	@SchemaProperty(defaultValue = "false", order = 4)
 	private Boolean removeDuplicatedOccurrences = false;
 
 	/**

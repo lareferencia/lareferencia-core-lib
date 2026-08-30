@@ -42,7 +42,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
-@ValidatorRuleMeta(name = "Transformación de campo removendo whitespaces", help = "Transformation rule that removes whitespace from field values.")
+@ValidatorRuleMeta
 public class FieldContentRemoveWhiteSpacesTranslateRule extends AbstractTransformerRule {
 
     /**
@@ -51,7 +51,7 @@ public class FieldContentRemoveWhiteSpacesTranslateRule extends AbstractTransfor
     @Setter
     @Getter
     @JsonProperty("fieldName")
-    @SchemaProperty(title = "Nombre del campo", description = "Campo del cual remover espacios en blanco.", order = 1)
+    @SchemaProperty(order = 1)
     String fieldName;
 
     /**

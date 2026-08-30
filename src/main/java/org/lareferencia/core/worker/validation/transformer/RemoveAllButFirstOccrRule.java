@@ -41,7 +41,7 @@ import lombok.Setter;
  * one.
  * Useful for ensuring single-valued fields when duplicates exist.
  */
-@ValidatorRuleMeta(name = "Remover todas las ocurrencias excepto la primera", help = "Transformer rule that removes all occurrences of a field except the first one.")
+@ValidatorRuleMeta
 public class RemoveAllButFirstOccrRule extends AbstractTransformerRule {
 
 	/**
@@ -50,7 +50,7 @@ public class RemoveAllButFirstOccrRule extends AbstractTransformerRule {
 	@Setter
 	@Getter
 	@JsonProperty("fieldName")
-	@SchemaProperty(title = "Nombre del campo", description = "Campo del cual se mantendrá solo la primera ocurrencia.", order = 1)
+	@SchemaProperty(order = 1)
 	String fieldName;
 
 	/**

@@ -34,12 +34,15 @@ import java.lang.annotation.Target;
 public @interface ValidatorRuleMeta {
 
     /**
-     * Display name for the validation rule.
+     * @deprecated Visible texts are resolved from the installation message bundles
+     *             using the rule class name. This marker remains for discovery.
      */
-    String name();
+    @Deprecated
+    String name() default "";
 
     /**
-     * Help text shown in the form UI.
+     * @deprecated Visible texts are resolved from the installation message bundles.
      */
+    @Deprecated
     String help() default "";
 }

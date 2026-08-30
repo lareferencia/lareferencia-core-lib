@@ -48,7 +48,7 @@ import org.w3c.dom.Node;
  */
 @Getter
 @Setter
-@ValidatorRuleMeta(name = "Normalización de contenido de campo", help = "Transformation rule that normalizes field content by applying a validation rule and/or removing duplicates.")
+@ValidatorRuleMeta
 public class FieldContentNormalizeRule extends AbstractTransformerRule {
 
 	@Override
@@ -58,16 +58,16 @@ public class FieldContentNormalizeRule extends AbstractTransformerRule {
 				+ ", removeDuplicatedOccurrences=" + removeDuplicatedOccurrences + "]";
 	}
 
-	@SchemaProperty(title = "Regla de validación", description = "Regla de validación a aplicar.", order = 1)
+	@SchemaProperty(order = 1)
 	private IValidatorFieldContentRule validationRule;
 
-	@SchemaProperty(title = "Nombre del campo", description = "Campo a normalizar.", order = 2)
+	@SchemaProperty(order = 2)
 	private String fieldName;
 
-	@SchemaProperty(title = "¿Remover ocurrencias inválidas?", description = "Si es verdadero, remueve las ocurrencias que no pasen la validación.", defaultValue = "false", order = 3)
+	@SchemaProperty(defaultValue = "false", order = 3)
 	private Boolean removeInvalidOccurrences = false;
 
-	@SchemaProperty(title = "¿Remover duplicados?", description = "Si es verdadero, remueve ocurrencias duplicadas.", defaultValue = "false", order = 4)
+	@SchemaProperty(defaultValue = "false", order = 4)
 	private Boolean removeDuplicatedOccurrences = false;
 
 	/**

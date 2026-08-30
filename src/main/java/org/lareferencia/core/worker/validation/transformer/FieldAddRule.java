@@ -42,17 +42,17 @@ import org.lareferencia.core.worker.validation.SchemaProperty;
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
-@ValidatorRuleMeta(name = "Adicionar um valor a um campo", help = "Transformation rule that adds a new field occurrence with a specified value.")
+@ValidatorRuleMeta
 public class FieldAddRule extends AbstractTransformerRule {
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Nombre del campo", description = "Campo donde se agregará el valor.", order = 1)
+	@SchemaProperty(order = 1)
 	String targetFieldName;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Valor", description = "Valor a agregar.", order = 2)
+	@SchemaProperty(order = 2)
 	String value;
 
 	/**

@@ -67,7 +67,7 @@ import java.util.TreeMap;
  * @see AbstractTransformerRule
  * @see Translation
  */
-@ValidatorRuleMeta(name = "Traducción de valores de campos", help = "Esta regla traduce valores de campos basándose en una tabla de mapeo.")
+@ValidatorRuleMeta
 public class FieldContentTranslateRule extends AbstractTransformerRule {
 
 	private static Logger logger = LogManager.getLogger(FieldContentTranslateRule.class);
@@ -77,27 +77,27 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 	Map<String, String> translationMap;
 
 	@Getter
-	@SchemaProperty(title = "Listado de traducciones", description = "Si se encuentra una ocurrencia con alguno de los valores listado se reemplaza.", order = 5)
+	@SchemaProperty(order = 5)
 	List<Translation> translationArray;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Campo de búsqueda", description = "El nombre del campo oai_dc donde se buscara el valor. Ej: dc.type", order = 1)
+	@SchemaProperty(order = 1)
 	String testFieldName;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Campo de escritura", description = "El nombre del campo oai_dc que se creará con la ocurrencia de reemplazo Ej: dc.type", order = 2)
+	@SchemaProperty(order = 2)
 	String writeFieldName;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "¿Se reemplaza la ocurrencia encontrada?", description = "Indica si se eliminará la ocurrencia en el campo de búsqueda", defaultValue = "true", order = 3)
+	@SchemaProperty(defaultValue = "true", order = 3)
 	Boolean replaceOccurrence = true;
 
 	@Setter
 	@Getter
-	@SchemaProperty(title = "¿Evaluar como prefijo?", description = "Indica si el valor de búsqueda se evaluará como prefijo del contenido del campo de búsqueda.", defaultValue = "false", order = 4)
+	@SchemaProperty(defaultValue = "false", order = 4)
 	Boolean testValueAsPrefix = false;
 
 	Set<String> existingValues = new HashSet<String>();

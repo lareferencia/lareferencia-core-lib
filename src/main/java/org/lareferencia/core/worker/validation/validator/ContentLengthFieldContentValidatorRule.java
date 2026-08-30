@@ -42,16 +42,16 @@ import lombok.Setter;
  */
 @Getter
 @Setter
-@ValidatorRuleMeta(name = "Validación por longitud de contenido", help = "Esta regla es válida si el campo contiene ocurrencias de longitud entre un mínimo y un máximo")
+@ValidatorRuleMeta
 public class ContentLengthFieldContentValidatorRule extends AbstractValidatorFieldContentRule {
 
 	static int MAX_EXPECTED_LENGTH = 50;
 
-	@SchemaProperty(title = "Longitud mínima", description = "La longitud mínima aceptada", order = 2)
+	@SchemaProperty(order = 2)
 	@JsonProperty("minLength")
 	private Integer minLength = 0;
 
-	@SchemaProperty(title = "Longitud máxima", description = "La longitud máxima aceptada", order = 3)
+	@SchemaProperty(order = 3)
 	@JsonProperty("maxLength")
 	private Integer maxLength = Integer.MAX_VALUE;
 

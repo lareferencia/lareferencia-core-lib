@@ -34,13 +34,15 @@ import java.lang.annotation.Target;
 public @interface SchemaProperty {
 
     /**
-     * Title displayed in the form.
+     * @deprecated Visible text is resolved from the installation message bundles.
      */
-    String title();
+    @Deprecated
+    String title() default "";
 
     /**
-     * Description/help text for the field.
+     * @deprecated Visible text is resolved from the installation message bundles.
      */
+    @Deprecated
     String description() default "";
 
     /**

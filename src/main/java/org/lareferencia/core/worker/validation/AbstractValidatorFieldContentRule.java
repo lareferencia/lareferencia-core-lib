@@ -51,7 +51,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
 public abstract class AbstractValidatorFieldContentRule extends AbstractValidatorRule
 		implements IValidatorFieldContentRule {
 
-	@SchemaProperty(title = "Campo", description = "El nombre del campo oai_dc. Ej: dc.type", order = 1)
+	@SchemaProperty(order = 1)
 	@JsonProperty("fieldname")
 	private String fieldname;
 

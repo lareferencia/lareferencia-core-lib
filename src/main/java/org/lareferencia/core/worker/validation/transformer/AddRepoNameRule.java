@@ -43,59 +43,59 @@ import org.lareferencia.core.worker.validation.SchemaProperty;
  * @author LA Referencia Team
  * @see AbstractTransformerRule
  */
-@ValidatorRuleMeta(name = "Agregado de metatos de nombre repositorio", help = "Enriches records with repository name, institution name, and institution acronym fields.")
+@ValidatorRuleMeta
 public class AddRepoNameRule extends AbstractTransformerRule {
 
 	private RepositoryNameHelper repositoryNameHelper;
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Agregar nombre de repositorio", description = "Si es verdadero, agrega el nombre del repositorio.", defaultValue = "false", order = 1)
+	@SchemaProperty(defaultValue = "false", order = 1)
 	private Boolean doRepoNameAppend = false;
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Reemplazar nombre de repositorio", description = "Si es verdadero, reemplaza el valor existente.", defaultValue = "false", order = 2)
+	@SchemaProperty(defaultValue = "false", order = 2)
 	private Boolean doRepoNameReplace = false;
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo nombre de repositorio", description = "Campo donde se escribirá el nombre del repositorio.", defaultValue = "dc.source.none", order = 3)
+	@SchemaProperty(defaultValue = "dc.source.none", order = 3)
 	private String repoNameField = "dc.source.none";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Prefijo nombre de repositorio", description = "Prefijo para el nombre del repositorio.", defaultValue = "reponame:", order = 4)
+	@SchemaProperty(defaultValue = "reponame:", order = 4)
 	private String repoNamePrefix = "reponame:";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Agregar nombre de institución", description = "Si es verdadero, agrega el nombre de la institución.", defaultValue = "false", order = 5)
+	@SchemaProperty(defaultValue = "false", order = 5)
 	private Boolean doInstNameAppend = false;
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Reemplazar nombre de institución", description = "Si es verdadero, reemplaza el valor existente.", defaultValue = "false", order = 6)
+	@SchemaProperty(defaultValue = "false", order = 6)
 	private Boolean doInstNameReplace = false;
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo nombre de institución", description = "Campo donde se escribirá el nombre de la institución.", defaultValue = "dc.source.none", order = 7)
+	@SchemaProperty(defaultValue = "dc.source.none", order = 7)
 	private String instNameField = "dc.source.none";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Prefijo nombre de institución", description = "Prefijo para el nombre de la institución.", defaultValue = "instname:", order = 8)
+	@SchemaProperty(defaultValue = "instname:", order = 8)
 	private String instNamePrefix = "instname:";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Campo acrónimo de institución", description = "Campo donde se escribirá el acrónimo de la institución.", defaultValue = "dc.source.none", order = 9)
+	@SchemaProperty(defaultValue = "dc.source.none", order = 9)
 	private String instAcronField = "dc.source.none";
 
 	@Getter
 	@Setter
-	@SchemaProperty(title = "Prefijo acrónimo de institución", description = "Prefijo para el acrónimo de la institución.", defaultValue = "instacron:", order = 10)
+	@SchemaProperty(defaultValue = "instacron:", order = 10)
 	private String instAcronPrefix = "instacron:";
 
 	/**

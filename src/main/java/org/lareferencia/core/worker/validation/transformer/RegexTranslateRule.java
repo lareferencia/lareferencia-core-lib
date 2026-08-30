@@ -45,7 +45,7 @@ import org.w3c.dom.Node;
  * Can copy translated content to a target field and optionally remove matching
  * occurrences from the source.
  */
-@ValidatorRuleMeta(name = "Transformación de campo por reemplazo (regexp)", help = "Transformer rule that translates field content using regular expression search and replace.")
+@ValidatorRuleMeta
 public class RegexTranslateRule extends AbstractTransformerRule {
 
 	/**
@@ -53,7 +53,7 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Campo de búsqueda", description = "El nombre del campo donde se buscará.", order = 1)
+	@SchemaProperty(order = 1)
 	String sourceFieldName;
 
 	/**
@@ -61,14 +61,14 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Campo de escritura", description = "El nombre del campo donde se escribirá el resultado.", order = 2)
+	@SchemaProperty(order = 2)
 	String targetFieldName;
 
 	/**
 	 * The regular expression pattern to search for in the field content.
 	 */
 	@Getter
-	@SchemaProperty(title = "Expresión regular de búsqueda", description = "Patrón regex para buscar en el contenido.", order = 3)
+	@SchemaProperty(order = 3)
 	String regexSearch;
 
 	/**
@@ -76,7 +76,7 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	@Setter
 	@Getter
-	@SchemaProperty(title = "Expresión de reemplazo", description = "Valor de reemplazo (soporta grupos de captura).", order = 4)
+	@SchemaProperty(order = 4)
 	String regexReplace;
 
 	/**
@@ -84,7 +84,7 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	@Setter
 	@Getter
-	@SchemaProperty(title = "¿Remover ocurrencia original?", description = "Si es verdadero, elimina la ocurrencia original si hubo coincidencia.", defaultValue = "false", order = 5)
+	@SchemaProperty(defaultValue = "false", order = 5)
 	Boolean removeMatchingOccurrences = false;
 
 	// private Predicate<String> regexPredicate;
