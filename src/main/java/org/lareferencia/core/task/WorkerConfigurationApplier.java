@@ -35,7 +35,7 @@ public class WorkerConfigurationApplier {
     private Object primitive(JsonNode value, String type) {
         return switch (type) {
             case "boolean" -> value.asBoolean();
-            case "integer" -> value.asInt();
+            case "integer" -> value.asLong();
             case "number" -> value.asDouble();
             default -> value.asText();
         };

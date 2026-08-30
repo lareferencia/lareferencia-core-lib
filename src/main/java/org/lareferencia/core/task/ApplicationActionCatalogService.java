@@ -63,7 +63,7 @@ public class ApplicationActionCatalogService {
                 row = new ApplicationAction();
                 row.setEngineType(engineType);
                 row.setActionKey(descriptor.getName());
-                row.setEnabled(bootstrap);
+                row.setEnabled(bootstrap && descriptor.isEnabledByDefault());
                 // The initial sequence preserves the executor's configured
                 // sequence. Afterwards it is installation configuration.
                 row.setExecutionOrder(bootstrap ? position : nextOrder++);

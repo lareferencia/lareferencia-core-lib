@@ -82,6 +82,15 @@ public class NetworkAction {
 	Boolean allwaysRunOnSchedule = false;
 
 	/**
+	 * Installation-catalogue default used only the first time an engine is
+	 * discovered. Existing actions keep the historical enabled-by-default
+	 * behaviour; potentially destructive actions can explicitly opt out.
+	 */
+	@Getter
+	@Setter
+	boolean enabledByDefault = true;
+
+	/**
 	 * The name identifier of this action.
 	 */
 	@Getter

@@ -79,7 +79,7 @@ public class ApplicationWorkerConfigurationService {
             if (property.getDefaultValue() == null) return;
             switch (property.getType()) {
                 case "boolean" -> result.put(property.getName(), Boolean.parseBoolean(property.getDefaultValue()));
-                case "integer" -> result.put(property.getName(), Integer.parseInt(property.getDefaultValue()));
+                case "integer" -> result.put(property.getName(), Long.parseLong(property.getDefaultValue()));
                 case "number" -> result.put(property.getName(), Double.parseDouble(property.getDefaultValue()));
                 default -> result.put(property.getName(), property.getDefaultValue());
             }
@@ -95,7 +95,7 @@ public class ApplicationWorkerConfigurationService {
             if (property.getDefaultValue() == null) return;
             switch (property.getType()) {
                 case "boolean" -> p.put("default", Boolean.parseBoolean(property.getDefaultValue()));
-                case "integer" -> p.put("default", Integer.parseInt(property.getDefaultValue()));
+                case "integer" -> p.put("default", Long.parseLong(property.getDefaultValue()));
                 case "number" -> p.put("default", Double.parseDouble(property.getDefaultValue()));
                 default -> p.put("default", property.getDefaultValue());
             }
