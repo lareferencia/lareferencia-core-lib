@@ -26,6 +26,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
+import lombok.Getter;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
 import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.IRunningContext;
@@ -46,6 +47,9 @@ public abstract class BaseSolrWorker<C extends IRunningContext> extends BaseWork
      * Solr HTTP client for server communication.
      */
     protected HttpSolrClient solrClient;
+
+    @Getter
+    private String solrUrl;
     
     private static Logger logger = LogManager.getLogger(BaseSolrWorker.class);
 
@@ -56,7 +60,20 @@ public abstract class BaseSolrWorker<C extends IRunningContext> extends BaseWork
      */
     public BaseSolrWorker(String solrURL) {
         super();
-        this.solrClient = new HttpSolrClient.Builder(solrURL).build();
+        setSolrUrl(solrURL);
+    }
+
+    /**
+     * Replaces the client used by a newly configured prototype worker. Existing
+     * executions retain their own worker instance and are therefore unaffected.
+     */
+    public synchronized void setSolrUrl(String solrUrl) {
+        if (solrUrl == null || solrUrl.isBlank()) throw new IllegalArgumentException("Solr URL must not be blank");
+        HttpSolrClient replacement = new HttpSolrClient.Builder(solrUrl.trim()).build();
+        HttpSolrClient previous = this.solrClient;
+        this.solrClient = replacement;
+        this.solrUrl = solrUrl.trim();
+        if (previous != null) try { previous.close(); } catch (IOException exception) { logger.warn("Could not close previous Solr client", exception); }
     }
 
     /**

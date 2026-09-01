@@ -89,6 +89,9 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 
 	private HttpSolrClient solrClient;
 
+	@Getter
+	private String solrUrl;
+
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
 
@@ -138,8 +141,17 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 	 */
 	public IndexerWorker(String solrURL) {
 		super();
+		setSolrUrl(solrURL);
+	}
 
-		this.solrClient = new HttpSolrClient.Builder(solrURL).build();
+	/** Rebuilds the Solr client when the installation-level worker configuration changes. */
+	public synchronized void setSolrUrl(String solrUrl) {
+		if (solrUrl == null || solrUrl.isBlank()) throw new IllegalArgumentException("Solr URL must not be blank");
+		HttpSolrClient replacement = new HttpSolrClient.Builder(solrUrl.trim()).build();
+		HttpSolrClient previous = this.solrClient;
+		this.solrClient = replacement;
+		this.solrUrl = solrUrl.trim();
+		if (previous != null) try { previous.close(); } catch (java.io.IOException exception) { logger.warn("Could not close previous Solr client", exception); }
 	}
 
 	/**

@@ -110,8 +110,9 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 	private HttpSolrClient solrClient;
 
+	@Getter
 	@Value("${semantic.solr.url:${frontend.solr.url}}")
-	private String solrURL;
+	private String solrUrl;
 
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
@@ -172,9 +173,22 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 	@PostConstruct
 	public void init() {
-		this.solrClient = new HttpSolrClient.Builder(solrURL).build();
+		setSolrUrl(solrUrl);
 		logger.info(MessageFormat.format("SemanticIndexerWorker initialized with expected dimension: {0}",
 				embeddingService.getEmbeddingDimension()));
+	}
+
+	/**
+	 * Allows the installation worker catalogue to change the Solr endpoint for
+	 * future prototype executions while retaining property-file defaults.
+	 */
+	public synchronized void setSolrUrl(String solrUrl) {
+		if (solrUrl == null || solrUrl.isBlank()) throw new IllegalArgumentException("Solr URL must not be blank");
+		HttpSolrClient replacement = new HttpSolrClient.Builder(solrUrl.trim()).build();
+		HttpSolrClient previous = this.solrClient;
+		this.solrClient = replacement;
+		this.solrUrl = solrUrl.trim();
+		if (previous != null) try { previous.close(); } catch (java.io.IOException exception) { logger.warn("Could not close previous Solr client", exception); }
 	}
 
 	@Override
