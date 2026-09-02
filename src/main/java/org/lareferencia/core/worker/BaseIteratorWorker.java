@@ -29,18 +29,15 @@ import java.text.NumberFormat;
 import java.util.Iterator;
 
 /**
- * Worker base para procesar secuencialmente los OAIRecords almacenados en
- * Parquet.
+ * Worker base para procesar secuencialmente registros obtenidos por un
+ * {@link Iterator} proporcionado por la implementación concreta.
  *
- * Simplificación: no hay concepto de batch ni transacciones. El worker hace:
+ * El worker hace:
  * - preRun() para inicializar (debe setear this.snapshotId)
- * - itera sobre todos los records con el iterator de
- * {@link OAIRecordParquetRepository}
+ * - itera sobre los records proporcionados
  * - llama a processItem(record) por cada record
  * - postRun() al finalizar
  *
- * Este diseño evita la complejidad transaccional porque Parquet es
- * almacenamiento en archivos.
  */
 public abstract class BaseIteratorWorker<I, C extends IRunningContext> extends BaseWorker<C>
         implements IIteratorWorker<I, C> {
@@ -103,56 +100,6 @@ public abstract class BaseIteratorWorker<I, C extends IRunningContext> extends B
         postRun();
     }
 
-    // @Override
-    // public synchronized void run() {
-    // logger.info("OAI PARQUET WORKER: {} :: START processing: {}", getName(),
-    // runningContext);
-
-    // // Inicialización por la subclase
-    // preRun();
-
-    // if (snapshotMetadata == null) {
-    // logger.error("OAI PARQUET WORKER: {} :: snapshotMetadata not set in
-    // preRun()", getName());
-    // return;
-    // }
-
-    // try {
-    // Iterable<OAIRecord> iterable =
-    // oaiRecordRepository.iterateRecords(snapshotMetadata);
-    // Iterator<OAIRecord> it = iterable.iterator();
-
-    // while (it.hasNext() && !wasStopped) {
-    // OAIRecord record = it.next();
-    // try {
-    // processItem(record);
-    // totalRecordsProcessed++;
-    // } catch (Exception e) {
-    // // Registrar y continuar o detener según la implementación
-    // logger.error("OAI PARQUET WORKER: {} :: Error processing record {}: {}",
-    // getName(), record.getIdentifier(), e.getMessage(), e);
-    // // Por defecto, detener la ejecución
-    // this.stop();
-    // break;
-    // }
-    // }
-
-    // if (!wasStopped) {
-    // postRun();
-    // logger.info("OAI PARQUET WORKER: {} :: COMPLETED ({} records)", getName(),
-    // totalRecordsProcessed);
-    // } else {
-    // logger.info("OAI PARQUET WORKER: {} :: STOPPED ({} records)", getName(),
-    // totalRecordsProcessed);
-    // }
-
-    // } catch (IOException e) {
-    // logger.error("OAI PARQUET WORKER: {} :: Failed reading Parquet records for
-    // snapshot {}: {}",
-    // getName(), snapshotMetadata.getSnapshotId(), e.getMessage(), e);
-    // }
-    // }
-
     /**
      * Inicialización antes de comenzar. Debe setear this.snapshotMetadata.
      */
@@ -169,7 +116,7 @@ public abstract class BaseIteratorWorker<I, C extends IRunningContext> extends B
     public abstract void postPage();
 
     /**
-     * Procesa un record individual leído de Parquet.
+     * Procesa un registro individual del iterador.
      */
     public abstract void processItem(I record);
 

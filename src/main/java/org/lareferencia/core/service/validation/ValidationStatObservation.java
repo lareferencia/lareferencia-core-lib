@@ -11,10 +11,11 @@ import java.util.Objects;
 
 /**
  * Validation statistics observation class.
- * This class represents a validation observation that can be stored in different backends
- * (Parquet, Solr, etc.) by serializing complex structures to JSON strings.
- * 
- * NUEVA ARQUITECTURA PARQUET:
+ * This class represents a validation observation exposed by the SQLite-backed
+ * validation service and API. Complex structures are serialized to JSON strings
+ * where required by the persistence schema.
+ *
+ * PERSISTENCE:
  * - Campos JSON marcados con @JsonIgnore (solo para persistencia interna)
  * - Campos Map expuestos para API REST (getValidOccurrencesByRuleID)
  * - Campos legacy marcados @JsonIgnore para compatibilidad sin duplicación

@@ -33,7 +33,7 @@ import org.lareferencia.core.domain.Validator;
  * 
  * SEPARATION OF CONCERNS:
  * - ISnapshotStore: Gestiona metadata de snapshots (SQL)
- * - IRecordStore: Gestionará records y su metadata (Parquet/SQL híbrido)
+ * - IRecordStore: Gestiona records y su metadata en el catálogo SQLite
  * 
  * RESPONSABILIDADES:
  * - Crear/eliminar/actualizar snapshots
@@ -44,7 +44,6 @@ import org.lareferencia.core.domain.Validator;
  * IMPLEMENTACIONES:
  * - SnapshotStoreSQLImpl: Implementación SQL actual (migrada desde
  * MetadataRecordStoreServiceImpl)
- * - Futura: SnapshotStoreParquetImpl si se necesita
  */
 public interface ISnapshotStore {
 

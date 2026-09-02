@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
  * SQLite-based implementation of IValidationStatisticsService.
  * 
  * ARCHITECTURE:
- * - Replaces Parquet-based validation storage
+ * - Persists validation statistics in SQLite
  * - Dynamic schema: rule columns created based on validator
  * - Maintains JSON stats file for precomputed statistics
  * 

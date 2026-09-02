@@ -47,7 +47,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Worker that performs validation and transformation of harvested OAI records
- * using Parquet storage.
+ * using the SQLite catalog and validation store.
  * <p>
  * This is the NEW SQLite-based implementation that uses:
  * - {@link OAIRecordCatalogRepository} for OAI records (SQLite catalog)
@@ -68,7 +68,7 @@ import org.springframework.stereotype.Component;
  * <li>Validates metadata records against configured validation rules</li>
  * <li>Applies primary and secondary transformations to valid records</li>
  * <li>Tracks validation statistics and observations</li>
- * <li>Writes validation results to Parquet validation store</li>
+ * <li>Writes validation results to the SQLite validation store</li>
  * </ul>
  * <p>
  * In incremental mode, only new (UNTESTED) records are processed. In full mode,
@@ -81,7 +81,6 @@ import org.springframework.stereotype.Component;
  * @see IValidator
  * @see ITransformer
  * @see ValidationService
- * @see BaseParquetOAIRecordWorker
  */
 @Component("validationWorkerFlowable")
 @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)

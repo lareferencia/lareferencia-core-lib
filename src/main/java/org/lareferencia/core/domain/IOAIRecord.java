@@ -25,42 +25,31 @@ import java.time.LocalDateTime;
 /**
  * Interfaz común para registros OAI en diferentes backends de almacenamiento.
  * <p>
- * Esta interfaz define el contrato mínimo para registros OAI, permitiendo
- * trabajar de forma polimórfica con implementaciones basadas en SQL (JPA) y
- * Parquet.
+ * Esta interfaz define el contrato mínimo para registros OAI persistidos en el
+ * catálogo relacional de la plataforma.
  * </p>
  * 
- * <h2>IMPLEMENTACIONES:</h2>
- * <ul>
- *   <li>{@link OAIRecord} - Implementación JPA para almacenamiento SQL (legacy)</li>
- *   <li>{@link org.lareferencia.backend.domain.parquet.OAIRecord} - Implementación Parquet para almacenamiento en archivos</li>
- * </ul>
+ * <h2>IMPLEMENTACIÓN:</h2>
+ * <ul><li>{@link OAIRecord} - Registro del catálogo SQLite</li></ul>
  * 
  * <h2>CAMPOS COMUNES:</h2>
  * <ul>
- *   <li><b>id</b>: Identificador único del record (Long en JPA, String MD5 en Parquet)</li>
+ *   <li><b>id</b>: Identificador único del registro</li>
  *   <li><b>identifier</b>: Identificador OAI-PMH del registro</li>
  *   <li><b>datestamp</b>: Fecha de última modificación del registro</li>
  *   <li><b>originalMetadataHash</b>: Hash MD5 del XML original cosechado</li>
  *   <li><b>deleted</b>: Flag indicando si el registro fue eliminado en el origen</li>
  * </ul>
  * 
- * <h2>DIFERENCIAS ENTRE IMPLEMENTACIONES:</h2>
- * <ul>
- *   <li>JPA: ID es Long secuencial, tiene campos de validación (status, transformed, publishedMetadataHash)</li>
- *   <li>Parquet: ID es String MD5, es inmutable, no tiene campos de validación</li>
- * </ul>
- * 
  * @author LA Referencia Team
  * @see OAIRecord
- * @see org.lareferencia.backend.domain.parquet.OAIRecord
  */
 public interface IOAIRecord {
     
     /**
      * Obtiene el identificador único del record.
      * 
-     * @return String representando el ID (puede ser Long.toString() en JPA o MD5 en Parquet)
+     * @return identificador estable del registro
      */
     String getId();
     

@@ -12,7 +12,7 @@ import java.util.List;
 
 /**
  * Main interface for validation statistics services
- * Allows abstraction of the implementation (Parquet, Solr, DB, etc.)
+ * Abstraction for the SQLite-backed validation statistics implementation.
  */
 public interface IValidationStatisticsService {
 

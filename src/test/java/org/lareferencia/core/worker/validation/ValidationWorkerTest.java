@@ -104,7 +104,6 @@ class ValidationWorkerTest {
         assertNull(worker.getRunningContext());
     }
 
-    // DISABLED: ValidationWorker now extends OAIRecordParquetWorker instead of BaseBatchWorker
     // @Test
     // @DisplayName("Should extend BaseBatchWorker")
     // void testInheritance() {

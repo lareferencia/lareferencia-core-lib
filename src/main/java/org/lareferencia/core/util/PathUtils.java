@@ -29,7 +29,7 @@ import org.lareferencia.core.metadata.SnapshotMetadata;
  * 
  * PROPÓSITO:
  * - Centralizar lógica de sanitización de network acronyms
- * - Construir rutas consistentes para metadata store y parquet repositories
+ * - Construir rutas consistentes para metadata store, catálogo y validación
  * - Garantizar nombres de directorios seguros en cualquier OS
  * 
  * ESTRUCTURA UNIFICADA:
