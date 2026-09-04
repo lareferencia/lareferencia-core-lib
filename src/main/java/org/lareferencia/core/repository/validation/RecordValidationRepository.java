@@ -83,11 +83,14 @@ public class RecordValidationRepository {
             columns.append(", rule_").append(ruleId);
             placeholders.append(", ?");
         }
-        columns.append(") ON CONFLICT(identifier_hash) DO UPDATE SET identifier=excluded.identifier, datestamp=excluded.datestamp, is_valid=excluded.is_valid, is_transformed=excluded.is_transformed, published_metadata_hash=excluded.published_metadata_hash, deleted=excluded.deleted, change_type=excluded.change_type");
-        for (Long ruleId : ruleIds) columns.append(", rule_").append(ruleId).append("=excluded.rule_").append(ruleId);
+        columns.append(")");
         placeholders.append(")");
 
-        String sql = columns + " " + placeholders;
+        StringBuilder update = new StringBuilder(
+                " ON CONFLICT(identifier_hash) DO UPDATE SET identifier=excluded.identifier, datestamp=excluded.datestamp, is_valid=excluded.is_valid, is_transformed=excluded.is_transformed, published_metadata_hash=excluded.published_metadata_hash, deleted=excluded.deleted, change_type=excluded.change_type");
+        for (Long ruleId : ruleIds) update.append(", rule_").append(ruleId).append("=excluded.rule_").append(ruleId);
+
+        String sql = columns + " " + placeholders + update;
         insertSqlCache.put(snapshotId, sql);
 
         logger.debug("VALIDATION REPO: Registered {} rules for snapshot {}", ruleIds.size(), snapshotId);
