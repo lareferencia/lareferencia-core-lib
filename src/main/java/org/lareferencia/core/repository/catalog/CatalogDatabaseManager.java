@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Map;
@@ -91,7 +92,8 @@ public class CatalogDatabaseManager {
                 identifier TEXT NOT NULL UNIQUE,
                 datestamp TEXT NOT NULL,
                 original_metadata_hash TEXT,
-                deleted INTEGER NOT NULL DEFAULT 0
+                deleted INTEGER NOT NULL DEFAULT 0,
+                change_type TEXT CHECK (change_type IS NULL OR change_type IN ('N', 'U', 'D'))
             );
 
             CREATE INDEX IF NOT EXISTS idx_deleted ON oai_record(deleted);
@@ -133,6 +135,17 @@ public class CatalogDatabaseManager {
 
         // Crear esquema si es nueva base de datos
         createSchemaIfNeeded(ds);
+
+        // Los catálogos copiados desde snapshots anteriores pueden no incluir la
+        // columna de delta. La migración es segura para catálogos ya actualizados.
+        ensureChangeTypeColumn(ds);
+
+        // En un incremental, el catálogo copiado se convierte en la base de la
+        // nueva cosecha. NULL siempre significa que el registro no cambió en esta
+        // ejecución concreta.
+        if (previousSnapshotId != null) {
+            clearChangeTypes(ds);
+        }
 
         logger.info("CATALOG DB: Snapshot {} initialized at {}", snapshotId, dbPath);
     }
@@ -354,6 +367,41 @@ public class CatalogDatabaseManager {
         } catch (SQLException e) {
             logger.error("CATALOG DB: Error creating schema", e);
             throw new RuntimeException("Failed to create catalog schema", e);
+        }
+    }
+
+    private void ensureChangeTypeColumn(DataSource ds) {
+        try (Connection conn = ds.getConnection();
+                Statement stmt = conn.createStatement()) {
+            boolean exists = false;
+            try (ResultSet columns = stmt.executeQuery("PRAGMA table_info(oai_record)")) {
+                while (columns.next()) {
+                    if ("change_type".equals(columns.getString("name"))) {
+                        exists = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!exists) {
+                stmt.execute("ALTER TABLE oai_record ADD COLUMN change_type TEXT "
+                        + "CHECK (change_type IS NULL OR change_type IN ('N', 'U', 'D'))");
+            }
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_change_type ON oai_record(change_type)");
+        } catch (SQLException e) {
+            logger.error("CATALOG DB: Error migrating change_type column", e);
+            throw new RuntimeException("Failed to migrate catalog change type", e);
+        }
+    }
+
+    private void clearChangeTypes(DataSource ds) {
+        try (Connection conn = ds.getConnection();
+                Statement stmt = conn.createStatement()) {
+            int cleared = stmt.executeUpdate("UPDATE oai_record SET change_type = NULL WHERE change_type IS NOT NULL");
+            logger.info("CATALOG DB: Cleared {} inherited change markers", cleared);
+        } catch (SQLException e) {
+            logger.error("CATALOG DB: Error clearing inherited change markers", e);
+            throw new RuntimeException("Failed to reset catalog change markers", e);
         }
     }
 }

@@ -156,6 +156,28 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
         }
     }
 
+    /**
+     * Opens a previously copied validation database without deleting its rows.
+     * The caller must have verified the parent validator fingerprint and copied
+     * the database before invoking this method.
+     */
+    public void initializeValidationForSnapshotReusingDatabase(SnapshotMetadata snapshotMetadata) {
+        logger.info("SQLITE: Reusing validation database for snapshot {}", snapshotMetadata.getSnapshotId());
+        this.currentMetadata = snapshotMetadata;
+        this.currentRuleIds = snapshotMetadata.getRuleDefinitions().keySet().stream().sorted()
+                .collect(Collectors.toList());
+        try {
+            dbManager.openSnapshotForRead(snapshotMetadata);
+            recordRepository.registerRuleIds(snapshotMetadata.getSnapshotId(), currentRuleIds);
+            currentStats = new SnapshotValidationStats(snapshotMetadata);
+            recordBuffer.clear();
+            occurrenceBuffer.clear();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to open reused validation database for snapshot "
+                    + snapshotMetadata.getSnapshotId(), e);
+        }
+    }
+
     @Override
     public void addObservation(SnapshotMetadata snapshotMetadata, IOAIRecord record, ValidatorResult validationResult) {
         Long snapshotId = snapshotMetadata.getSnapshotId();
@@ -171,6 +193,8 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
         validationRecord.setValid(validationResult.isValid());
         validationRecord.setTransformed(validationResult.isTransformed());
         validationRecord.setPublishedMetadataHash(validationResult.getMetadataHash());
+        validationRecord.setDeleted(false);
+        validationRecord.setChangeType(record.getChangeType());
 
         // Build rule results map
         Map<Long, Boolean> ruleResults = new HashMap<>();
@@ -230,6 +254,11 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
         try {
             // Flush remaining records
             flushBuffers(snapshotId);
+
+            // A reused database also contains inherited rows. Rebuild the
+            // snapshot statistics from the resulting active rows, excluding
+            // tombstones retained solely for index deletion.
+            currentStats = buildFilteredStats(currentMetadata, Collections.emptyList());
 
             // Write stats JSON
             writeStatsJson(snapshotId);

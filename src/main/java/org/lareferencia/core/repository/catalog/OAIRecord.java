@@ -36,6 +36,7 @@ import org.lareferencia.core.domain.IOAIRecord;
  * - datestamp: Fecha de última modificación según OAI-PMH
  * - originalMetadataHash: Hash MD5 del XML cosechado
  * - deleted: Flag de registro eliminado en origen
+ * - changeType: Delta de la cosecha actual (`N`, `U`, `D` o null)
  * 
  * NOTAS:
  * - NO contiene estado de validación, transformación ni publishedHash
@@ -53,6 +54,7 @@ public class OAIRecord implements IOAIRecord {
     private LocalDateTime datestamp;
     private String originalMetadataHash;
     private boolean deleted;
+    private String changeType;
 
     /**
      * Constructor vacío (requerido para deserialización).
@@ -187,6 +189,19 @@ public class OAIRecord implements IOAIRecord {
 
     public void setDeleted(boolean deleted) {
         this.deleted = deleted;
+    }
+
+    /**
+     * Tipo de cambio en la cosecha actual: {@code N} nuevo, {@code U}
+     * actualizado, {@code D} eliminado o {@code null} si fue heredado sin
+     * cambios.
+     */
+    public String getChangeType() {
+        return changeType;
+    }
+
+    public void setChangeType(String changeType) {
+        this.changeType = changeType;
     }
 
     // ============================================================================

@@ -45,6 +45,9 @@ import java.time.LocalDateTime;
  * @see OAIRecord
  */
 public interface IOAIRecord {
+
+    /** Source-harvest delta marker, when supplied by the catalog backend. */
+    default String getChangeType() { return null; }
     
     /**
      * Obtiene el identificador único del record.

@@ -42,6 +42,18 @@ public interface IRecordFingerprintHelper {
 	public String getFingerprint(IOAIRecord record, SnapshotMetadata snapshotMetadata);
 
 	/**
+	 * Gets a stable positive numeric ID derived from the record fingerprint.
+	 * The value is stable across snapshots for the same configured identity.
+	 */
+	public Long getRecordIdLong(IOAIRecord record, SnapshotMetadata snapshotMetadata);
+
+	default String getRecordIdValue(IOAIRecord record, SnapshotMetadata snapshotMetadata, String source) {
+		if ("identifier".equalsIgnoreCase(source)) return record.getIdentifier();
+		if ("record_id".equalsIgnoreCase(source)) return getRecordIdLong(record, snapshotMetadata).toString();
+		return getFingerprint(record, snapshotMetadata);
+	}
+
+	/**
 	 * Gets the fingerprint for a validation observation.
 	 * 
 	 * @param observation the validation observation

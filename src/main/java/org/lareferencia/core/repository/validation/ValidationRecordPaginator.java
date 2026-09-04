@@ -65,6 +65,7 @@ public class ValidationRecordPaginator implements IPaginator<ValidationRecord> {
 
     private final SnapshotMetadata snapshotMetadata;
     private final ValidationDatabaseManager dbManager;
+    private boolean changedOnly;
 
     private int pageSize = 1000;
     private int currentPage = 0;
@@ -82,6 +83,12 @@ public class ValidationRecordPaginator implements IPaginator<ValidationRecord> {
             ValidationDatabaseManager dbManager) {
         this.snapshotMetadata = snapshotMetadata;
         this.dbManager = dbManager;
+    }
+
+    public ValidationRecordPaginator(SnapshotMetadata snapshotMetadata,
+            ValidationDatabaseManager dbManager, boolean changedOnly) {
+        this(snapshotMetadata, dbManager);
+        this.changedOnly = changedOnly;
     }
 
     /**
@@ -165,7 +172,7 @@ public class ValidationRecordPaginator implements IPaginator<ValidationRecord> {
             return 0;
         }
 
-        String sql = "SELECT COUNT(*) FROM record_validation";
+        String sql = changedOnly ? "SELECT COUNT(*) FROM record_validation WHERE change_type IS NOT NULL" : "SELECT COUNT(*) FROM record_validation";
 
         try (Connection conn = ds.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
@@ -198,11 +205,11 @@ public class ValidationRecordPaginator implements IPaginator<ValidationRecord> {
         int offset = page * size;
         String sql = """
                 SELECT identifier_hash, identifier, datestamp, is_valid,
-                       is_transformed, published_metadata_hash
+                       is_transformed, published_metadata_hash, deleted, change_type
                 FROM record_validation
-                ORDER BY identifier_hash
+                %s ORDER BY identifier_hash
                 LIMIT ? OFFSET ?
-                """;
+                """.formatted(changedOnly ? "WHERE change_type IS NOT NULL" : "");
 
         List<ValidationRecord> records = new ArrayList<>();
 
@@ -245,6 +252,8 @@ public class ValidationRecordPaginator implements IPaginator<ValidationRecord> {
         record.setValid(rs.getInt("is_valid") == 1);
         record.setTransformed(rs.getInt("is_transformed") == 1);
         record.setPublishedMetadataHash(rs.getString("published_metadata_hash"));
+        record.setDeleted(rs.getInt("deleted") == 1);
+        record.setChangeType(rs.getString("change_type"));
 
         // Rule results not populated - not needed for indexing
         record.setRuleResults(Collections.emptyMap());

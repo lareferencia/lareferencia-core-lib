@@ -23,6 +23,8 @@ package org.lareferencia.core.worker.validation;
 import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.util.Iterator;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,6 +35,12 @@ import org.lareferencia.core.service.management.SnapshotLogService;
 import org.lareferencia.core.service.validation.ValidationService;
 import org.lareferencia.core.service.validation.IValidationStatisticsService;
 import org.lareferencia.core.service.validation.ValidationStatisticsException;
+import org.lareferencia.core.service.validation.ValidationManifestStore;
+import org.lareferencia.core.service.validation.ValidatorFingerprint;
+import org.lareferencia.core.service.validation.ValidatorFingerprintService;
+import org.lareferencia.core.service.validation.ValidationStatisticsSQLiteService;
+import org.lareferencia.core.repository.validation.ValidationDatabaseManager;
+import org.lareferencia.core.repository.validation.RecordValidationRepository;
 import org.lareferencia.core.metadata.IMetadataStore;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
@@ -115,11 +123,27 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 	@Autowired
 	IValidationStatisticsService validationStatisticsService;
 
+	@Autowired
+	private ValidatorFingerprintService validatorFingerprintService;
+
+	@Autowired
+	private ValidationManifestStore validationManifestStore;
+
+	@Autowired
+	private ValidationDatabaseManager validationDatabaseManager;
+
+	@Autowired
+	private RecordValidationRepository validationRecordRepository;
+
+	@Autowired
+	private ValidationStatisticsSQLiteService sqliteValidationStatisticsService;
+
 	// reusable objects
 	private ValidatorResult reusableValidationResult;
 	private Boolean wasTransformed;
 
 	private SnapshotMetadata snapshotMetadata;
+	private boolean reusingValidationDatabase;
 
 	/**
 	 * Constructs a new validation worker.
@@ -143,12 +167,34 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 			// Cargar metadata completo del snapshot y asignarlo al campo del padre
 			this.snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
 
+			ValidatorFingerprint fingerprint = writeValidatorFingerprint();
+			reusingValidationDatabase = tryReuseParentValidation(fingerprint);
+			try {
+				fingerprint.setScope(reusingValidationDatabase ? "INCREMENTAL" : "FULL");
+				validationManifestStore.write(snapshotMetadata, fingerprint);
+			} catch (Exception e) {
+				logger.warn("Cannot persist validation scope for snapshot {}", snapshotId, e);
+			}
+
 			try {
 				// Abrir catálogo SQLite para lectura (fue creado durante harvesting)
 				catalogRepository.openSnapshotForRead(snapshotMetadata);
 
 				// Use stream instead of iterator for catalog
-				java.util.stream.Stream<OAIRecord> stream = catalogRepository.streamNotDeleted(snapshotMetadata);
+				java.util.stream.Stream<OAIRecord> stream;
+				if (reusingValidationDatabase) {
+					List<OAIRecord> changed = catalogRepository.streamChanged(snapshotMetadata)
+							.collect(Collectors.toList());
+					changed.stream().filter(OAIRecord::isDeleted).forEach(record -> {
+						try { validationRecordRepository.markDeletedRecord(snapshotId, record.getId(), record.getIdentifier(), record.getDatestamp()); }
+						catch (Exception e) { throw new RuntimeException(e); }
+					});
+					stream = changed.stream().filter(record -> !record.isDeleted());
+					logInfo("Reusing parent validation: validating " + changed.stream().filter(record -> !record.isDeleted()).count()
+							+ " changed active records");
+				} else {
+					stream = catalogRepository.streamNotDeleted(snapshotMetadata);
+				}
 				// Convert stream to iterator for BaseIteratorWorker compatibility
 				Iterator<OAIRecord> it = stream.iterator();
 				this.setIterator(it, snapshotMetadata.getSize());
@@ -167,7 +213,11 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 
 			// INITIALIZE: Create fresh writers AFTER cleanup
 			logInfo("Initializing validation statistics for snapshot: " + snapshotId);
-			validationStatisticsService.initializeValidationForSnapshot(this.snapshotMetadata);
+			if (reusingValidationDatabase) {
+				sqliteValidationStatisticsService.initializeValidationForSnapshotReusingDatabase(this.snapshotMetadata);
+			} else {
+				validationStatisticsService.initializeValidationForSnapshot(this.snapshotMetadata);
+			}
 			boolean detailedDiagnose = runningContext.getBooleanActionOption(
 					"DETAILED_DIAGNOSE", "DETAILED_DIAGNOSE", false);
 			logger.debug("Detailed diagnose: " + detailedDiagnose);
@@ -209,6 +259,45 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 		snapshotStore.startValidation(snapshotMetadata.getSnapshotId());
 		snapshotStore.resetSnapshotValidationCounts(snapshotMetadata.getSnapshotId());
 
+	}
+
+	/**
+	 * Persists optional provenance only. A failure here must not invalidate a
+	 * previously working validation workflow; lack of a manifest is handled as an
+	 * unknown configuration by future incremental logic.
+	 */
+	private ValidatorFingerprint writeValidatorFingerprint() {
+		try {
+			ValidatorFingerprint fingerprint = validatorFingerprintService
+					.fingerprint(runningContext.getNetwork().getValidator());
+			validationManifestStore.write(snapshotMetadata, fingerprint);
+			logger.info("Stored validator fingerprint {} for snapshot {}",
+					fingerprint.getHash(), snapshotMetadata.getSnapshotId());
+			return fingerprint;
+		} catch (Exception e) {
+			logger.warn("Cannot store validator fingerprint for snapshot {}. "
+					+ "Validation will continue without this optional provenance data.",
+					snapshotMetadata.getSnapshotId(), e);
+			return null;
+		}
+	}
+
+	private boolean tryReuseParentValidation(ValidatorFingerprint currentFingerprint) {
+		if (currentFingerprint == null) return false;
+		Long parentId = snapshotStore.getPreviousSnapshotId(snapshotMetadata.getSnapshotId());
+		if (parentId == null) return false;
+		try {
+			SnapshotMetadata parent = snapshotStore.getSnapshotMetadata(parentId);
+			if (parent == null) return false;
+			ValidatorFingerprint parentFingerprint = validationManifestStore.read(parent).orElse(null);
+			if (parentFingerprint == null || parentFingerprint.getScope() == null
+					|| !currentFingerprint.getHash().equals(parentFingerprint.getHash())) return false;
+			validationDatabaseManager.copySnapshotDatabase(parent, snapshotMetadata);
+			return true;
+		} catch (Exception e) {
+			logger.warn("Cannot reuse validation from parent snapshot {}. Falling back to full validation.", parentId, e);
+			return false;
+		}
 	}
 
 	@Override

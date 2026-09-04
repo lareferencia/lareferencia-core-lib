@@ -31,11 +31,14 @@ import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
+import org.apache.solr.client.solrj.util.ClientUtils;
 import org.lareferencia.core.domain.SnapshotIndexStatus;
+import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.repository.validation.ValidationRecord;
 import org.lareferencia.core.repository.validation.ValidationRecordPaginator;
 import org.lareferencia.core.repository.validation.ValidationDatabaseManager;
 import org.lareferencia.core.service.management.SnapshotLogService;
+import org.lareferencia.core.service.validation.ValidationManifestStore;
 import org.lareferencia.core.metadata.IMDFormatTransformer;
 import org.lareferencia.core.metadata.IMetadataStore;
 import org.lareferencia.core.metadata.ISnapshotStore;
@@ -46,6 +49,7 @@ import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.date.DateHelper;
+import org.lareferencia.core.util.IRecordFingerprintHelper;
 import org.lareferencia.core.worker.BaseBatchWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -77,6 +81,9 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 	@Autowired
 	private ValidationDatabaseManager dbManager;
 
+	@Autowired
+	private IRecordFingerprintHelper recordFingerprintHelper;
+
 	private static Logger logger = LogManager.getLogger(IndexerWorker.class);
 
 	@Autowired
@@ -94,9 +101,8 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
-
-	// Counter for generating unique record IDs (incremented in processItem)
-	private int recordCounter = 0;
+	@Autowired private ValidationManifestStore validationManifestStore;
+	private boolean useIncrementalDelta;
 
 	@Getter
 	@Setter
@@ -109,6 +115,8 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 	@Getter
 	@Setter
 	private String solrRecordIDField = "id";
+	@Getter @Setter
+	private String solrRecordIDValue;
 
 	@Getter
 	@Setter
@@ -175,10 +183,16 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 			if (snapshotId != null) { // solo si existe un lgk
 
 				snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
+				useIncrementalDelta = isIncremental() && solrRecordIDValue != null && !solrRecordIDValue.isBlank()
+						&& validationManifestStore.read(snapshotMetadata)
+						.map(f -> "INCREMENTAL".equalsIgnoreCase(f.getScope())).orElse(false);
+				if (isIncremental() && !useIncrementalDelta) logger.warn("Incremental identity or validation scope is missing; rebuilding index fully");
 
-				logger.debug("Executing index deletion: " + runningContext.getNetwork().getAcronym());
+				if (!useIncrementalDelta) {
+					logger.debug("Executing index deletion: " + runningContext.getNetwork().getAcronym());
 				logInfo("Executing index deletion: " + runningContext.toString() + " (" + this.targetSchemaName + ")");
 				delete(runningContext.getNetwork().getAcronym());
+				}
 
 				logger.debug("Full indexing (" + this.targetSchemaName + "): " + snapshotId);
 				logInfo("Full indexing: " + runningContext.toString() + "(" + this.targetSchemaName + ")");
@@ -187,7 +201,7 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 				try {
 					// Create paginator for validation records
 					ValidationRecordPaginator paginator = new ValidationRecordPaginator(
-							snapshotMetadata, dbManager);
+							snapshotMetadata, dbManager, useIncrementalDelta);
 					paginator.setPageSize(getPageSize());
 					this.setPaginator(paginator);
 
@@ -228,10 +242,14 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 
 	public void processItem(ValidationRecord record) {
 
-		// Increment counter for unique ID generation
-		recordCounter++;
-
 		try {
+			if (useIncrementalDelta && (record.isDeleted() || !record.isValid())) {
+				OAIRecord identityRecord = new OAIRecord();
+				identityRecord.setIdentifier(record.getIdentifier());
+				String value = recordFingerprintHelper.getRecordIdValue(identityRecord, snapshotMetadata, solrRecordIDValue);
+				this.sendUpdateToSolr("<delete><query>" + solrRecordIDField + ":" + ClientUtils.escapeQueryChars(value) + "</query></delete>");
+				return;
+			}
 
 			OAIRecordMetadata metadata = new OAIRecordMetadata(record.getIdentifier(),
 					metadataStore.getMetadata(snapshotMetadata, record.getPublishedMetadataHash()));
@@ -271,8 +289,11 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 			// identifier del record
 			metadataTransformer.setParameter("identifier", record.getIdentifier());
 
-			// record_id: use snapshot + counter for unique integer ID
-			metadataTransformer.setParameter("record_id", generateRecordUniqueID(snapshotId).toString());
+			// Stable numeric ID derived from the textual record fingerprint.
+			OAIRecord identityRecord = new OAIRecord();
+			identityRecord.setIdentifier(record.getIdentifier());
+			metadataTransformer.setParameter("record_id",
+					recordFingerprintHelper.getRecordIdLong(identityRecord, snapshotMetadata).toString());
 
 			// metadata como string
 			if (record.getDatestamp() != null)
@@ -379,18 +400,6 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 	}
 
 	/******************* Auxiliares ********** */
-	/**
-	 * Generates a unique record ID by combining snapshot ID with counter.
-	 * Uses bit shifting: snapshotId in bits 27-62, counter in bits 0-26.
-	 * NOTE: Counter must be incremented before calling this method.
-	 * 
-	 * @param snapshotId the snapshot ID
-	 * @return unique Long ID for the record
-	 */
-	private Long generateRecordUniqueID(Long snapshotId) {
-		return (snapshotId << 27) | (recordCounter & 0x7FFFFFFFL);
-	}
-
 	private void error() {
 		// With new @Transactional pattern, simply stopping the worker will persist
 		// the current snapshot state. Index status remains FAILED by default.

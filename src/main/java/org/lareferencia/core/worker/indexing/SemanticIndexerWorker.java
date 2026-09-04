@@ -37,7 +37,9 @@ import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.common.SolrInputDocument;
+import org.apache.solr.client.solrj.util.ClientUtils;
 import org.lareferencia.core.domain.SnapshotIndexStatus;
+import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.embedding.IEmbeddingService;
 import org.lareferencia.core.embedding.chunks.ChunkingService;
 import org.lareferencia.core.metadata.IMDFormatTransformer;
@@ -53,7 +55,9 @@ import org.lareferencia.core.repository.validation.ValidationDatabaseManager;
 import org.lareferencia.core.repository.validation.ValidationRecord;
 import org.lareferencia.core.repository.validation.ValidationRecordPaginator;
 import org.lareferencia.core.service.management.SnapshotLogService;
+import org.lareferencia.core.service.validation.ValidationManifestStore;
 import org.lareferencia.core.util.date.DateHelper;
+import org.lareferencia.core.util.IRecordFingerprintHelper;
 import org.lareferencia.core.worker.BaseBatchWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,6 +99,9 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	private ValidationDatabaseManager dbManager;
 
 	@Autowired
+	private IRecordFingerprintHelper recordFingerprintHelper;
+
+	@Autowired
 	private SnapshotLogService snapshotLogService;
 
 	@Autowired
@@ -116,7 +123,8 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 	private Long snapshotId;
 	private SnapshotMetadata snapshotMetadata;
-	private int recordCounter = 0;
+	@Autowired private ValidationManifestStore validationManifestStore;
+	private boolean useIncrementalDelta;
 	private int embeddedRecordsCount = 0;
 	private int emptyRecordsCount = 0;
 	private int failedEmbeddingsCount = 0;
@@ -129,6 +137,10 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	@Setter
 	@Getter
 	private String solrNetworkIDField;
+	@Setter @Getter
+	private String solrRecordIDField = "id";
+	@Setter @Getter
+	private String solrRecordIDValue;
 	@Setter
 	@Getter
 	private boolean executeDeletion = false;
@@ -218,6 +230,13 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	public void processItem(ValidationRecord record) {
 
 		try {
+			if (useIncrementalDelta && (record.isDeleted() || !record.isValid())) {
+				OAIRecord identityRecord = new OAIRecord();
+				identityRecord.setIdentifier(record.getIdentifier());
+				String value = recordFingerprintHelper.getRecordIdValue(identityRecord, snapshotMetadata, solrRecordIDValue);
+				solrClient.deleteByQuery(solrRecordIDField + ":" + ClientUtils.escapeQueryChars(value));
+				return;
+			}
 			OAIRecordMetadata metadata = new OAIRecordMetadata(record.getIdentifier(),
 					metadataStore.getMetadata(snapshotMetadata, record.getPublishedMetadataHash()));
 
@@ -330,13 +349,20 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			return false;
 		}
 		snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
+		useIncrementalDelta = isIncremental() && solrRecordIDValue != null && !solrRecordIDValue.isBlank()
+				&& validationManifestStore.read(snapshotMetadata)
+				.map(f -> "INCREMENTAL".equalsIgnoreCase(f.getScope())).orElse(false);
+		if (isIncremental() && !useIncrementalDelta) logger.warn("Incremental identity or validation scope is missing; rebuilding index fully");
 		return true;
 	}
 
 	private boolean prepareForIndexing() {
-		logger.debug(MessageFormat.format("Executing index deletion: {0}", runningContext.getNetwork().getAcronym()));
+		if (!useIncrementalDelta) {
+			logger.debug(MessageFormat.format("Executing index deletion: {0}", runningContext.getNetwork().getAcronym()));
 		logInfo(
 				MessageFormat.format("Executing index deletion: {0} ({1})", runningContext.toString(), this.targetSchemaName));
+			delete(runningContext.getNetwork().getAcronym());
+		}
 
 		logger.debug(MessageFormat.format("Full semantic indexing ({0}): {1}", this.targetSchemaName, snapshotId));
 		logInfo(MessageFormat.format("Full semantic indexing: {0}({1})", runningContext.toString(), this.targetSchemaName));
@@ -371,7 +397,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	}
 
 	private void setupPaginator() {
-		ValidationRecordPaginator paginator = new ValidationRecordPaginator(snapshotMetadata, dbManager);
+		ValidationRecordPaginator paginator = new ValidationRecordPaginator(snapshotMetadata, dbManager, useIncrementalDelta);
 		paginator.setPageSize(getPageSize());
 		this.setPaginator(paginator);
 	}
@@ -407,7 +433,10 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 		metadataTransformer.setParameter("fingerprint",
 				MessageFormat.format("{0}_{1}", runningContext.getNetwork().getAcronym(), record.getIdentifierHash()));
 		metadataTransformer.setParameter("identifier", record.getIdentifier());
-		metadataTransformer.setParameter("record_id", generateRecordUniqueID(snapshotId).toString());
+		OAIRecord identityRecord = new OAIRecord();
+		identityRecord.setIdentifier(record.getIdentifier());
+		metadataTransformer.setParameter("record_id",
+				recordFingerprintHelper.getRecordIdLong(identityRecord, snapshotMetadata).toString());
 
 		if (record.getDatestamp() != null) {
 			metadataTransformer.setParameter("timestamp", DateHelper.getDateTimeMachineString(record.getDatestamp()));
@@ -467,18 +496,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 		logger.warn(MessageFormat.format("Failed to generate embedding for record: {0}", title));
 	}
 
-	/**
-	 * Generates a unique record ID by combining snapshot ID with counter.
-	 * Uses bit shifting: snapshotId in bits 27-62, counter in bits 0-26.
-	 * NOTE: Counter must be incremented before calling this method.
-	 *
-	 * @param snapshotId the snapshot ID
-	 * @return unique Long ID for the record
-	 */
-	private Long generateRecordUniqueID(Long snapshotId) {
-		return (snapshotId << 27) | (++recordCounter & 0x7FFFFFFFL);
-	}
-
+	/** Stops the worker after an unrecoverable indexing error. */
 	private void error() {
 		this.stop();
 	}

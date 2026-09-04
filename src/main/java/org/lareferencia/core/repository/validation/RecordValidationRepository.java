@@ -76,14 +76,15 @@ public class RecordValidationRepository {
 
         // Build dynamic INSERT SQL
         StringBuilder columns = new StringBuilder(
-                "INSERT INTO record_validation (identifier_hash, identifier, datestamp, is_valid, is_transformed, published_metadata_hash");
-        StringBuilder placeholders = new StringBuilder("VALUES (?, ?, ?, ?, ?, ?");
+                "INSERT INTO record_validation (identifier_hash, identifier, datestamp, is_valid, is_transformed, published_metadata_hash, deleted, change_type");
+        StringBuilder placeholders = new StringBuilder("VALUES (?, ?, ?, ?, ?, ?, ?, ?");
 
         for (Long ruleId : ruleIds) {
             columns.append(", rule_").append(ruleId);
             placeholders.append(", ?");
         }
-        columns.append(")");
+        columns.append(") ON CONFLICT(identifier_hash) DO UPDATE SET identifier=excluded.identifier, datestamp=excluded.datestamp, is_valid=excluded.is_valid, is_transformed=excluded.is_transformed, published_metadata_hash=excluded.published_metadata_hash, deleted=excluded.deleted, change_type=excluded.change_type");
+        for (Long ruleId : ruleIds) columns.append(", rule_").append(ruleId).append("=excluded.rule_").append(ruleId);
         placeholders.append(")");
 
         String sql = columns + " " + placeholders;
@@ -157,6 +158,44 @@ public class RecordValidationRepository {
         insertBatch(snapshotId, Collections.singletonList(record));
     }
 
+    /** Marks an inherited validation row as a source tombstone for indexing. */
+    public void markDeleted(Long snapshotId, String identifierHash) throws IOException {
+        DataSource ds = dbManager.getDataSource(snapshotId);
+        if (ds == null) {
+            throw new IOException("Snapshot " + snapshotId + " not initialized");
+        }
+        try (Connection conn = ds.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE record_validation SET deleted = 1, is_valid = 0, is_transformed = 0, change_type = 'D' "
+                                + "WHERE identifier_hash = ?")) {
+            stmt.setString(1, identifierHash);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            throw new IOException("Failed to mark validation record deleted: " + e.getMessage(), e);
+        }
+    }
+
+    /** Marks all source tombstones in a copied validation database. */
+    public void markDeletedBatch(Long snapshotId, Collection<String> identifierHashes) throws IOException {
+        if (identifierHashes == null) return;
+        for (String identifierHash : identifierHashes) {
+            markDeleted(snapshotId, identifierHash);
+        }
+    }
+
+    /** Creates or updates a source tombstone, including records absent from the parent validation. */
+    public void markDeletedRecord(Long snapshotId, String identifierHash, String identifier,
+            java.time.LocalDateTime datestamp) throws IOException {
+        DataSource ds = dbManager.getDataSource(snapshotId);
+        if (ds == null) throw new IOException("Snapshot " + snapshotId + " not initialized");
+        String sql = "INSERT INTO record_validation (identifier_hash, identifier, datestamp, is_valid, is_transformed, published_metadata_hash, deleted, change_type) VALUES (?, ?, ?, 0, 0, NULL, 1, 'D') ON CONFLICT(identifier_hash) DO UPDATE SET identifier=excluded.identifier, datestamp=excluded.datestamp, is_valid=0, is_transformed=0, deleted=1, change_type='D'";
+        try (Connection conn = ds.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, identifierHash); stmt.setString(2, identifier);
+            stmt.setString(3, datestamp != null ? datestamp.format(ISO_FORMATTER) : null);
+            stmt.executeUpdate();
+        } catch (SQLException e) { throw new IOException("Failed to persist validation tombstone: " + e.getMessage(), e); }
+    }
+
     /**
      * Streams all validation records.
      */
@@ -187,31 +226,40 @@ public class RecordValidationRepository {
     }
 
     /**
+     * Streams the complete index contract, including source tombstones. Future
+     * indexers derive DELETE from deleted=true, UPSERT from valid=true, and omit
+     * active invalid records. This deliberately does not filter deleted rows.
+     */
+    public Stream<ValidationRecord> streamForIndexing(Long snapshotId) throws IOException {
+        return streamAll(snapshotId);
+    }
+
+    /**
      * Counts total records.
      */
     public long count(Long snapshotId) {
-        return executeCount(snapshotId, "SELECT COUNT(*) FROM record_validation");
+        return executeCount(snapshotId, "SELECT COUNT(*) FROM record_validation WHERE deleted = 0");
     }
 
     /**
      * Counts valid records.
      */
     public long countValid(Long snapshotId) {
-        return executeCount(snapshotId, "SELECT COUNT(*) FROM record_validation WHERE is_valid = 1");
+        return executeCount(snapshotId, "SELECT COUNT(*) FROM record_validation WHERE deleted = 0 AND is_valid = 1");
     }
 
     /**
      * Counts transformed records.
      */
     public long countTransformed(Long snapshotId) {
-        return executeCount(snapshotId, "SELECT COUNT(*) FROM record_validation WHERE is_transformed = 1");
+        return executeCount(snapshotId, "SELECT COUNT(*) FROM record_validation WHERE deleted = 0 AND is_transformed = 1");
     }
 
     /**
      * Counts records that fail a specific rule.
      */
     public long countInvalidByRule(Long snapshotId, Long ruleId) {
-        String sql = "SELECT COUNT(*) FROM record_validation WHERE rule_" + ruleId + " = 0";
+        String sql = "SELECT COUNT(*) FROM record_validation WHERE deleted = 0 AND rule_" + ruleId + " = 0";
         return executeCount(snapshotId, sql);
     }
 
@@ -219,7 +267,7 @@ public class RecordValidationRepository {
      * Counts records that pass a specific rule.
      */
     public long countValidByRule(Long snapshotId, Long ruleId) {
-        String sql = "SELECT COUNT(*) FROM record_validation WHERE rule_" + ruleId + " = 1";
+        String sql = "SELECT COUNT(*) FROM record_validation WHERE deleted = 0 AND rule_" + ruleId + " = 1";
         return executeCount(snapshotId, sql);
     }
 
@@ -234,7 +282,7 @@ public class RecordValidationRepository {
         }
 
         List<Long> ruleIds = ruleIdsCache.get(snapshotId);
-        String sql = "SELECT * FROM record_validation WHERE rule_" + ruleId
+        String sql = "SELECT * FROM record_validation WHERE deleted = 0 AND rule_" + ruleId
                 + " = ? ORDER BY identifier LIMIT ? OFFSET ?";
 
         List<ValidationRecord> results = new ArrayList<>();
@@ -369,7 +417,7 @@ public class RecordValidationRepository {
         }
 
         List<Long> ruleIds = ruleIdsCache.get(snapshotId);
-        StringBuilder sql = new StringBuilder("SELECT * FROM record_validation");
+        StringBuilder sql = new StringBuilder("SELECT * FROM record_validation WHERE deleted = 0");
         List<Object> params = new ArrayList<>();
 
         applyFilters(sql, filters, params);
@@ -401,7 +449,7 @@ public class RecordValidationRepository {
     }
 
     public long countWithFilters(Long snapshotId, List<String> filters) {
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM record_validation");
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM record_validation WHERE deleted = 0");
         List<Object> params = new ArrayList<>();
 
         applyFilters(sql, filters, params);
@@ -410,21 +458,21 @@ public class RecordValidationRepository {
     }
 
     public long countValidWithFilters(Long snapshotId, List<String> filters) {
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM record_validation WHERE is_valid = 1");
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM record_validation WHERE deleted = 0 AND is_valid = 1");
         List<Object> params = new ArrayList<>();
         applyFilters(sql, filters, params);
         return executeCountWithParams(snapshotId, sql.toString(), params);
     }
 
     public long countTransformedWithFilters(Long snapshotId, List<String> filters) {
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM record_validation WHERE is_transformed = 1");
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM record_validation WHERE deleted = 0 AND is_transformed = 1");
         List<Object> params = new ArrayList<>();
         applyFilters(sql, filters, params);
         return executeCountWithParams(snapshotId, sql.toString(), params);
     }
 
     public long countRuleWithFilters(Long snapshotId, Long ruleId, boolean isValid, List<String> filters) {
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM record_validation WHERE rule_")
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM record_validation WHERE deleted = 0 AND rule_")
                 .append(ruleId)
                 .append(" = ")
                 .append(isValid ? "1" : "0");
@@ -463,7 +511,8 @@ public class RecordValidationRepository {
                     .append("_invalid");
         }
 
-        sql.append(" FROM record_validation");
+        // Tombstones are retained for the indexer but never count as active quality data.
+        sql.append(" FROM record_validation WHERE deleted = 0");
         List<Object> params = new ArrayList<>();
 
         applyFilters(sql, filters, params);
@@ -514,6 +563,8 @@ public class RecordValidationRepository {
         stmt.setInt(idx++, record.isValid() ? 1 : 0);
         stmt.setInt(idx++, record.isTransformed() ? 1 : 0);
         stmt.setString(idx++, record.getPublishedMetadataHash());
+        stmt.setInt(idx++, record.isDeleted() ? 1 : 0);
+        stmt.setString(idx++, record.getChangeType());
 
         // Set rule columns
         for (Long ruleId : ruleIds) {
@@ -534,6 +585,7 @@ public class RecordValidationRepository {
 
         record.setValid(rs.getInt("is_valid") == 1);
         record.setTransformed(rs.getInt("is_transformed") == 1);
+        record.setDeleted(rs.getInt("deleted") == 1);
         record.setPublishedMetadataHash(rs.getString("published_metadata_hash"));
 
         // Map rule columns

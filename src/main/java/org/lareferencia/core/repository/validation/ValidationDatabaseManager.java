@@ -34,7 +34,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
@@ -114,6 +116,37 @@ public class ValidationDatabaseManager {
     }
 
     /**
+     * Copies a completed parent's validation database into a new snapshot. The
+     * caller must compare validator fingerprints before invoking this method.
+     */
+    public void copySnapshotDatabase(SnapshotMetadata parent, SnapshotMetadata target) throws IOException {
+        Path source = Paths.get(PathUtils.getSnapshotPath(basePath, parent), VALIDATION_SUBDIR, DB_FILENAME);
+        Path destinationDir = Paths.get(PathUtils.getSnapshotPath(basePath, target), VALIDATION_SUBDIR);
+        Path destination = destinationDir.resolve(DB_FILENAME);
+        if (!Files.isRegularFile(source)) {
+            throw new IOException("Parent validation database not found: " + source);
+        }
+        Files.createDirectories(destinationDir);
+        closeDataSource(target.getSnapshotId());
+        Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+        migrateAndClearChangeType(destination);
+        logger.info("VALIDATION DB: copied parent database from snapshot {} to {}",
+                parent.getSnapshotId(), target.getSnapshotId());
+    }
+
+    private void migrateAndClearChangeType(Path database) throws IOException {
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath());
+                Statement stmt = conn.createStatement()) {
+            boolean present = false;
+            try (java.sql.ResultSet rs = stmt.executeQuery("PRAGMA table_info(record_validation)")) {
+                while (rs.next()) if ("change_type".equalsIgnoreCase(rs.getString("name"))) { present = true; break; }
+            }
+            if (!present) stmt.execute("ALTER TABLE record_validation ADD COLUMN change_type TEXT CHECK (change_type IS NULL OR change_type IN ('N','U','D'))");
+            stmt.executeUpdate("UPDATE record_validation SET change_type = NULL");
+        } catch (SQLException e) { throw new IOException("Failed to prepare copied validation database: " + e.getMessage(), e); }
+    }
+
+    /**
      * Opens an existing validation database for reading.
      * 
      * @param snapshotMetadata Snapshot metadata
@@ -141,8 +174,44 @@ public class ValidationDatabaseManager {
         SQLiteDataSource ds = new SQLiteDataSource(config);
         ds.setUrl("jdbc:sqlite:" + dbPath.toAbsolutePath());
 
+        ensureDeletedColumn(ds, snapshotId);
+        ensureChangeTypeColumn(ds, snapshotId);
         dataSources.put(snapshotId, ds);
         logger.debug("VALIDATION DB: Opened database for reading - snapshot {} (WAL mode)", snapshotId);
+    }
+
+    /** Adds the tombstone flag to databases created before incremental validation. */
+    private void ensureDeletedColumn(SQLiteDataSource ds, Long snapshotId) throws IOException {
+        try (Connection conn = ds.getConnection(); Statement stmt = conn.createStatement();
+                java.sql.ResultSet rs = stmt.executeQuery("PRAGMA table_info(record_validation)")) {
+            boolean present = false;
+            while (rs.next()) {
+                if ("deleted".equalsIgnoreCase(rs.getString("name"))) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) {
+                stmt.execute("ALTER TABLE record_validation ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_rv_deleted ON record_validation(deleted)");
+                logger.warn("VALIDATION DB: migrated legacy snapshot {} with deleted column. "
+                        + "Run a full revalidation before enabling incremental validation.", snapshotId);
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to migrate deleted column: " + e.getMessage(), e);
+        }
+    }
+
+    private void ensureChangeTypeColumn(SQLiteDataSource ds, Long snapshotId) throws IOException {
+        try (Connection conn = ds.getConnection(); Statement stmt = conn.createStatement();
+                java.sql.ResultSet rs = stmt.executeQuery("PRAGMA table_info(record_validation)")) {
+            boolean present = false;
+            while (rs.next()) if ("change_type".equalsIgnoreCase(rs.getString("name"))) { present = true; break; }
+            if (!present) {
+                stmt.execute("ALTER TABLE record_validation ADD COLUMN change_type TEXT CHECK (change_type IS NULL OR change_type IN ('N','U','D'))");
+                logger.warn("VALIDATION DB: migrated legacy snapshot {} with change_type column; legacy rows are treated as full", snapshotId);
+            }
+        } catch (SQLException e) { throw new IOException("Failed to migrate change_type column: " + e.getMessage(), e); }
     }
 
     /**
@@ -212,7 +281,9 @@ public class ValidationDatabaseManager {
                     datestamp TEXT,
                     is_valid BOOLEAN NOT NULL,
                     is_transformed BOOLEAN NOT NULL,
-                    published_metadata_hash TEXT%s
+                    published_metadata_hash TEXT,
+                    deleted INTEGER NOT NULL DEFAULT 0,
+                    change_type TEXT CHECK (change_type IS NULL OR change_type IN ('N','U','D'))%s
                 )
                 """.formatted(ruleColumns.toString());
 
@@ -241,6 +312,8 @@ public class ValidationDatabaseManager {
             stmt.execute(createIndexIdentifierSQL);
             stmt.execute(createIndexValidSQL);
             stmt.execute(createIndexTransformedSQL);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_rv_deleted ON record_validation(deleted)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_rv_change_type ON record_validation(change_type)");
             stmt.execute(createIndexRuleSQL);
             stmt.execute(createIndexRecordSQL);
 

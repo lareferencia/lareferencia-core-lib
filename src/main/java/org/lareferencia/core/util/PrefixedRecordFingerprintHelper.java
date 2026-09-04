@@ -28,6 +28,7 @@ import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.service.validation.ValidationStatObservation;
 import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.util.hashing.XXHash64Hashing;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -91,6 +92,12 @@ public class PrefixedRecordFingerprintHelper implements IRecordFingerprintHelper
 			return "00" + "_" + DigestUtils.md5Hex(prefix + record.getIdentifier());
 
 	
+	}
+
+	@Override
+	public Long getRecordIdLong(IOAIRecord record, SnapshotMetadata snapshotMetadata) {
+		long hash = XXHash64Hashing.calculateHashLong(getFingerprint(record, snapshotMetadata));
+		return hash & Long.MAX_VALUE;
 	}
 
 	public String getFingerprint(ValidationStatObservation observation) {

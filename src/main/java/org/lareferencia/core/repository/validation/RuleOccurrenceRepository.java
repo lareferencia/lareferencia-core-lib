@@ -128,8 +128,9 @@ public class RuleOccurrenceRepository {
 
         String sql = """
                 SELECT occurrence_value, COUNT(*) as cnt
-                FROM rule_occurrences
-                WHERE rule_id = ? AND is_valid = ?
+                FROM rule_occurrences ro
+                JOIN record_validation rv ON rv.identifier_hash = ro.identifier_hash
+                WHERE ro.rule_id = ? AND ro.is_valid = ? AND rv.deleted = 0
                 GROUP BY occurrence_value
                 ORDER BY cnt DESC
                 """;

@@ -47,8 +47,8 @@ import org.springframework.stereotype.Repository;
  * Repositorio JDBC para catálogo OAI en SQLite.
  * 
  * OPERACIONES PRINCIPALES:
- * - upsertRecord(): INSERT OR REPLACE para harvesting
- * - upsertBatch(): Batch insert con transacción
+ * - upsertRecord(): upsert que clasifica el delta de harvesting
+ * - upsertBatch(): Batch upsert con transacción
  * - streamAll(): Streaming de todos los registros para validación
  * - count(): Conteo de registros
  * 
@@ -71,9 +71,34 @@ public class OAIRecordCatalogRepository {
     private CatalogDatabaseManager dbManager;
 
     // SQL Statements
-    private static final String UPSERT_SQL = """
-            INSERT OR REPLACE INTO oai_record (id, identifier, datestamp, original_metadata_hash, deleted)
-            VALUES (?, ?, ?, ?, ?)
+    private static final String UPSERT_ACTIVE_SQL = """
+            INSERT INTO oai_record (id, identifier, datestamp, original_metadata_hash, deleted, change_type)
+            VALUES (?, ?, ?, ?, 0, 'N')
+            ON CONFLICT(id) DO UPDATE SET
+                identifier = excluded.identifier,
+                datestamp = excluded.datestamp,
+                original_metadata_hash = excluded.original_metadata_hash,
+                deleted = 0,
+                change_type = CASE
+                    WHEN oai_record.change_type IN ('N', 'U') THEN oai_record.change_type
+                    WHEN oai_record.deleted = 1
+                      OR oai_record.original_metadata_hash IS NOT excluded.original_metadata_hash THEN 'U'
+                    ELSE NULL
+                END
+            """;
+
+    private static final String UPSERT_DELETED_SQL = """
+            INSERT INTO oai_record (id, identifier, datestamp, original_metadata_hash, deleted, change_type)
+            VALUES (?, ?, ?, ?, 1, 'D')
+            ON CONFLICT(id) DO UPDATE SET
+                identifier = excluded.identifier,
+                datestamp = excluded.datestamp,
+                original_metadata_hash = excluded.original_metadata_hash,
+                deleted = 1,
+                change_type = CASE
+                    WHEN oai_record.deleted = 0 THEN 'D'
+                    ELSE oai_record.change_type
+                END
             """;
 
     private static final String SELECT_ALL_SQL = """
@@ -87,9 +112,17 @@ public class OAIRecordCatalogRepository {
             WHERE deleted = 0
             """;
 
+    private static final String SELECT_CHANGED_SQL = """
+            SELECT id, identifier, datestamp, original_metadata_hash, deleted, change_type
+            FROM oai_record
+            WHERE change_type IS NOT NULL
+            """;
+
     private static final String COUNT_SQL = "SELECT COUNT(*) FROM oai_record";
 
     private static final String COUNT_NOT_DELETED_SQL = "SELECT COUNT(*) FROM oai_record WHERE deleted = 0";
+
+    private static final String COUNT_CHANGED_SQL = "SELECT COUNT(*) FROM oai_record WHERE change_type IS NOT NULL";
 
     // ============================================================================
     // INITIALIZATION
@@ -127,8 +160,10 @@ public class OAIRecordCatalogRepository {
     // ============================================================================
 
     /**
-     * INSERT OR REPLACE de un registro.
-     * Optimizado: No verifica existencia previa (size se calcula al final).
+     * Upsert de un registro que calcula el tipo de cambio en SQLite.
+     * Una inserción es {@code N}; un registro activo existente con metadata
+     * distinta o que estaba eliminado es {@code U}; una cabecera deleted es
+     * {@code D}. Un hash igual mantiene el registro sin cambio.
      * 
      * @param snapshotId ID del snapshot
      * @param record     Registro a insertar/actualizar
@@ -140,7 +175,7 @@ public class OAIRecordCatalogRepository {
         }
 
         try (Connection conn = ds.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(UPSERT_SQL)) {
+                PreparedStatement stmt = conn.prepareStatement(sqlFor(record))) {
 
             setRecordParameters(stmt, record);
             stmt.executeUpdate();
@@ -174,23 +209,27 @@ public class OAIRecordCatalogRepository {
         try (Connection conn = ds.getConnection()) {
             conn.setAutoCommit(false);
 
-            try (PreparedStatement stmt = conn.prepareStatement(UPSERT_SQL)) {
+            try (PreparedStatement activeStmt = conn.prepareStatement(UPSERT_ACTIVE_SQL);
+                    PreparedStatement deletedStmt = conn.prepareStatement(UPSERT_DELETED_SQL)) {
                 int count = 0;
                 for (OAIRecord record : records) {
+                    PreparedStatement stmt = record.isDeleted() ? deletedStmt : activeStmt;
                     setRecordParameters(stmt, record);
                     stmt.addBatch();
                     count++;
 
                     // Execute batch every N records
                     if (count % batchSize == 0) {
-                        stmt.executeBatch();
+                        activeStmt.executeBatch();
+                        deletedStmt.executeBatch();
                         logger.debug("CATALOG REPO: Executed batch of {} records", batchSize);
                     }
                 }
 
                 // Execute remaining records
                 if (count % batchSize != 0) {
-                    stmt.executeBatch();
+                    activeStmt.executeBatch();
+                    deletedStmt.executeBatch();
                 }
 
                 conn.commit();
@@ -266,6 +305,14 @@ public class OAIRecordCatalogRepository {
     }
 
     /**
+     * Stream de registros nuevos, actualizados o eliminados durante la cosecha
+     * actual.
+     */
+    public Stream<OAIRecord> streamChanged(SnapshotMetadata metadata) {
+        return streamRecords(metadata, SELECT_CHANGED_SQL);
+    }
+
+    /**
      * Conteo de registros totales.
      * 
      * @param snapshotId ID del snapshot
@@ -283,6 +330,13 @@ public class OAIRecordCatalogRepository {
      */
     public long countNotDeleted(Long snapshotId) {
         return executeCount(snapshotId, COUNT_NOT_DELETED_SQL);
+    }
+
+    /**
+     * Cuenta registros que cambiaron durante la cosecha actual.
+     */
+    public long countChanged(Long snapshotId) {
+        return executeCount(snapshotId, COUNT_CHANGED_SQL);
     }
 
     /**
@@ -321,7 +375,6 @@ public class OAIRecordCatalogRepository {
                 ? record.getDatestamp().format(ISO_FORMATTER)
                 : null);
         stmt.setString(4, record.getOriginalMetadataHash());
-        stmt.setInt(5, record.isDeleted() ? 1 : 0);
     }
 
     /**
@@ -339,8 +392,17 @@ public class OAIRecordCatalogRepository {
 
         record.setOriginalMetadataHash(rs.getString("original_metadata_hash"));
         record.setDeleted(rs.getInt("deleted") == 1);
+        try {
+            record.setChangeType(rs.getString("change_type"));
+        } catch (SQLException ignored) {
+            // Los snapshots históricos pueden no tener todavía la columna.
+        }
 
         return record;
+    }
+
+    private String sqlFor(OAIRecord record) {
+        return record.isDeleted() ? UPSERT_DELETED_SQL : UPSERT_ACTIVE_SQL;
     }
 
     /**

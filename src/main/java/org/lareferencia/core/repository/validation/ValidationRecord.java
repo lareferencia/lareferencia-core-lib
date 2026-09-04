@@ -48,6 +48,10 @@ public class ValidationRecord {
     private LocalDateTime datestamp;
     private boolean valid;
     private boolean transformed;
+    /** Source tombstone; distinct from an active record failing validation. */
+    private boolean deleted;
+    /** Immutable source-harvest delta marker: N, U, D or null. */
+    private String changeType;
     private String publishedMetadataHash;
 
     // Rule results: ruleId -> isValid
