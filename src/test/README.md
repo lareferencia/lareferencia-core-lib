@@ -2,13 +2,15 @@
 
 ## Overview
 
-**Total Tests: 1,162**  
+**Total Tests: 1,163**  
 **Success Rate: 100%**  
 **Failures: 0**  
 **Errors: 0**  
 **Skipped: 0**
 
 This document provides a comprehensive overview of all test cases in the LA Referencia Core Library project. All tests are written using **JUnit 5** and follow best practices for unit and integration testing.
+
+> **Note (2026-09-23):** the counts in this document are a static snapshot of a documentation exercise, not a live report — the suite grows with the code (current snapshot: **1,163 tests**). Assertions use JUnit 5 (`org.junit.jupiter.api.Assertions`); the project does **not** use AssertJ.
 
 ---
 
@@ -929,9 +931,9 @@ mvn test -Dtest="OAIRecordMetadataTest,ValidatorTest"
 mvn test -Dtest="org.lareferencia.core.metadata.**"
 ```
 
-### Run with Coverage
+### Run a Single Module's Tests
 ```bash
-mvn clean test jacoco:report
+mvn test -Dtest="org.lareferencia.core.task.**"
 ```
 
 ---
@@ -940,7 +942,6 @@ mvn clean test jacoco:report
 
 - **JUnit 5** (Jupiter): Main testing framework
 - **Mockito**: Mocking framework
-- **AssertJ**: Fluent assertions
 - **JUnit @TempDir**: Temporary directory support
 - **Spring Test**: Spring context testing
 
@@ -948,22 +949,13 @@ mvn clean test jacoco:report
 
 ## Continuous Integration
 
-Tests are automatically executed on:
-- **Every commit**: Full test suite
-- **Pull requests**: Full test suite + coverage
-- **Nightly builds**: Full test suite + performance tests
+Tests run in CI (GitHub Actions) with Java 17 and 21. There is no separate nightly build or performance test suite.
 
 ---
 
 ## Code Coverage
 
-Current test coverage metrics:
-- **Line Coverage**: ~85%
-- **Branch Coverage**: ~78%
-- **Method Coverage**: ~90%
-- **Class Coverage**: ~92%
-
-Coverage reports available in: `target/site/jacoco/index.html`
+No coverage tool (JaCoCo) is configured in `lareferencia-core-lib/pom.xml`; the percentages previously listed here were not measured. To add coverage, configure JaCoCo in the pom and run `mvn clean test jacoco:report`.
 
 ---
 
