@@ -314,7 +314,15 @@ public class TaskManager {
 	 * 
 	 * @param worker the worker to launch
 	 */
-	public synchronized void launchWorker(IWorker<?> worker) {
+	public enum WorkerLaunchResult {
+		RUNNING, QUEUED, REJECTED
+	}
+
+	/**
+	 * Launches a worker and reports whether it started, was queued, or was
+	 * rejected because the waiting queue is full.
+	 */
+	public synchronized WorkerLaunchResult launchWorkerWithResult(IWorker<?> worker) {
 
 		String runningContextID = worker.getRunningContext().getId();
 		Long serialLaneID = worker.getSerialLaneId();
@@ -340,6 +348,7 @@ public class TaskManager {
 			}
 
 			logger.debug("Process queue :: " + runningWorkers);
+			return WorkerLaunchResult.RUNNING;
 
 		} else {
 			if (isMaxConcurrentRunningWorkersReached())
@@ -353,12 +362,36 @@ public class TaskManager {
 			if (!isMaxQueudedWorkersReached()) {
 				queuedWorkers.enqueue(runningContextID, worker);
 				logger.debug("Waiting queue :: " + queuedWorkers);
-			} else
+				return WorkerLaunchResult.QUEUED;
+			} else {
 				logger.info("Waiting queue reached max allowed size: " + maxQueuedWorkers +
 						". This value can be increased in application.properties, taskmanager.max_queuded.tasks  ");
+				return WorkerLaunchResult.REJECTED;
+			}
 
 		}
 
+	}
+
+	/**
+	 * Admits a related group of workers as a unit. The conservative queue-capacity
+	 * check prevents a caller from receiving a partially accepted batch.
+	 */
+	public synchronized List<WorkerLaunchResult> launchWorkersWithResult(List<IWorker<?>> workers) {
+		if (workers == null || workers.isEmpty()) return List.of();
+		if (queuedWorkers.totalSize() + workers.size() > maxQueuedWorkers) {
+			return java.util.Collections.nCopies(workers.size(), WorkerLaunchResult.REJECTED);
+		}
+		List<WorkerLaunchResult> results = new ArrayList<>();
+		for (IWorker<?> worker : workers) results.add(launchWorkerWithResult(worker));
+		return results;
+	}
+
+	/**
+	 * Backwards-compatible fire-and-forget entry point for scheduled callers.
+	 */
+	public synchronized void launchWorker(IWorker<?> worker) {
+		launchWorkerWithResult(worker);
 	}
 
 	@Scheduled(fixedRate = 2000) // Reduced from 10000ms to 2000ms for faster cleanup
