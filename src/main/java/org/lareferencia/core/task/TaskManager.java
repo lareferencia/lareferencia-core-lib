@@ -183,7 +183,7 @@ public class TaskManager {
 
 			// String running = worker.getScheduledFuture().isDone() ? "(done)" :
 			// "(running)";
-			result.add(worker.toString() /* + running */ );
+			result.add(workerDescription(worker) /* + running */ );
 		}
 		return result;
 	}
@@ -202,7 +202,7 @@ public class TaskManager {
 
 		for (IWorker worker : queuedWorkers.getQueue(runningContextID)) {
 
-			result.add(worker.toString());
+			result.add(workerDescription(worker));
 		}
 
 		return result;
@@ -235,9 +235,26 @@ public class TaskManager {
 				}
 			}
 
-			result.add(tl.getWorker().toString() + "(" + toRunDescription + ")");
+			result.add(workerDescription(tl.getWorker()) + "(" + toRunDescription + ")");
 		}
 		return result;
+	}
+
+	/**
+	 * Returns the worker's live status for monitoring. Older workers may not
+	 * provide a useful status, so retain a readable class-name fallback instead
+	 * of exposing Object.toString() (which includes an unstable hash code).
+	 */
+	private String workerDescription(IWorker<?> worker) {
+		String status = worker.getStatus();
+		String workerName = worker.getName();
+		if (workerName == null || workerName.isBlank()) {
+			workerName = worker.getClass().getSimpleName();
+		}
+		if (status != null && !status.isBlank()) {
+			return workerName + ": " + status;
+		}
+		return workerName;
 	}
 
 	/**

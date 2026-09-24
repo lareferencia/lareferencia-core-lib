@@ -196,4 +196,20 @@ public abstract class BaseBatchSolrWorker<I, C extends IRunningContext> extends 
         return (totalPages == 0) ? 1d : Double.valueOf(actualPage) / totalPages;
     }
 
+    /**
+     * Default live status for paginated Solr workers.
+     */
+    @Override
+    public String getStatus() {
+        if (paginator == null) {
+            return "Preparing pagination";
+        }
+        if (totalPages <= 0) {
+            return "No items to process";
+        }
+        int completedPages = Math.max(0, Math.min(actualPage, totalPages));
+        int percentage = (int) Math.round((completedPages * 100.0d) / totalPages);
+        return "Processing page " + completedPages + "/" + totalPages + " (" + percentage + "%)";
+    }
+
 }

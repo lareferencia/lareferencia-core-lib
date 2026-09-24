@@ -35,6 +35,8 @@ import lombok.Getter;
 import lombok.Setter;
 import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
 
+import java.util.List;
+
 /**
  * Worker that cleans network snapshot data or deletes an entire network.
  * Removes records, metadata, and associated resources based on configuration.
@@ -75,6 +77,10 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	@Autowired
 	NetworkRepository networkRepository;
 
+	private volatile String status = "Preparing";
+	private volatile int totalSnapshots;
+	private volatile int processedSnapshots;
+
 	/**
 	 * Constructs a new network clean worker with default settings.
 	 * By default, only cleans snapshot data without deleting the entire network.
@@ -87,6 +93,9 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 	public void run() {
 
 		Network network = runningContext.getNetwork();
+		List<Long> snapshotIds = snapshotStore.listSnapshotsIds(network.getId(), deleteEntireNetwork);
+		totalSnapshots = snapshotIds.size();
+		processedSnapshots = 0;
 
 		// si no es una limpiza total debe identificar el ultimo snapshot cosechado y el
 		// ultimo válido para no limpiarlos
@@ -96,9 +105,11 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 
 			Long lgkSnapshotID = snapshotStore.findLastGoodKnownSnapshot(network);
 			Long lhSnapshotID = snapshotStore.findLastHarvestingSnapshot(network);
+			totalSnapshots = (int) snapshotIds.stream()
+					.filter(snapshotId -> !snapshotId.equals(lgkSnapshotID) && !snapshotId.equals(lhSnapshotID)).count();
 
 			// clean all snapshot data except last harvested and last good known snapshots
-			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), false)) {
+			for (Long snapshotId : snapshotIds) {
 				// si no es el lgk ni lh
 				if (!snapshotId.equals(lgkSnapshotID) && !snapshotId.equals(lhSnapshotID)) {
 
@@ -110,15 +121,18 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 					} catch (Exception e) { // Broadened to catch IOException too
 						logger.error("Error cleaning snapshot " + snapshotId + ": " + e.getMessage(), e);
 					}
+					processedSnapshots++;
+					updateStatus("Cleaning snapshots");
 
 				}
 			}
+			status = "Completed cleanup: " + processedSnapshots + "/" + totalSnapshots + " snapshots";
 
 		} else { // caso de borrado completo de la red
 			logger.info("Deleting the entire network/repository: " + network.getAcronym());
 
 			// limpia todos los snapshots
-			for (Long snapshotId : snapshotStore.listSnapshotsIds(network.getId(), true)) {
+			for (Long snapshotId : snapshotIds) {
 				try {
 					cleanSnapshotStatsData(snapshotId);
 					catalogRepo.deleteSnapshot(snapshotStore.getSnapshotMetadata(snapshotId));
@@ -128,12 +142,30 @@ public class NetworkCleanWorker extends BaseWorker<NetworkRunningContext> {
 				} catch (Exception e) { // Broadened to catch IOException too
 					logger.error("Error deleting snapshot " + snapshotId + ": " + e.getMessage(), e);
 				}
+				processedSnapshots++;
+				updateStatus("Deleting snapshots");
 			}
 
+			status = "Deleting network record";
 			networkRepository.deleteByNetworkID(network.getId());
+			status = "Completed network deletion";
 			logger.debug("Network/Repository deleted: " + network.getName());
 		}
 
+	}
+
+	@Override
+	public String getStatus() {
+		return status;
+	}
+
+	private void updateStatus(String phase) {
+		if (totalSnapshots == 0) {
+			status = phase + ": no snapshots";
+			return;
+		}
+		int percentage = (int) Math.round((processedSnapshots * 100.0d) / totalSnapshots);
+		status = phase + " " + processedSnapshots + "/" + totalSnapshots + " (" + percentage + "%)";
 	}
 
 

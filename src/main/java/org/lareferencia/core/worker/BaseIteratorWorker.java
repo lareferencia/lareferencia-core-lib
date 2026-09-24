@@ -144,6 +144,22 @@ public abstract class BaseIteratorWorker<I, C extends IRunningContext> extends B
         this.totalRecords = totalRecords;
     }
 
+    /**
+     * Default live status for workers that know their record total.
+     */
+    @Override
+    public String getStatus() {
+        if (recordIterator == null) {
+            return "Preparing records";
+        }
+        if (totalRecords == null || totalRecords <= 0) {
+            return "Processing records";
+        }
+        int processed = Math.max(0, Math.min(currentRecordIndex, totalRecords));
+        int percentage = (int) Math.round((processed * 100.0d) / totalRecords);
+        return "Processing " + processed + "/" + totalRecords + " records (" + percentage + "%)";
+    }
+
     @Override
     public Long getCurrentRecordUniqueID(Long snapshotId) {
         if (currentRecordIndex == null) {

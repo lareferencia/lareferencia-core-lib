@@ -53,6 +53,9 @@ public abstract class BaseSolrWorker<C extends IRunningContext> extends BaseWork
     
     private static Logger logger = LogManager.getLogger(BaseSolrWorker.class);
 
+    /** Current lifecycle phase exposed to the runtime monitoring API. */
+    private volatile String status = "Preparing";
+
     /**
      * Creates a Solr worker with the specified Solr URL.
      * 
@@ -160,12 +163,22 @@ public abstract class BaseSolrWorker<C extends IRunningContext> extends BaseWork
     public void run() {
         logger.info("WORKER: " + getName() + " :: STARTED");
         try {
+            status = "Preparing Solr operation";
             preRun();
+            status = "Executing Solr operation";
             execute();
+            status = "Committing Solr changes";
             postRun();
+            status = "Completed";
         } catch (RunningSolrException e) {
+            status = "Failed: " + e.getMessage();
             logger.error("WORKER: ERROR " + getName() + " Solr Exception occurred: " + e.getMessage());
         }
         logger.info("WORKER: " + getName() + " :: ENDED");
+    }
+
+    @Override
+    public String getStatus() {
+        return status;
     }
 }

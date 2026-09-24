@@ -323,6 +323,11 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
         }
 
         @Override
+        public String getStatus() {
+            return "Launching configured network actions";
+        }
+
+        @Override
         public void run() {
             executeAllActions(runningContext.getNetwork());
         }
