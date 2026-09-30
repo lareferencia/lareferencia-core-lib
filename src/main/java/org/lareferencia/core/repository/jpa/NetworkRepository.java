@@ -97,6 +97,8 @@ public interface NetworkRepository extends JpaRepository<Network, Long> {
 	 * @return page of networks
 	 */
 	Page<Network> findByAcronymIgnoreCaseContaining(String filterExpression, Pageable pageRequest);
+
+	Page<Network> findByIdIn(List<Long> ids, Pageable pageRequest);
 		
 	/**
 	 * Finds networks filtered by acronym list with pagination.

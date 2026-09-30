@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-/** Applies only allow-listed configuration to a newly-created prototype worker. */
+/** Applies the same worker properties that the management API exposes for editing. */
 @Service
 public class WorkerConfigurationApplier {
     private final ApplicationWorkerConfigurationService configurations;
@@ -16,19 +16,35 @@ public class WorkerConfigurationApplier {
     public void apply(Object worker, String engineType, NetworkAction action, String beanName) {
         WorkerConfigurationDescriptor descriptor = action.getWorkerConfigurations().stream()
                 .filter(item -> beanName.equals(item.getBeanName())).findFirst().orElse(null);
-        if (descriptor == null) return;
-        var values = configurations.configuration(engineType, descriptor.getKey());
-        if (!values.isObject()) return;
+        String key = descriptor == null || descriptor.getKey() == null || descriptor.getKey().isBlank()
+                ? beanName : descriptor.getKey();
+        var row = configurations.require(engineType, key);
+        if (!row.isAvailable() || !beanName.equals(row.getDefinition().path("beanName").asText())) {
+            throw new ApplicationActionPolicyException("WORKER_CONFIGURATION_INVALID",
+                    "Worker configuration does not match the active bean: " + key);
+        }
+        JsonNode properties = row.getDefinition().path("schema").path("properties");
+        JsonNode values = row.getConfiguration();
+        if (!properties.isObject() || !values.isObject()) {
+            throw new ApplicationActionPolicyException("WORKER_CONFIGURATION_INVALID",
+                    "Worker configuration schema or values are invalid: " + key);
+        }
 
         BeanWrapper wrapper = new BeanWrapperImpl(worker);
-        for (WorkerConfigurationProperty property : descriptor.getProperties()) {
-            JsonNode value = values.get(property.getName());
+        var fields = values.fields();
+        while (fields.hasNext()) {
+            var field = fields.next();
+            String name = field.getKey();
+            JsonNode value = field.getValue();
             if (value == null || value.isNull()) continue;
-            if (!wrapper.isWritableProperty(property.getName())) {
+            JsonNode property = properties.path(name);
+            String type = property.path("type").asText();
+            if (property.isMissingNode() || !wrapper.isWritableProperty(name)
+                    || !(type.equals("boolean") || type.equals("integer") || type.equals("number") || type.equals("string"))) {
                 throw new ApplicationActionPolicyException("WORKER_CONFIGURATION_INVALID",
-                        "Worker property is not writable: " + descriptor.getKey() + "." + property.getName());
+                        "Worker property is not configurable: " + key + "." + name);
             }
-            wrapper.setPropertyValue(property.getName(), primitive(value, property.getType()));
+            wrapper.setPropertyValue(name, primitive(value, type));
         }
     }
 
