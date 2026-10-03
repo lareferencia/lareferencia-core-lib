@@ -80,7 +80,7 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 	@Getter
 	private int actualPage = 0;
 
-	private boolean wasStopped = false;
+	private volatile boolean wasStopped = false;
 
 	/**
 	 * Creates a batch worker with the specified context.
@@ -111,13 +111,14 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 
 		logger.info("WORKER: " + getName() + " :: START processing: " + runningContext.toString());
 
+		if (isCancellationRequested()) return;
 		preRun();
 
 		if (paginator != null) {
 
 			totalPages = paginator.getTotalPages();
 
-			for (actualPage = paginator.getStartingPage(); actualPage <= totalPages && !wasStopped; actualPage++) {
+			for (actualPage = paginator.getStartingPage(); actualPage <= totalPages && !wasStopped && !isCancellationRequested(); actualPage++) {
 
 				TransactionStatus transactionStatus = null;
 
@@ -140,7 +141,7 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 
 					for (I item : items) {
 
-						if (wasStopped)
+						if (wasStopped || isCancellationRequested())
 							break; // detiene el ciclo si fue detenida
 
 						try {
@@ -152,7 +153,7 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 
 					}
 
-					if (!wasStopped) { // if wasnt stopped in the middle of the page
+					if (!wasStopped && !isCancellationRequested()) { // if wasnt stopped in the middle of the page
 						postPage();
 						transactionManager.commit(transactionStatus);
 					} else
@@ -165,6 +166,7 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 					} else {
 						logger.error(errorMessage, e);
 					}
+					recordExecutionFailure(e);
 					onPageFailure(e);
 					this.stop();
 					transactionManager.rollback(transactionStatus);
@@ -177,7 +179,7 @@ public abstract class BaseBatchWorker<I, C extends IRunningContext> extends Base
 
 			}
 
-			if (!wasStopped)
+			if (!wasStopped && !isCancellationRequested())
 				postRun();
 
 		}

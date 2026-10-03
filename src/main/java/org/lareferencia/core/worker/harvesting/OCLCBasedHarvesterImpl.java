@@ -85,7 +85,7 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 	//private String sslTrustStorePath;
 
 	
-	private boolean stopSignalReceived = false;
+	private volatile boolean stopSignalReceived = false;
 	
 	HarvestingEvent reusableEvent = new HarvestingEvent();
 
@@ -137,7 +137,7 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 		// La condición es que sea la primera corrida o que no sea null el
 		// resumption (caso de fin)
 		// Si levantan la stopSignal entonces corta el ciclo de harvesting
-		while (!stopSignalReceived && (batchIndex == 0 || (resumptionToken.trim().length() != 0))) {
+		while (!stopSignalReceived && !Thread.currentThread().isInterrupted() && (batchIndex == 0 || (resumptionToken.trim().length() != 0))) {
 
 			do {
 				try {
@@ -193,6 +193,8 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 					try {
 						Thread.sleep(secondsToNextRetry * 1000);
 					} catch (InterruptedException t) {
+						Thread.currentThread().interrupt();
+						stopSignalReceived = true;
 					}
 
 					// Se incrementa el retry y se duplica el tiempo de espera

@@ -24,7 +24,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.repository.jpa.NetworkRepository;
-import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.IWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.context.ApplicationContext;
@@ -59,8 +58,8 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
     private final NetworkActionConfigurationService networkActionConfiguration;
     private final WorkerConfigurationApplier workerConfigurationApplier;
 
-    private List<NetworkAction> actions;
-    private Map<String, NetworkAction> actionsByName;
+    private volatile List<NetworkAction> actions;
+    private volatile Map<String, NetworkAction> actionsByName;
 
     public LegacyNetworkActionExecutor(TaskManager taskManager,
             ApplicationContext applicationContext,
@@ -90,11 +89,10 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
      */
     @Override
     public void setActions(List<NetworkAction> actions) {
-        this.actionsByName = new HashMap<>();
-        this.actions = actions;
-        for (NetworkAction action : actions) {
-            actionsByName.put(action.getName(), action);
-        }
+        Map<String, NetworkAction> byName = new HashMap<>();
+        for (NetworkAction action : actions) byName.put(action.getName(), action);
+        this.actions = List.copyOf(actions);
+        this.actionsByName = Map.copyOf(byName);
     }
 
     /**
@@ -130,62 +128,47 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
 
     @Override
     public void executeAction(String actionName, boolean isIncremental, Network network) {
-        logger.debug("Executing action: {}", actionName);
-
-        actionCatalog.requireEnabled(getEngineType(), actionName);
-
-        NetworkAction action = actionsByName.get(actionName);
-
-        if (action != null) {
-            for (String workerBeanName : action.getWorkers()) {
-                try {
-                    logger.debug("Executing worker: {} incremental: {}", workerBeanName, isIncremental);
-
-                    @SuppressWarnings("unchecked")
-                    IWorker<NetworkRunningContext> worker = (IWorker<NetworkRunningContext>) applicationContext
-                            .getBean(workerBeanName);
-                    workerConfigurationApplier.apply(worker, getEngineType(), action, workerBeanName);
-                    worker.setIncremental(isIncremental);
-                    worker.setRunningContext(actionContext(network, action));
-                    taskManager.launchWorker(worker);
-
-                } catch (Exception e) {
-                    logger.error("Issues found creating worker: {} using action: {} on network: {}",
-                            workerBeanName, action.getName(), network.getAcronym());
-                    e.printStackTrace();
-                }
-            }
-        } else {
-            logger.error("The action: {} doesn't exist!", actionName);
-        }
+        submitAction(actionName, isIncremental, network);
     }
 
     @Override
-    public void executeAllActions(Network network) {
-        for (NetworkAction action : getAvailableActions()) {
-            if (!actionCatalog.isEffectivelyEnabled(getEngineType(), action.getName())) {
-                logger.info("Skipping globally disabled action '{}' for network '{}'", action.getName(), network.getAcronym());
-                continue;
-            }
-            if (networkActionConfiguration.canSchedule(network, getEngineType(), action)) {
-                for (String workerBeanName : action.getWorkers()) {
-                    try {
-                        @SuppressWarnings("unchecked")
-                        IWorker<NetworkRunningContext> worker = (IWorker<NetworkRunningContext>) applicationContext
-                                .getBean(workerBeanName);
-                        workerConfigurationApplier.apply(worker, getEngineType(), action, workerBeanName);
-                        worker.setIncremental(action.isIncremental());
-                        worker.setRunningContext(actionContext(network, action));
-                        taskManager.launchWorker(worker);
+    public TaskSubmission submitAction(String actionName, boolean isIncremental, Network network) {
+        actionCatalog.requireEnabled(getEngineType(), actionName);
+        NetworkAction action = actionsByName.get(actionName);
+        if (action == null) throw new ApplicationActionPolicyException("ACTION_NOT_FOUND", "Action is not configured: " + actionName);
+        return taskManager.submitWorkers(prepareAction(action, isIncremental, network)).requireAccepted();
+    }
 
-                    } catch (Exception e) {
-                        logger.error("Issues found creating worker: {} using action: {} on network: {}",
-                                workerBeanName, action.getName(), network.getAcronym());
-                        e.printStackTrace();
-                    }
-                }
+    @Override
+    public void executeAllActions(Network network) { submitAllActions(network); }
+
+    @Override
+    public TaskSubmission submitAllActions(Network network) {
+        return taskManager.submitWorkers(prepareAllActions(network)).requireAccepted();
+    }
+
+    private List<IWorker<?>> prepareAllActions(Network network) {
+        List<IWorker<?>> workers = new ArrayList<>();
+        for (NetworkAction action : getAvailableActions()) {
+            if (actionCatalog.isEffectivelyEnabled(getEngineType(), action.getName())
+                    && networkActionConfiguration.canSchedule(network, getEngineType(), action)) {
+                workers.addAll(prepareAction(action, action.isIncremental(), network));
             }
         }
+        return workers;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<IWorker<?>> prepareAction(NetworkAction action, boolean incremental, Network network) {
+        List<IWorker<?>> workers = new ArrayList<>();
+        for (String beanName : action.getWorkers()) {
+            IWorker<NetworkRunningContext> worker = (IWorker<NetworkRunningContext>) applicationContext.getBean(beanName);
+            workerConfigurationApplier.apply(worker, getEngineType(), action, beanName);
+            worker.setIncremental(incremental);
+            worker.setRunningContext(actionContext(network, action));
+            workers.add(worker);
+        }
+        return workers;
     }
 
     private NetworkRunningContext actionContext(Network network, NetworkAction action) {
@@ -196,32 +179,27 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
     @Override
     public void killAndUnqueueActions(Network network) {
         String contextId = NetworkRunningContext.buildID(network);
-        taskManager.clearQueueByRunningContextID(contextId);
-        taskManager.killAllTaskByRunningContextID(contextId);
+        taskManager.cancelAllByRunningContextID(contextId);
     }
 
     @Override
     public void scheduleNetwork(Network network) {
-        logger.info("Scheduling harvest: {} with cron: {}",
-                network.getAcronym(), network.getScheduleCronExpression());
-
-        if (network.getScheduleCronExpression() != null) {
-            taskManager.scheduleWorker(new AllActionsWorker(network), network.getScheduleCronExpression());
+        String contextId = NetworkRunningContext.buildID(network);
+        String cron = network.getScheduleCronExpression();
+        if (cron == null || cron.isBlank()) {
+            taskManager.clearScheduleByRunningContextID(contextId);
+            return;
         }
+        Long networkId = network.getId();
+        taskManager.scheduleWorkers(contextId, "AllActions", () -> {
+            Network current = networkRepository.findById(networkId)
+                    .orElseThrow(() -> new IllegalStateException("Scheduled network no longer exists: " + networkId));
+            return prepareAllActions(current);
+        }, cron);
     }
 
     @Override
-    public void rescheduleNetwork(Network network) {
-        String contextId = NetworkRunningContext.buildID(network);
-        taskManager.clearScheduleByRunningContextID(contextId);
-
-        logger.info("Rescheduling harvest: {} with cron: {}",
-                network.getAcronym(), network.getScheduleCronExpression());
-
-        if (network.getScheduleCronExpression() != null && !network.getScheduleCronExpression().isEmpty()) {
-            taskManager.scheduleWorker(new AllActionsWorker(network), network.getScheduleCronExpression());
-        }
-    }
+    public void rescheduleNetwork(Network network) { scheduleNetwork(network); }
 
     @Override
     public void scheduleAllNetworks() {
@@ -236,31 +214,21 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
         List<RunningProcessInfo> result = new ArrayList<>();
 
         for (IWorker<?> worker : taskManager.getAllRunningWorkers()) {
-            // Skip workers that are already finished but not yet cleaned up
-            if (worker.getScheduledFuture() != null &&
-                    (worker.getScheduledFuture().isDone() || worker.getScheduledFuture().isCancelled())) {
-                continue;
-            }
-
-            String contextId = worker.getRunningContext() != null ? worker.getRunningContext().getId() : "unknown";
-            String networkAcronym = null;
-
-            // Extract network acronym from context if available
-            if (worker.getRunningContext() instanceof NetworkRunningContext) {
-                Network network = ((NetworkRunningContext) worker.getRunningContext()).getNetwork();
-                if (network != null) {
-                    networkAcronym = network.getAcronym();
-                }
-            }
-
+            var execution = taskManager.getWorkerSnapshot(worker).orElseThrow();
+            if (execution.state() == TaskManager.ExecutionState.COMPLETED
+                    || execution.state() == TaskManager.ExecutionState.FAILED
+                    || execution.state() == TaskManager.ExecutionState.CANCELLED) continue;
             result.add(RunningProcessInfo.builder()
-                    .processId(contextId)
-                    .networkAcronym(networkAcronym)
-                    .actionType(worker.toString())
-                    .status(worker.getStatus())
+                    .processId(execution.executionId())
+                    .networkAcronym(execution.networkAcronym())
+                    .actionType(execution.workerName())
+                    .status(execution.state() + " - " + worker.getStatus())
+                    .startTime(execution.startedAt() == null ? null
+                            : java.time.LocalDateTime.ofInstant(execution.startedAt(), java.time.ZoneOffset.UTC))
                     .incremental(worker.isIncremental())
-                    .engineType("legacy")
-                    .build());
+                    .variables(Map.of("contextId", execution.contextId(), "groupId", execution.groupId(),
+                            "executionState", execution.state().name()))
+                    .engineType("legacy").build());
         }
 
         return result;
@@ -268,7 +236,8 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
 
     @Override
     public String getProcessStatus(String processId) {
-        // Legacy uses runningContextID as processId
+        var execution = taskManager.getExecutionSnapshot(processId);
+        if (execution.isPresent()) return execution.get().state().name();
         List<String> running = taskManager.getRunningTasksByRunningContextID(processId);
         if (!running.isEmpty()) {
             return String.join(", ", running);
@@ -278,10 +247,11 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
 
     @Override
     public void terminateProcess(String processId, String reason) {
-        // In legacy, processId is the runningContextID
-        taskManager.killAllTaskByRunningContextID(processId);
+        if (!taskManager.cancelExecution(processId)) taskManager.killAllTaskByRunningContextID(processId);
         logger.info("Terminated all tasks for context: {} reason: {}", processId, reason);
     }
+
+    public List<TaskManager.ExecutionSnapshot> getExecutionSnapshots() { return taskManager.getExecutionSnapshots(); }
 
     @Override
     public int getQueuedCount() {
@@ -308,28 +278,4 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
         return taskManager.getScheduledTasksByRunningContextID(runningContextID);
     }
 
-    /**
-     * Inner worker class that executes all actions for a network.
-     */
-    private class AllActionsWorker extends BaseWorker<NetworkRunningContext> {
-
-        public AllActionsWorker(Network network) {
-            super(new NetworkRunningContext(network));
-        }
-
-        @Override
-        public String toString() {
-            return "AllActions";
-        }
-
-        @Override
-        public String getStatus() {
-            return "Launching configured network actions";
-        }
-
-        @Override
-        public void run() {
-            executeAllActions(runningContext.getNetwork());
-        }
-    }
 }

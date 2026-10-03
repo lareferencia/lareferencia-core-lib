@@ -125,12 +125,14 @@ public class NetworkActionkManager {
 	 *
 	 * @param network the network to execute actions for
 	 */
-	public void executeActions(Network network) {
+	public void executeActions(Network network) { submitActions(network); }
+
+	public TaskSubmission submitActions(Network network) {
 		if ("flowable".equals(executor.getEngineType())
 				&& !networkActionConfiguration.canExecute(network, executor.getEngineType(), "networkProcessing")) {
 			throw new ApplicationActionPolicyException("ACTION_DISABLED", "networkProcessing is disabled for this network");
 		}
-		executor.executeAllActions(network);
+		return executor.submitAllActions(network);
 	}
 
 	/**
@@ -140,11 +142,15 @@ public class NetworkActionkManager {
 	 * @param isIncremental whether to run in incremental mode
 	 * @param network       the network to execute the action for
 	 */
-	public synchronized void executeAction(String actionName, boolean isIncremental, Network network) {
+	public void executeAction(String actionName, boolean isIncremental, Network network) {
+		submitAction(actionName, isIncremental, network);
+	}
+
+	public TaskSubmission submitAction(String actionName, boolean isIncremental, Network network) {
 		if (!networkActionConfiguration.canExecute(network, executor.getEngineType(), actionName)) {
 			throw new ApplicationActionPolicyException("ACTION_DISABLED", "Action is disabled for this network");
 		}
-		executor.executeAction(actionName, isIncremental, network);
+		return executor.submitAction(actionName, isIncremental, network);
 	}
 
 	/**

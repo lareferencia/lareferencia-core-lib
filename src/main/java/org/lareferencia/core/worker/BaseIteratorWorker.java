@@ -68,36 +68,30 @@ public abstract class BaseIteratorWorker<I, C extends IRunningContext> extends B
     @Override
     public void run() {
 
-        preRun();
-
-        if (recordIterator == null) {
-            throw new IllegalStateException("Iterator Worker: " + getName() +
-                    " :: recordIterator not set before run()");
-        }
-
-        prePage();
-
-        while (recordIterator.hasNext()) {
-            I record = recordIterator.next();
-
-            processItem(record);
-
-            currentRecordIndex += 1;
-
-            if (currentRecordIndex % pageSize == 0) {
-                logger.debug("Iterator Worker: {} " + percentageFormat.format(this.getCompletionRate()));
-
-                postPage();
-
-                // Check for stop signal and break if set
-                if (wasStopped)
-                    break;
-
-                prePage();
+        if (isCancellationRequested()) return;
+        try {
+            preRun();
+            if (wasStopped || isCancellationRequested()) return;
+            if (recordIterator == null) {
+                throw new IllegalStateException("Iterator Worker: " + getName()
+                        + " :: recordIterator not set before run()");
             }
+            prePage();
+            while (!wasStopped && !isCancellationRequested() && recordIterator.hasNext()) {
+                I record = recordIterator.next();
+                processItem(record);
+                currentRecordIndex += 1;
+                if (currentRecordIndex % pageSize == 0 && !wasStopped && !isCancellationRequested()) {
+                    logger.debug("Iterator Worker: {} " + percentageFormat.format(this.getCompletionRate()));
+                    postPage();
+                    if (wasStopped || isCancellationRequested()) break;
+                    prePage();
+                }
+            }
+            if (!wasStopped && !isCancellationRequested()) postRun();
+        } finally {
+            if (wasStopped || isCancellationRequested()) onCancelled();
         }
-
-        postRun();
     }
 
     /**
@@ -124,6 +118,9 @@ public abstract class BaseIteratorWorker<I, C extends IRunningContext> extends B
      * Finalización después de leer todos los records.
      */
     protected abstract void postRun();
+
+    /** Cleanup for an interrupted iteration must not mark an incomplete result as complete. */
+    protected void onCancelled() { }
 
     @Override
     public void stop() {

@@ -45,7 +45,21 @@ public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C
 
 	@Getter
 	@Setter
-	ScheduledFuture<?> scheduledFuture;
+	volatile ScheduledFuture<?> scheduledFuture;
+
+	private volatile boolean cancellationRequested;
+	private volatile String executionFailure;
+
+	/** A visible token which remains set throughout preparation and cleanup. */
+	public final boolean isCancellationRequested() {
+		return cancellationRequested || Thread.currentThread().isInterrupted()
+				|| scheduledFuture != null && scheduledFuture.isCancelled();
+	}
+
+	public final String getExecutionFailure() { return executionFailure; }
+
+	protected final void recordExecutionFailure(Throwable failure) { executionFailure = failure.toString(); }
+	protected final void recordExecutionFailure(String failure) { executionFailure = failure; }
 
 	/**
 	 * The context containing state and configuration for this worker's execution.
@@ -93,7 +107,7 @@ public abstract class BaseWorker<C extends IRunningContext> implements IWorker<C
 
 	@Override
 	public void stop() {
-
+		cancellationRequested = true;
 		if (scheduledFuture != null)
 			scheduledFuture.cancel(true);
 		logger.info("WORKER: " + getName() + " :: stopped");

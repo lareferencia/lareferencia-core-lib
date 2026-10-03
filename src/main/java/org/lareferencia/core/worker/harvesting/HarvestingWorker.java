@@ -198,6 +198,18 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 	 */
 	@Override
 	public void run() {
+		if (isCancellationRequested()) return;
+		try {
+			runHarvesting();
+		} catch (RuntimeException failure) {
+			recordExecutionFailure(failure);
+			throw failure;
+		} finally {
+			if (snapshotId != null) closeCatalogRepository();
+		}
+	}
+
+	private void runHarvesting() {
 
 		// Mapa de identify para contener información del request identify
 		Map<String, String> identifyMap = null;
@@ -318,6 +330,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			}
 		} catch (Exception e) {
 			logErrorMessage("CATALOG: Error initializing repository: " + e.getMessage());
+			recordExecutionFailure(e);
 			snapshotStore.markAsFailed(snapshotId);
 			return;
 		}
@@ -326,13 +339,19 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 		// Inicialización del harvester
 		harvester.reset();
+		if (isCancellationRequested()) {
+			harvester.stop();
+			return;
+		}
 		runOAIPMHHarvesting();
+		if (isCancellationRequested()) return;
 
 		// Cuando el harvesting termina, verificar si hay errores
 
 		// Si el tamaño del snapshot es 0 y no es incremental, no hay records
 		if (snapshotStore.getSnapshotSize(snapshotId) < 1 && !isIncremental()) {
 			logErrorMessage(runningContext.toString() + " :: No records found !!");
+			recordExecutionFailure("No records found during full harvesting");
 			snapshotStore.markAsFailed(this.snapshotId);
 		}
 
@@ -357,8 +376,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			snapshotStore.markAsFailed(snapshotId);
 		}
 
-		// Cerrar catálogo SQLite (flush final) - SE CIERRA SIEMPRE al final
-		closeCatalogRepository();
 
 	}
 
@@ -417,6 +434,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 						"so the same record may be harvested more than once");
 
 				for (String set : sets) {
+					if (isCancellationRequested()) break;
 					logInfoMessage("Harvesting set: " + set + " for " + runningContext.toString());
 					currentSetSpec = set;
 					harvester.harvest(originURL, set, metadataPrefix, metadataStoreSchema,
@@ -481,6 +499,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 				// Agregar records no eliminados al snapshot
 				for (OAIRecordMetadata metadata : event.getRecords()) {
+					if (isCancellationRequested()) break;
 					try {
 						// Si el metadata pasa la prevalidación, almacenarlo
 						if (metadataPassPrevalidation(metadata)) {
@@ -544,6 +563,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			case ERROR_FATAL:
 
 				logErrorMessage("Fatal Error:" + event.getMessage());
+				recordExecutionFailure(event.getMessage());
 				snapshotStore.markAsFailed(snapshotId);
 				break;
 

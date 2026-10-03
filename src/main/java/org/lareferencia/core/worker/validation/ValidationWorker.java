@@ -143,6 +143,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 	private Boolean wasTransformed;
 
 	private SnapshotMetadata snapshotMetadata;
+	private boolean validationStatisticsInitialized;
 	private boolean reusingValidationDatabase;
 
 	/**
@@ -199,6 +200,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 				Iterator<OAIRecord> it = stream.iterator();
 				this.setIterator(it, snapshotMetadata.getSize());
 			} catch (Exception e) {
+				recordExecutionFailure(e);
 				logError("Error initializing OAIRecord iterator for snapshot " + snapshotId + ": " + e.getMessage());
 				this.stop();
 				return;
@@ -207,6 +209,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 			try {
 				validationStatisticsService.deleteValidationStatsObservationsBySnapshotID(snapshotId);
 			} catch (ValidationStatisticsException e) {
+				recordExecutionFailure(e);
 				logError("Error deleting previous validation results: " + e.getMessage());
 				this.stop();
 			}
@@ -218,6 +221,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 			} else {
 				validationStatisticsService.initializeValidationForSnapshot(this.snapshotMetadata);
 			}
+			validationStatisticsInitialized = true;
 			boolean detailedDiagnose = runningContext.getBooleanActionOption(
 					"DETAILED_DIAGNOSE", "DETAILED_DIAGNOSE", false);
 			logger.debug("Detailed diagnose: " + detailedDiagnose);
@@ -245,6 +249,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 					logInfo("No transformers for " + runningContext.toString() + "!!!");
 
 			} catch (ValidationException e) {
+				recordExecutionFailure(e);
 				logError(runningContext.toString() + ": " + e.getMessage());
 				this.stop();
 				return;
@@ -252,7 +257,9 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 
 		} else {
 			logger.error("There is not a suitable snapshot for validation");
+			recordExecutionFailure("There is not a suitable snapshot for validation");
 			this.stop();
+			return;
 		}
 
 		logInfo("Starting Validation/Transformation of " + runningContext.toString());
@@ -392,6 +399,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 
 		} catch (OAIRecordMetadataParseException e) {
 
+			recordExecutionFailure(e);
 			logError("Metadata parsing record ID: " + record.getId() + " oai_id: " + record.getIdentifier() + " :: "
 					+ e.getMessage());
 			// logger.debug( record.getOriginalXML());
@@ -399,16 +407,26 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 			this.stop();
 
 		} catch (ValidationException e) {
+			recordExecutionFailure(e);
 			logError("Validation error:" + runningContext.toString() + ": " + e.getMessage());
 			snapshotStore.finishHarvesting(snapshotMetadata.getSnapshotId());
 			this.stop();
 
 		} catch (Exception e) {
+			recordExecutionFailure(e);
 			logError("Unknown validation error:" + runningContext.toString() + ": " + e.getMessage());
 			snapshotStore.finishHarvesting(snapshotMetadata.getSnapshotId());
 			this.stop();
 		}
 
+	}
+
+	@Override
+	protected void onCancelled() {
+		if (snapshotMetadata != null && validationStatisticsInitialized) {
+			validationStatisticsService.finalizeValidationForSnapshot(snapshotMetadata.getSnapshotId());
+			logInfo("Validation/Transformation cancelled before completion");
+		}
 	}
 
 	@Override

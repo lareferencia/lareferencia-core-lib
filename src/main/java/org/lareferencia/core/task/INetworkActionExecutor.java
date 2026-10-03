@@ -60,12 +60,22 @@ public interface INetworkActionExecutor {
      */
     void executeAction(String actionName, boolean isIncremental, Network network);
 
+    default TaskSubmission submitAction(String actionName, boolean isIncremental, Network network) {
+        executeAction(actionName, isIncremental, network);
+        return TaskSubmission.external();
+    }
+
     /**
      * Executes all scheduled actions for a network.
      *
      * @param network the network to execute actions for
      */
     void executeAllActions(Network network);
+
+    default TaskSubmission submitAllActions(Network network) {
+        executeAllActions(network);
+        return TaskSubmission.external();
+    }
 
     /**
      * Kills running processes and clears queued actions for a network.

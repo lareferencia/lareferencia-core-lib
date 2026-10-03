@@ -74,7 +74,7 @@ public abstract class BaseBatchSolrWorker<I, C extends IRunningContext> extends 
     @Getter
     private int actualPage = 0;
 
-    private boolean wasStopped = false;
+    private volatile boolean wasStopped = false;
 
     /**
      * Processes a single item from the current page.
@@ -124,64 +124,73 @@ public abstract class BaseBatchSolrWorker<I, C extends IRunningContext> extends 
     public synchronized void run() {
         logger.info("WORKER: " + getName() + " :: START processing: " + runningContext.toString());
 
-        preRun();
+        if (isCancellationRequested()) return;
+        try {
+            preRun();
 
-        if (paginator != null) {
+            if (paginator != null) {
 
-            totalPages = paginator.getTotalPages();
+                totalPages = paginator.getTotalPages();
 
-            for (actualPage = 1; actualPage <= totalPages && !wasStopped; actualPage++) {
+                for (actualPage = 1; actualPage <= totalPages && !wasStopped && !isCancellationRequested(); actualPage++) {
 
-                logger.info("WORKER: " + getName() + " :: Processing page: " + actualPage + " of " + totalPages);
+                    logger.info("WORKER: " + getName() + " :: Processing page: " + actualPage + " of " + totalPages);
 
-                try {
+                    try {
 
-                    prePage();
+                        prePage();
 
-                    Page<I> page = paginator.nextPage();
-                    List<I> items = page.getContent();
+                        Page<I> page = paginator.nextPage();
+                        List<I> items = page.getContent();
 
-                    for (I item : items) {
+                        for (I item : items) {
 
-                        if (wasStopped)
-                            break;
+                            if (wasStopped || isCancellationRequested())
+                                break;
 
-                        try {
-                            processItem(item);
-                        } catch (Exception e) {
-                            throw new WorkerRuntimeException(
-                                    "Runtime error processing in item: " + item.toString() + " : " + e.getMessage());
+                            try {
+                                processItem(item);
+                            } catch (Exception e) {
+                                throw new WorkerRuntimeException(
+                                        "Runtime error processing in item: " + item.toString() + " : " + e.getMessage());
+                            }
+
                         }
 
+                        if (!wasStopped && !isCancellationRequested()) { // if wasnt stopped in the middle of the page
+                            postPage();
+                        }
+
+                    } catch (Exception e) {
+                        recordExecutionFailure(e);
+                        this.stop();
+
+                        Thread t = Thread.currentThread();
+                        t.getUncaughtExceptionHandler().uncaughtException(t,
+                                new WorkerRuntimeException("BaseBatchSolrWorker runtime error processing in page: "
+                                        + actualPage + " : " + e.getMessage()));
                     }
 
-                    if (!wasStopped) { // if wasnt stopped in the middle of the page
-                        postPage();
-                    }
-
-                } catch (Exception e) {
-                    this.stop();
-
-                    Thread t = Thread.currentThread();
-                    t.getUncaughtExceptionHandler().uncaughtException(t,
-                            new WorkerRuntimeException("BaseBatchSolrWorker runtime error processing in page: "
-                                    + actualPage + " : " + e.getMessage()));
                 }
 
+                if (!wasStopped && !isCancellationRequested()) {
+                    postRun();
+                }
             }
-
-            if (!wasStopped) {
-                postRun();
-            }
+            logger.info("WORKER: " + getName() + " :: END processing total of " + totalPages + " pages: "
+                    + runningContext.toString());
+        } finally {
+            if (wasStopped || isCancellationRequested()) rollbackAfterStop();
         }
-        logger.info("WORKER: " + getName() + " :: END processing total of " + totalPages + " pages: "
-                + runningContext.toString());
     }
 
     @Override
     public void stop() {
         wasStopped = true;
         super.stop();
+    }
+
+    private void rollbackAfterStop() {
         try {
             this.solrRollback();
             logger.info("WORKER: " + getName() + " :: STOP and Rollback SOLR: " + runningContext.toString());
