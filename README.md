@@ -48,4 +48,4 @@ See [LICENSE.txt](../LICENSE.txt) for complete terms.
 ---
 
 **LA Referencia** - Red Latinoamericana y de España de Ciencia Abierta  
-Part of the LA Referencia Platform 5.0.0-rc2
+Part of the LA Referencia Platform 5.0.0-rc3
