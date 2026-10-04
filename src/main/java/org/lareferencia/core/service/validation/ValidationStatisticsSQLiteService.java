@@ -337,9 +337,10 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                     snapshotID, filters, offset, limit);
 
             // Convert to observations
-            List<ValidationStatObservation> observations = records.stream()
-                    .map(r -> convertToObservation(r, metadata))
-                    .collect(Collectors.toList());
+            List<ValidationStatObservation> observations = new ArrayList<>(records.size());
+            for (ValidationRecord record : records) {
+                observations.add(convertToObservation(record, metadata));
+            }
 
             // Get total count
             long totalFiltered = recordRepository.countWithFilters(snapshotID, filters);
@@ -604,9 +605,12 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
         return stats;
     }
 
-    private ValidationStatObservation convertToObservation(ValidationRecord record, SnapshotMetadata metadata) {
+    private ValidationStatObservation convertToObservation(ValidationRecord record, SnapshotMetadata metadata)
+            throws IOException {
         List<String> validRulesID = new ArrayList<>();
         List<String> invalidRulesID = new ArrayList<>();
+        Map<String, List<String>> validOccurrences = new HashMap<>();
+        Map<String, List<String>> invalidOccurrences = new HashMap<>();
 
         for (Map.Entry<Long, Boolean> entry : record.getRuleResults().entrySet()) {
             if (entry.getValue()) {
@@ -614,6 +618,15 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
             } else {
                 invalidRulesID.add(entry.getKey().toString());
             }
+        }
+
+        // Read persisted occurrences independently of this service instance's
+        // detailedDiagnose flag, which controls collection during validation.
+        for (RuleOccurrence occurrence : occurrenceRepository.getOccurrencesByRecord(
+                metadata.getSnapshotId(), record.getIdentifierHash())) {
+            Map<String, List<String>> values = occurrence.isValid() ? validOccurrences : invalidOccurrences;
+            values.computeIfAbsent(occurrence.getRuleId().toString(), key -> new ArrayList<>())
+                    .add(occurrence.getOccurrenceValue());
         }
 
         return new ValidationStatObservation(
@@ -628,8 +641,8 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                 null, // setSpec
                 record.isValid(),
                 record.isTransformed(),
-                new HashMap<>(), // validOccurrencesByRuleID - empty, loaded on demand
-                new HashMap<>(), // invalidOccurrencesByRuleID - empty
+                validOccurrences,
+                invalidOccurrences,
                 validRulesID,
                 invalidRulesID);
     }
