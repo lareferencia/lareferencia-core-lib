@@ -38,7 +38,6 @@ import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.client.solrj.util.ClientUtils;
-import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.embedding.IEmbeddingService;
 import org.lareferencia.core.embedding.chunks.ChunkingService;
@@ -58,8 +57,6 @@ import org.lareferencia.core.service.management.SnapshotLogService;
 import org.lareferencia.core.service.validation.ValidationManifestStore;
 import org.lareferencia.core.util.date.DateHelper;
 import org.lareferencia.core.util.IRecordFingerprintHelper;
-import org.lareferencia.core.worker.BaseBatchWorker;
-import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
@@ -83,7 +80,7 @@ import lombok.Setter;
  */
 @Component("semanticIndexerWorkerFlowable")
 @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
-public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunningContext> {
+public class SemanticIndexerWorker extends BaseIndexerWorker {
 
 	public static final int EMBEDDING_SUPPPORTED_NUMBER_OF_ARRAYS = 1;
 	public static final int MAX_EMBEDDING_TEXT_LENGTH = 8000;
@@ -308,11 +305,10 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 		try {
 
 			postPage();
+			if (isCancellationRequested()) return;
 
 			solrClient.commit();
-
-			if (executeIndexing)
-				snapshotStore.markAsIndexed(snapshotId);
+			indexingCommitted();
 
 			logInfo(MessageFormat.format("Finishing Semantic Indexing: {0}({1})", runningContext.toString(),
 					this.targetSchemaName));
@@ -321,8 +317,6 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			logInfo(MessageFormat.format("Embedding stats: Success: {0} | Empty: {1} | Failed: {2}",
 					(embeddedRecordsCount - (failedEmbeddingsCount + emptyRecordsCount)), emptyRecordsCount,
 					failedEmbeddingsCount));
-
-			logger.debug(MessageFormat.format("Updates snapshot status to {0}", SnapshotIndexStatus.INDEXED));
 
 		} catch (SolrServerException | IOException e) {
 			logError(
@@ -348,6 +342,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			error();
 			return false;
 		}
+		if (executeIndexing) beginIndexing(snapshotId);
 		snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
 		useIncrementalDelta = isIncremental() && solrRecordIDValue != null && !solrRecordIDValue.isBlank()
 				&& validationManifestStore.read(snapshotMetadata)
@@ -493,6 +488,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 
 	private void logEmbeddingFailure(String title) {
 		failedEmbeddingsCount++;
+		recordExecutionFailure("Embedding generation failed for " + failedEmbeddingsCount + " record(s)");
 		logger.warn(MessageFormat.format("Failed to generate embedding for record: {0}", title));
 	}
 
@@ -502,6 +498,7 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 	}
 
 	private void logError(String message) {
+		recordExecutionFailure(message);
 		logger.error(message);
 		snapshotLogService.addEntry(snapshotId, MessageFormat.format("ERROR: {0}", message));
 	}
@@ -526,11 +523,10 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			return this.sendCountQueryToSolr(MessageFormat.format("{0}:{1}", this.solrNetworkIDField, networkAcronym));
 
 		} catch (Exception e) {
-			logError(MessageFormat.format("Issues when querying for network document count: {0}: {1}",
+			logWarning(MessageFormat.format("Issues when querying for network document count: {0}: {1}",
 					runningContext.toString(), e.getMessage()));
-			error();
 		}
-		return 0L;
+		return null;
 	}
 
 	private void solrRollback() {
@@ -552,10 +548,14 @@ public class SemanticIndexerWorker extends BaseBatchWorker<ValidationRecord, Net
 			return solrClient.query(query).getResults().getNumFound();
 
 		} catch (SolrServerException | IOException e) {
-			logError(MessageFormat.format("Issues with query  {0}: {1}", runningContext.toString(), e.getMessage()));
-			error();
+			logWarning(MessageFormat.format("Issues with query  {0}: {1}", runningContext.toString(), e.getMessage()));
 		}
-		return 0L;
+		return null;
+	}
+
+	private void logWarning(String message) {
+		logger.warn(message);
+		snapshotLogService.addEntry(snapshotId, "WARN: " + message);
 	}
 
 	@Override

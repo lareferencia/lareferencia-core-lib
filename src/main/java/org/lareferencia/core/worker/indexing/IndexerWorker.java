@@ -32,7 +32,6 @@ import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.request.DirectXmlRequest;
 import org.apache.solr.client.solrj.util.ClientUtils;
-import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.repository.validation.ValidationRecord;
 import org.lareferencia.core.repository.validation.ValidationRecordPaginator;
@@ -50,8 +49,6 @@ import org.lareferencia.core.metadata.OAIRecordMetadataParseException;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.util.date.DateHelper;
 import org.lareferencia.core.util.IRecordFingerprintHelper;
-import org.lareferencia.core.worker.BaseBatchWorker;
-import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.context.annotation.Scope;
@@ -70,7 +67,7 @@ import lombok.Setter;
  */
 @Component("indexerWorkerFlowable")
 @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
-public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunningContext> {
+public class IndexerWorker extends BaseIndexerWorker {
 
 	@Autowired
 	private ISnapshotStore snapshotStore;
@@ -181,6 +178,7 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 			snapshotId = snapshotStore.findLastGoodKnownSnapshot(runningContext.getNetwork()); // snpshotRepository.findLastGoodKnowByNetworkID(runningContext.getNetwork().getId());
 
 			if (snapshotId != null) { // solo si existe un lgk
+				if (executeIndexing) beginIndexing(snapshotId);
 
 				snapshotMetadata = snapshotStore.getSnapshotMetadata(snapshotId);
 				useIncrementalDelta = isIncremental() && solrRecordIDValue != null && !solrRecordIDValue.isBlank()
@@ -381,17 +379,14 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 			// Paginator cleanup is handled by BaseBatchWorker
 
 			postPage();
+			if (isCancellationRequested()) return;
 
 			this.sendUpdateToSolr("<commit/>");
-
-			if (executeIndexing)
-				snapshotStore.markAsIndexed(snapshotId);
+			indexingCommitted();
 
 			logInfo("Finishing Indexing: " + runningContext.toString() + "(" + this.targetSchemaName + ")");
 			logInfo("Indexed documents in " + runningContext.getNetwork().getAcronym() + "::" + this.targetSchemaName
 					+ " = " + this.queryForNetworkDocumentCount(runningContext.getNetwork().getAcronym()));
-
-			logger.debug("Updates snapshot status to " + SnapshotIndexStatus.INDEXED);
 
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
 			logError("Issues when commiting to SOLR: " + runningContext.toString() + ": " + e.getMessage());
@@ -401,13 +396,11 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 
 	/******************* Auxiliares ********** */
 	private void error() {
-		// With new @Transactional pattern, simply stopping the worker will persist
-		// the current snapshot state. Index status remains FAILED by default.
-		// Paginator cleanup is handled by BaseBatchWorker
 		this.stop();
 	}
 
 	private void logError(String message) {
+		recordExecutionFailure(message);
 		logger.error(message);
 		snapshotLogService.addEntry(snapshotId, "ERROR: " + message);
 	}
@@ -434,11 +427,10 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 			return this.sendCountQueryToSolr(this.solrNetworkIDField + ":" + networkAcronym);
 
 		} catch (Exception e) {
-			logError("Issues when querying for network document count: " + runningContext.toString() + ": "
+			logWarning("Issues when querying for network document count: " + runningContext.toString() + ": "
 					+ e.getMessage());
-			error();
 		}
-		return 0L;
+		return null;
 	}
 
 	private void solrRollback() {
@@ -467,10 +459,14 @@ public class IndexerWorker extends BaseBatchWorker<ValidationRecord, NetworkRunn
 			return solrClient.query(query).getResults().getNumFound();
 
 		} catch (SolrServerException | IOException | HttpSolrClient.RemoteSolrException e) {
-			logError("Issues with query  " + runningContext.toString() + ": " + e.getMessage());
-			error();
+			logWarning("Issues with query  " + runningContext.toString() + ": " + e.getMessage());
 		}
-		return 0L;
+		return null;
+	}
+
+	private void logWarning(String message) {
+		logger.warn(message);
+		snapshotLogService.addEntry(snapshotId, "WARN: " + message);
 	}
 
 	@Override

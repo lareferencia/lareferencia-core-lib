@@ -31,6 +31,8 @@ import org.lareferencia.core.util.LocalDateTimeAttributeConverter;
 import java.time.LocalDateTime;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * JPA entity representing a harvesting snapshot of a network.
@@ -81,8 +83,15 @@ public class NetworkSnapshot  {
 	
 	@Getter
 	@Setter
-	@Column(nullable = false)
+	@Column(nullable = false, updatable = false)
 	private SnapshotIndexStatus indexStatus;
+
+	/** Written with indexStatus by SnapshotIndexingService, never by a stale entity save. */
+	@Getter
+	@Setter
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(name = "indexing_results", nullable = false, columnDefinition = "jsonb", updatable = false)
+	private SnapshotIndexingResults indexingResults = SnapshotIndexingResults.empty();
 
 	@Getter
 	@Setter

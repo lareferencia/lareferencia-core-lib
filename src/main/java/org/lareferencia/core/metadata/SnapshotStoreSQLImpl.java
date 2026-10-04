@@ -36,6 +36,7 @@ import org.lareferencia.core.domain.SnapshotIndexStatus;
 import org.lareferencia.core.domain.SnapshotStatus;
 import org.lareferencia.core.domain.Validator;
 import org.lareferencia.core.repository.jpa.NetworkSnapshotRepository;
+import org.lareferencia.core.service.management.SnapshotIndexingService;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
@@ -70,6 +71,9 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 
 	@Autowired
 	private EntityManager entityManager;
+
+	@Autowired
+	private SnapshotIndexingService indexingResults;
 
 	// Contador de updates para autoflush por snapshot
 	private final Map<Long, Integer> updateCounters = new ConcurrentHashMap<>();
@@ -565,6 +569,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			snapshot.setTransformedSize(0);
 			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
 			snapshot.setIndexStatus(SnapshotIndexStatus.UNKNOWN);
+			snapshot.setIndexingResults(indexingResults.reset(snapshotId));
 			logger.info("SNAPSHOT STORE: Reset validation counts for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error resetting validation counts for snapshot {}: {}",
@@ -671,9 +676,8 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	public void markAsIndexed(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshot.setIndexStatus(SnapshotIndexStatus.INDEXED);
-			logger.info("SNAPSHOT STORE: Marked snapshot {} as indexed", snapshotId);
-			// JPA dirty checking persiste automáticamente al final de la transacción
+			snapshot.setIndexStatus(indexingResults.markLegacyAsIndexed(snapshotId));
+			logger.info("SNAPSHOT STORE: Snapshot {} indexing summary: {}", snapshotId, snapshot.getIndexStatus());
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error marking snapshot {} as indexed: {}",
 					snapshotId, e.getMessage());
