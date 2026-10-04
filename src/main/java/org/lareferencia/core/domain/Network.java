@@ -26,6 +26,9 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.CollectionTable;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -124,6 +127,13 @@ public class Network {
 	@Convert(converter = MapAttributeConverter.class)
 	private Map<String, Object> attributes;	
 	
+	@Setter
+	@org.hibernate.annotations.BatchSize(size = 200)
+	@ElementCollection(fetch = FetchType.LAZY)
+	@CollectionTable(name = "network_tag", joinColumns = @JoinColumn(name = "network_id"))
+	@Column(name = "tag", nullable = false, length = 100)
+	private Set<String> tags = new LinkedHashSet<>();
+
 	@Setter
 	@Column(name="sets", columnDefinition="TEXT")
 	@Convert(converter = ListAttributeConverter.class)
