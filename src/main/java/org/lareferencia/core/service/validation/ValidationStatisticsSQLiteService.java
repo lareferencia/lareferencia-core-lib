@@ -161,6 +161,7 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
      * The caller must have verified the parent validator fingerprint and copied
      * the database before invoking this method.
      */
+    @Override
     public void initializeValidationForSnapshotReusingDatabase(SnapshotMetadata snapshotMetadata) {
         logger.info("SQLITE: Reusing validation database for snapshot {}", snapshotMetadata.getSnapshotId());
         this.currentMetadata = snapshotMetadata;
@@ -259,6 +260,9 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
             // snapshot statistics from the resulting active rows, excluding
             // tombstones retained solely for index deletion.
             currentStats = buildFilteredStats(currentMetadata, Collections.emptyList());
+
+            snapshotStore.updateValidationCounts(snapshotId, Math.toIntExact(currentStats.getValidRecords()),
+                    Math.toIntExact(currentStats.getTransformedRecords()));
 
             // Write stats JSON
             writeStatsJson(snapshotId);

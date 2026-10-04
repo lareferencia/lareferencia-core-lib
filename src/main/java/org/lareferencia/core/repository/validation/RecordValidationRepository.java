@@ -123,9 +123,12 @@ public class RecordValidationRepository {
         try (Connection conn = ds.getConnection()) {
             conn.setAutoCommit(false);
 
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try (PreparedStatement stmt = conn.prepareStatement(sql);
+                    PreparedStatement clearOccurrences = conn.prepareStatement("DELETE FROM rule_occurrences WHERE identifier_hash = ?")) {
                 int count = 0;
                 for (ValidationRecord record : records) {
+                    clearOccurrences.setString(1, record.getIdentifierHash());
+                    clearOccurrences.executeUpdate();
                     setRecordParameters(stmt, record, ruleIds);
                     stmt.addBatch();
                     count++;
@@ -192,10 +195,16 @@ public class RecordValidationRepository {
         DataSource ds = dbManager.getDataSource(snapshotId);
         if (ds == null) throw new IOException("Snapshot " + snapshotId + " not initialized");
         String sql = "INSERT INTO record_validation (identifier_hash, identifier, datestamp, is_valid, is_transformed, published_metadata_hash, deleted, change_type) VALUES (?, ?, ?, 0, 0, NULL, 1, 'D') ON CONFLICT(identifier_hash) DO UPDATE SET identifier=excluded.identifier, datestamp=excluded.datestamp, is_valid=0, is_transformed=0, deleted=1, change_type='D'";
-        try (Connection conn = ds.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, identifierHash); stmt.setString(2, identifier);
-            stmt.setString(3, datestamp != null ? datestamp.format(ISO_FORMATTER) : null);
-            stmt.executeUpdate();
+        try (Connection conn = ds.getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement stmt = conn.prepareStatement(sql);
+                    PreparedStatement clear = conn.prepareStatement("DELETE FROM rule_occurrences WHERE identifier_hash = ?")) {
+                stmt.setString(1, identifierHash); stmt.setString(2, identifier);
+                stmt.setString(3, datestamp != null ? datestamp.format(ISO_FORMATTER) : null);
+                stmt.executeUpdate();
+                clear.setString(1, identifierHash); clear.executeUpdate();
+                conn.commit();
+            } catch (SQLException e) { conn.rollback(); throw e; }
         } catch (SQLException e) { throw new IOException("Failed to persist validation tombstone: " + e.getMessage(), e); }
     }
 
@@ -500,8 +509,7 @@ public class RecordValidationRepository {
 
         DataSource ds = dbManager.getDataSource(snapshotId);
         if (ds == null) {
-            logger.warn("VALIDATION REPO: No DataSource for snapshot {} in getAggregatedStats", snapshotId);
-            return stats;
+            throw new IllegalStateException("Validation database not open for snapshot " + snapshotId);
         }
 
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) as total, ");
@@ -627,8 +635,7 @@ public class RecordValidationRepository {
             return 0;
 
         } catch (SQLException e) {
-            logger.error("Error executing count: {}", e.getMessage(), e);
-            return 0;
+            throw new IllegalStateException("Cannot count validation records", e);
         }
     }
 

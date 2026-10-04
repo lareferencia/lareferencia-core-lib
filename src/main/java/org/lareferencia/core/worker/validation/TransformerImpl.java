@@ -86,7 +86,7 @@ public class TransformerImpl implements ITransformer {
 		
 		// if some transformation occurred then set datestamp to now
 		if ( anyTransformationOccurred )
-			metadata.setDatestamp( LocalDateTime.now() );
+			metadata.setDatestamp( LocalDateTime.now(java.time.ZoneOffset.UTC) );
 
 		return anyTransformationOccurred;
 	}

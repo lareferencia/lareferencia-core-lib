@@ -59,7 +59,7 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 	 * @param networkID the network ID
 	 * @return the last harvested snapshot
 	 */
-	@Query("select ns from NetworkSnapshot ns where ns.network.id = :network_id and ( ns.status = 4 or ns.status = 9 ) and ns.deleted = false and ns.endTime >= (select max(s.endTime) from NetworkSnapshot s where s.network.id = :network_id and (s.status = 4 OR s.status = 9) and s.deleted = false)")
+	@Query("select ns from NetworkSnapshot ns where ns.network.id = :network_id and ( ns.status = 4 or ns.status = 9 or ns.status = 13 or ns.status = 14 ) and ns.deleted = false and ns.endTime >= (select max(s.endTime) from NetworkSnapshot s where s.network.id = :network_id and (s.status = 4 OR s.status = 9 OR s.status = 13 OR s.status = 14) and s.deleted = false)")
 	NetworkSnapshot findLastHarvestedByNetworkID(@Param("network_id") Long networkID);
 	
 	/**

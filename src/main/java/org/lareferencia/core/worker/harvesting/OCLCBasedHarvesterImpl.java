@@ -137,7 +137,7 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 		// La condición es que sea la primera corrida o que no sea null el
 		// resumption (caso de fin)
 		// Si levantan la stopSignal entonces corta el ciclo de harvesting
-		while (!stopSignalReceived && !Thread.currentThread().isInterrupted() && (batchIndex == 0 || (resumptionToken.trim().length() != 0))) {
+		while (!stopSignalReceived && !Thread.currentThread().isInterrupted() && (batchIndex == 0 || (resumptionToken != null && !resumptionToken.trim().isEmpty()))) {
 
 			do {
 				try {
@@ -145,16 +145,17 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 					logger.debug( "URL: " + originURL + "  Request:" + resumptionToken + " Set:" + set + " From: " + from);
 
 					actualListRecords = listRecords(originURL, from, until, set, metadataPrefix, batchIndex, resumptionToken);
-					resumptionToken = actualListRecords.getResumptionToken();
+					String nextResumptionToken = actualListRecords.getResumptionToken();
 
 					// se crea un evento a partir del resultado de listRecords
 					reusableEvent = createResultFromListRecords(reusableEvent, actualListRecords, originURL, metadataPrefix, metadataStoreSchema);
 					reusableEvent.setStatus(HarvestingEventStatus.OK);
-					reusableEvent.setResumptionToken(resumptionToken);
+					reusableEvent.setResumptionToken(nextResumptionToken);
 					reusableEvent.setMetadataPrefix(metadataPrefix);
 
 					// se lanza el evento
 					fireHarvestingEvent(reusableEvent);
+                    resumptionToken = nextResumptionToken;
 
 					batchIndex++;
 					actualRetry = 0;
@@ -380,6 +381,7 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 
 				} else {
 					reusableEvent.getDeletedRecordsIdentifiers().add(identifier); 
+                    reusableEvent.getDeletedRecordsDatestamps().put(identifier, datestamp);
 				}
 
 			} catch (NoSuchFieldException e) {

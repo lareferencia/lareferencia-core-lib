@@ -305,22 +305,20 @@ public class CatalogDatabaseManager {
         // Obtener metadata del snapshot anterior
         SnapshotMetadata previousMetadata = snapshotStore.getSnapshotMetadata(previousSnapshotId);
         if (previousMetadata == null) {
-            logger.warn("CATALOG DB: Previous snapshot {} not found, starting fresh", previousSnapshotId);
-            return;
+            throw new IOException("Previous snapshot not found: " + previousSnapshotId);
         }
 
         Path previousCatalogDir = getCatalogPath(previousMetadata);
         Path previousDbPath = previousCatalogDir.resolve(DB_FILENAME);
 
         if (!Files.exists(previousDbPath)) {
-            logger.warn("CATALOG DB: Previous catalog not found at {}, starting fresh", previousDbPath);
-            return;
+            throw new IOException("Previous catalog not found: " + previousDbPath);
         }
 
         // Copiar archivo completo
         logger.info("CATALOG DB: Copying catalog from snapshot {} to {}",
                 previousSnapshotId, newSnapshot.getSnapshotId());
-        Files.copy(previousDbPath, targetDbPath, StandardCopyOption.REPLACE_EXISTING);
+        org.lareferencia.core.util.SQLiteSnapshotCopy.copy(previousDbPath, targetDbPath);
 
         logger.info("CATALOG DB: Copied {} bytes from previous catalog", Files.size(targetDbPath));
     }

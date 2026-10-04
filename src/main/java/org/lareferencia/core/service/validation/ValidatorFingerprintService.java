@@ -70,6 +70,33 @@ public class ValidatorFingerprintService {
         return new ValidatorFingerprint(FORMAT_VERSION, ALGORITHM, CANONICALIZER, sha256(canonical));
     }
 
+    /** Fingerprint every input used before validation, including ordered transformations. */
+    public ValidatorFingerprint fingerprintNetwork(org.lareferencia.core.domain.Network network) {
+        return fingerprintNetwork(network, false);
+    }
+
+    public ValidatorFingerprint fingerprintNetwork(org.lareferencia.core.domain.Network network, boolean detailedDiagnose) {
+        ObjectNode pipeline = objectMapper.createObjectNode();
+        pipeline.put("pipelineVersion", 2);
+        pipeline.put("detailedDiagnose", detailedDiagnose);
+        pipeline.put("validator", fingerprint(network.getValidator()).getHash());
+        pipeline.set("primary", canonicalTransformer(network.getTransformer()));
+        pipeline.set("secondary", canonicalTransformer(network.getSecondaryTransformer()));
+        pipeline.set("network", sortObjectFields(objectMapper.valueToTree(
+                new org.lareferencia.core.metadata.SnapshotMetadata.NetworkInfo(network))));
+        return new ValidatorFingerprint(2, ALGORITHM, "validation-pipeline-v2", sha256(writeCanonical(pipeline)));
+    }
+
+    private JsonNode canonicalTransformer(org.lareferencia.core.domain.Transformer transformer) {
+        ArrayNode rules = objectMapper.createArrayNode();
+        if (transformer != null) {
+            transformer.getRules().stream()
+                    .sorted(Comparator.comparing(org.lareferencia.core.domain.TransformerRule::getRunorder))
+                    .forEach(rule -> rules.add(canonicalizeJson(rule.getJsonserialization())));
+        }
+        return rules;
+    }
+
     private String canonicalRule(ValidatorRule rule) {
         ObjectNode normalized = objectMapper.createObjectNode();
         if (rule.getId() == null) {

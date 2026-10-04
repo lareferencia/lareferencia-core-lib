@@ -455,6 +455,14 @@ public interface ISnapshotStore {
 	 */
 	void finishValidation(Long snapshotId);
 
+	void updateValidationCounts(Long snapshotId, int valid, int transformed);
+
+	void markValidationFailed(Long snapshotId);
+
+	void markValidationStopped(Long snapshotId);
+
+	void markHarvestingStopped(Long snapshotId);
+
 	/**
 	 * Marca el snapshot como indexado.
 	 * Actualiza: indexStatus = INDEXED

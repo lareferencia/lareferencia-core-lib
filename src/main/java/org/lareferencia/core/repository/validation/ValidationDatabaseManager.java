@@ -91,11 +91,8 @@ public class ValidationDatabaseManager {
 
         Path dbPath = validationDir.resolve(DB_FILENAME);
 
-        // Delete existing database if present (clean revalidation)
-        if (Files.exists(dbPath)) {
-            logger.info("VALIDATION DB: Deleting existing database for snapshot {}", snapshotId);
-            Files.delete(dbPath);
-        }
+        // Remove previous files and WAL state before a full revalidation.
+        deleteDatabase(snapshotMetadata);
 
         // Create SQLite DataSource with WAL mode
         org.sqlite.SQLiteConfig config = new org.sqlite.SQLiteConfig();
@@ -128,7 +125,7 @@ public class ValidationDatabaseManager {
         }
         Files.createDirectories(destinationDir);
         closeDataSource(target.getSnapshotId());
-        Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+        org.lareferencia.core.util.SQLiteSnapshotCopy.copy(source, destination);
         migrateAndClearChangeType(destination);
         logger.info("VALIDATION DB: copied parent database from snapshot {} to {}",
                 parent.getSnapshotId(), target.getSnapshotId());
@@ -258,10 +255,11 @@ public class ValidationDatabaseManager {
         String snapshotPath = PathUtils.getSnapshotPath(basePath, snapshotMetadata);
         Path dbPath = Paths.get(snapshotPath, VALIDATION_SUBDIR, DB_FILENAME);
 
-        if (Files.exists(dbPath)) {
-            Files.delete(dbPath);
-            logger.info("VALIDATION DB: Deleted database for snapshot {}", snapshotId);
-        }
+        Files.deleteIfExists(dbPath);
+        Files.deleteIfExists(Paths.get(dbPath + "-wal"));
+        Files.deleteIfExists(Paths.get(dbPath + "-shm"));
+        Files.deleteIfExists(dbPath.getParent().resolve("validation-stats.json"));
+        logger.info("VALIDATION DB: Deleted database for snapshot {}", snapshotId);
     }
 
     /**

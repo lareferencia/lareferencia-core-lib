@@ -52,6 +52,8 @@ public class HarvestingEvent {
 	 * List of identifiers for deleted records.
 	 */
 	private List<String> deletedRecordsIdentifiers;
+
+    private java.util.Map<String, java.time.LocalDateTime> deletedRecordsDatestamps = new java.util.HashMap<>();
 	
 	/**
 	 * List of identifiers for missing records.
@@ -83,6 +85,7 @@ public class HarvestingEvent {
 		this.records.clear();
 		this.missingRecordsIdentifiers.clear();
 		this.deletedRecordsIdentifiers.clear();
+        this.deletedRecordsDatestamps.clear();
 		
 		message = null;
 		originURL = null;;

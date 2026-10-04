@@ -149,7 +149,7 @@ public class NetworkSnapshot  {
 		super();
 		this.status = SnapshotStatus.INITIALIZED;
 		indexStatus = SnapshotIndexStatus.UNKNOWN;
-		startTime = LocalDateTime.now();
+		startTime = LocalDateTime.now(java.time.ZoneOffset.UTC);
 		this.size = 0;
 		this.validSize = 0;
 		this.transformedSize = 0;

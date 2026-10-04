@@ -16,6 +16,12 @@ import java.util.List;
  */
 public interface IValidationStatisticsService {
 
+    /** Opens the verified parent copy without clearing inherited observations. */
+    default void initializeValidationForSnapshotReusingDatabase(SnapshotMetadata metadata) {
+        throw new UnsupportedOperationException("This validation store cannot reuse parent results");
+    }
+
+
     /**
      * Query observations by snapshot ID with filters and pagination
      * 

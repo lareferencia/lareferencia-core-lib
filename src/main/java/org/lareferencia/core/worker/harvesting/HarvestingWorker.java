@@ -85,13 +85,16 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 	@Getter
 	@Setter
-	private boolean fetchIdentifyParameters = false;
+	private boolean fetchIdentifyParameters = true;
 
 	@Autowired
 	private ValidationService validationManager;
 
 	@Autowired
 	private ISnapshotStore snapshotStore;
+
+    @Autowired
+    private HarvestingConfigurationStore harvestingConfigurationStore;
 
 	@Autowired
 	private IMetadataStore metadataStore;
@@ -150,6 +153,9 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 	private String from = null;
 
+    private boolean harvestingFailed;
+    private boolean harvestingStopped;
+
 	private Boolean bySetHarvesting = false;
 	private String currentSetSpec = null;
 
@@ -203,9 +209,16 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			runHarvesting();
 		} catch (RuntimeException failure) {
 			recordExecutionFailure(failure);
+            if (snapshotId != null) snapshotStore.markAsFailed(snapshotId);
 			throw failure;
 		} finally {
-			if (snapshotId != null) closeCatalogRepository();
+			if (snapshotId != null) {
+                if (isCancellationRequested()) {
+                    if (getExecutionFailure() != null) snapshotStore.markAsFailed(snapshotId);
+                    else snapshotStore.markHarvestingStopped(snapshotId);
+                }
+                closeCatalogRepository();
+            }
 		}
 	}
 
@@ -266,6 +279,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				} catch (ValidationException e) {
 					logErrorMessage(runningContext.toString() + " Prevalidator found - error loading: " +
 							validatorModel.getName());
+                    throw new IllegalStateException("Cannot load harvesting prevalidator", e);
 				}
 
 			}
@@ -284,6 +298,12 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 				// Obtener el último snapshot válido
 				previousSnapshotId = snapshotStore.findLastGoodKnownSnapshot(runningContext.getNetwork());
+
+				if (previousSnapshotId != null && !harvestingConfigurationStore.compatible(
+                        snapshotStore.getSnapshotMetadata(previousSnapshotId), runningContext.getNetwork())) {
+                    logInfoMessage("Parent harvest configuration is missing or changed; using full harvesting");
+                    previousSnapshotId = null;
+                }
 
 				if (previousSnapshotId == null) {
 					logInfoMessage(runningContext.toString() +
@@ -344,19 +364,19 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 			return;
 		}
 		runOAIPMHHarvesting();
-		if (isCancellationRequested()) return;
+		if (isCancellationRequested() || harvestingStopped) return;
 
 		// Cuando el harvesting termina, verificar si hay errores
 
 		// Si el tamaño del snapshot es 0 y no es incremental, no hay records
-		if (snapshotStore.getSnapshotSize(snapshotId) < 1 && !isIncremental()) {
+		if (catalogRepository.countNotDeleted(snapshotId) < 1 && !isIncremental()) {
 			logErrorMessage(runningContext.toString() + " :: No records found !!");
 			recordExecutionFailure("No records found during full harvesting");
 			snapshotStore.markAsFailed(this.snapshotId);
 		}
 
 		// Si el status no es error, el harvesting terminó exitosamente
-		if (snapshotStore.getSnapshotStatus(snapshotId) != SnapshotStatus.HARVESTING_FINISHED_ERROR) {
+		if (!harvestingFailed && snapshotStore.getSnapshotStatus(snapshotId) != SnapshotStatus.HARVESTING_FINISHED_ERROR) {
 
 			if (isIncremental() && previousSnapshotId != null) {
 				// El catálogo ya fue copiado durante la inicialización
@@ -369,7 +389,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 			logInfoMessage(runningContext.toString() + " :: Harvesting ended successfully.");
 
-			snapshotStore.finishHarvesting(snapshotId);
+			finishHarvestingSuccessfully();
 
 		} else {
 			logErrorMessage(runningContext.toString() + " :: Harvesting ended with errors !!!");
@@ -389,7 +409,10 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				catalogRepository.finalizeSnapshot(snapshotId);
 				logInfoMessage("CATALOG: Repository closed - " + recordCount + " records in catalog");
 			} catch (Exception e) {
-				logErrorMessage("CATALOG: Error closing repository: " + e.getMessage());
+				recordExecutionFailure(e);
+                snapshotStore.markAsFailed(snapshotId);
+                logErrorMessage("CATALOG: Error closing repository: " + e.getMessage());
+                throw new IllegalStateException("Cannot finalize harvest catalog", e);
 			}
 		}
 	}
@@ -434,7 +457,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 						"so the same record may be harvested more than once");
 
 				for (String set : sets) {
-					if (isCancellationRequested()) break;
+					if (isCancellationRequested() || harvestingFailed) break;
 					logInfoMessage("Harvesting set: " + set + " for " + runningContext.toString());
 					currentSetSpec = set;
 					harvester.harvest(originURL, set, metadataPrefix, metadataStoreSchema,
@@ -466,6 +489,8 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 				// Si algún record está missing, loguear el error
 				if (event.isRecordMissing()) {
+                    harvestingFailed = true;
+                    recordExecutionFailure("Missing metadata in OAI response");
 					logErrorMessage("Some record metadata is missing RT:" + event.getResumptionToken() +
 							" identifiers: " + event.getMissingRecordsIdentifiers());
 				}
@@ -478,11 +503,12 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				// Lista para batch update
 				java.util.List<OAIRecord> batchRecords = new java.util.ArrayList<>();
 
-				if (isIncremental()) {
+				{
 					try {
 						// Procesar deleted records
 						for (String deletedRecordIdentifier : event.getDeletedRecordsIdentifiers()) {
-							batchRecords.add(createDeletedRecord(deletedRecordIdentifier, LocalDateTime.now()));
+							batchRecords.add(createDeletedRecord(deletedRecordIdentifier, java.util.Objects.requireNonNull(
+                                    event.getDeletedRecordsDatestamps().get(deletedRecordIdentifier), "Missing deletion datestamp")));
 						}
 
 						// Loguear deleted records
@@ -492,6 +518,7 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 						}
 
 					} catch (Exception e) {
+                        harvestingFailed = true; recordExecutionFailure(e);
 						logErrorMessage("Error storing deleted records for " + runningContext.toString() +
 								" : " + e.getMessage());
 					}
@@ -504,11 +531,15 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 						// Si el metadata pasa la prevalidación, almacenarlo
 						if (metadataPassPrevalidation(metadata)) {
 							batchRecords.add(createRecord(metadata));
-						}
+						} else if (isIncremental()) {
+                            batchRecords.add(createDeletedRecord(metadata.getIdentifier(), metadata.getDatestamp()));
+                        }
 					} catch (ValidationException e) {
+                        harvestingFailed = true; recordExecutionFailure(e);
 						logErrorMessage("Error prevalidating record " + metadata.getIdentifier() +
 								" for " + runningContext.toString() + " : " + e.getMessage());
 					} catch (Exception e) {
+                        harvestingFailed = true; recordExecutionFailure(e);
 						logErrorMessage("Unknown record store error :: " + e.getMessage());
 					}
 				}
@@ -523,36 +554,20 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 						// The final exact count is corrected at finishHarvestingSuccessfully()
 						snapshotStore.incrementSnapshotSizeBy(snapshotId, batchRecords.size());
 					} catch (Exception e) {
+                        harvestingFailed = true; recordExecutionFailure(e);
 						logErrorMessage("Error performing batch upsert: " + e.getMessage());
 					}
 				}
 
 				// Snapshot update
-				snapshotStore.updateHarvesting(snapshotId);
+				if (harvestingFailed) snapshotStore.markAsFailed(snapshotId);
+                else snapshotStore.updateHarvesting(snapshotId);
 
 				break;
 
-			case NO_MATCHING_QUERY:
-
-				// Si NO_MATCHING_QUERY, entonces
-				if (!bySetHarvesting) {
-
-					if (isIncremental()) {
-						finishHarvestingSuccessfully(); // Puede ser que no haya nuevos registros
-						logInfoMessage("No records found in incremental harvesting" +
-								runningContext.toString());
-					} else {
-						snapshotStore.markAsFailed(snapshotId);
-						logInfoMessage("No records found!!! at " + runningContext.toString());
-					}
-
-				} else {
-					finishHarvestingSuccessfully();
-					logInfoMessage("No records found for the set: " + currentSetSpec + " at " +
-							runningContext.toString());
-				}
-
-				break;
+            case NO_MATCHING_QUERY:
+                logInfoMessage("No records found for " + (bySetHarvesting ? "set " + currentSetSpec : runningContext.toString()));
+                break;
 
 			case ERROR_RETRY:
 
@@ -561,26 +576,17 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 				break;
 
 			case ERROR_FATAL:
+                harvestingFailed = true;
 
 				logErrorMessage("Fatal Error:" + event.getMessage());
 				recordExecutionFailure(event.getMessage());
 				snapshotStore.markAsFailed(snapshotId);
 				break;
 
-			case STOP_SIGNAL_RECEIVED:
-
-				logErrorMessage("Stop signal received:" + event.getMessage());
-
-				// Intentar finalizar correctamente si hay datos
-				long currentCount = catalogRepository.countNotDeleted(snapshotId);
-				if (currentCount > 0)
-					finishHarvestingSuccessfully();
-				else
-					snapshotStore.markAsFailed(snapshotId);
-
-				// Cerrar catálogo SQLite cuando se detiene el harvesting
-				closeCatalogRepository();
-				break;
+            case STOP_SIGNAL_RECEIVED:
+                harvestingStopped = true;
+                snapshotStore.markHarvestingStopped(snapshotId);
+                break;
 
 			default:
 				// TODO: decidir qué hacer en este caso
@@ -595,11 +601,13 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		// ACTUALIZAR TAMAÑO FINAL
 		// Consultar el catálogo para obtener el conteo real exacto
 		long finalCount = catalogRepository.countNotDeleted(snapshotId);
-		snapshotStore.updateSnapshotSize(snapshotId, (int) finalCount);
+		snapshotStore.updateSnapshotSize(snapshotId, Math.toIntExact(finalCount));
 
 		logInfoMessage("Harvesting finished. Final count: " + finalCount);
 
-		snapshotStore.finishHarvesting(snapshotId);
+		try { harvestingConfigurationStore.complete(snapshotMetadata, runningContext.getNetwork()); }
+        catch (java.io.IOException e) { throw new IllegalStateException("Cannot persist completed harvest configuration", e); }
+        snapshotStore.finishHarvesting(snapshotId);
 	}
 
 	/**

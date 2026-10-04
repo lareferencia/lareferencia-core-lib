@@ -76,6 +76,10 @@ public class ValidationManifestStore {
         }
     }
 
+    public void invalidate(SnapshotMetadata metadata) throws IOException {
+        Files.deleteIfExists(manifestPath(metadata));
+    }
+
     private Path manifestPath(SnapshotMetadata metadata) {
         return Paths.get(PathUtils.getSnapshotPath(basePath, metadata), VALIDATION_SUBDIR, MANIFEST_FILENAME);
     }

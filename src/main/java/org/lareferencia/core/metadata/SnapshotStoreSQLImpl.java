@@ -163,7 +163,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	public Long createSnapshot(Network network) {
 		NetworkSnapshot snapshot = new NetworkSnapshot();
 		snapshot.setNetwork(network);
-		snapshot.setStartTime(LocalDateTime.now());
+		snapshot.setStartTime(LocalDateTime.now(java.time.ZoneOffset.UTC));
 		snapshotRepository.saveAndFlush(snapshot);
 
 		// Añadir al cache para uso posterior
@@ -567,10 +567,11 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setValidSize(0);
 			snapshot.setTransformedSize(0);
-			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
+			snapshot.setStatus(SnapshotStatus.VALIDATING);
 			snapshot.setIndexStatus(SnapshotIndexStatus.UNKNOWN);
 			snapshot.setIndexingResults(indexingResults.reset(snapshotId));
-			logger.info("SNAPSHOT STORE: Reset validation counts for snapshot {}", snapshotId);
+			snapshotRepository.saveAndFlush(snapshot);
+            logger.info("SNAPSHOT STORE: Reset validation counts for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error resetting validation counts for snapshot {}: {}",
 					snapshotId, e.getMessage());
@@ -603,7 +604,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.HARVESTING);
-			snapshot.setStartTime(LocalDateTime.now());
+			snapshot.setStartTime(LocalDateTime.now(java.time.ZoneOffset.UTC));
 			snapshotRepository.saveAndFlush(snapshot);
 			logger.info("SNAPSHOT STORE: Started harvesting for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
@@ -617,7 +618,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.HARVESTING);
-			snapshot.setEndTime(LocalDateTime.now());
+			snapshot.setEndTime(LocalDateTime.now(java.time.ZoneOffset.UTC));
 			snapshotRepository.saveAndFlush(snapshot);
 			logger.debug("SNAPSHOT STORE: Updated harvesting status for snapshot {}", snapshotId);
 		} catch (SnapshotStoreException e) {
@@ -631,7 +632,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_VALID);
-			snapshot.setEndTime(LocalDateTime.now());
+			snapshot.setEndTime(LocalDateTime.now(java.time.ZoneOffset.UTC));
 			snapshotRepository.saveAndFlush(snapshot);
 			logger.info("SNAPSHOT STORE: Finished harvesting for snapshot {}", snapshotId);
 			clearUpdateCounter(snapshotId);
@@ -647,8 +648,9 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 	public void startValidation(Long snapshotId) {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
-			snapshot.setStatus(SnapshotStatus.VALID); // No hay estado VALIDATING, usa VALID directamente
-			logger.info("SNAPSHOT STORE: Started validation for snapshot {}", snapshotId);
+			snapshot.setStatus(SnapshotStatus.VALIDATING);
+			snapshotRepository.saveAndFlush(snapshot);
+            logger.info("SNAPSHOT STORE: Started validation for snapshot {}", snapshotId);
 			// JPA dirty checking persiste automáticamente al final de la transacción
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error starting validation for snapshot {}: {}",
@@ -662,13 +664,46 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.VALID);
-			snapshot.setEndTime(LocalDateTime.now());
-			logger.info("SNAPSHOT STORE: Finished validation for snapshot {}", snapshotId);
+			snapshot.setEndTime(LocalDateTime.now(java.time.ZoneOffset.UTC));
+			snapshotRepository.saveAndFlush(snapshot);
+            clearUpdateCounter(snapshotId);
+            uncacheSnapshot(snapshotId);
+            logger.info("SNAPSHOT STORE: Finished validation for snapshot {}", snapshotId);
 			// JPA dirty checking persiste automáticamente al final de la transacción
 		} catch (SnapshotStoreException e) {
 			logger.error("SNAPSHOT STORE: Error finishing validation for snapshot {}: {}",
 					snapshotId, e.getMessage());
 		}
+	}
+
+	@Override
+	public void updateValidationCounts(Long snapshotId, int valid, int transformed) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setValidSize(valid);
+			snapshot.setTransformedSize(transformed);
+			snapshotRepository.saveAndFlush(snapshot);
+		} catch (SnapshotStoreException e) { throw new IllegalStateException(e); }
+	}
+
+	@Override
+	public void markValidationFailed(Long snapshotId) { setTerminalStatus(snapshotId, SnapshotStatus.VALIDATION_FINISHED_ERROR); }
+
+	@Override
+	public void markValidationStopped(Long snapshotId) { setTerminalStatus(snapshotId, SnapshotStatus.VALIDATION_STOPPED); }
+
+	@Override
+	public void markHarvestingStopped(Long snapshotId) { setTerminalStatus(snapshotId, SnapshotStatus.HARVESTING_STOPPED); }
+
+	private void setTerminalStatus(Long snapshotId, SnapshotStatus status) {
+		try {
+			NetworkSnapshot snapshot = getSnapshot(snapshotId);
+			snapshot.setStatus(status);
+			snapshot.setEndTime(LocalDateTime.now(java.time.ZoneOffset.UTC));
+			snapshotRepository.saveAndFlush(snapshot);
+			clearUpdateCounter(snapshotId);
+			uncacheSnapshot(snapshotId);
+		} catch (SnapshotStoreException e) { throw new IllegalStateException(e); }
 	}
 
 	@Override
@@ -689,7 +724,7 @@ public class SnapshotStoreSQLImpl implements ISnapshotStore {
 		try {
 			NetworkSnapshot snapshot = getSnapshot(snapshotId);
 			snapshot.setStatus(SnapshotStatus.HARVESTING_FINISHED_ERROR);
-			snapshot.setEndTime(LocalDateTime.now());
+			snapshot.setEndTime(LocalDateTime.now(java.time.ZoneOffset.UTC));
 			snapshotRepository.saveAndFlush(snapshot);
 			logger.info("SNAPSHOT STORE: Marked snapshot {} as failed", snapshotId);
 			clearUpdateCounter(snapshotId);

@@ -66,7 +66,12 @@ public enum SnapshotStatus {
 	UNKNOWN,
 	
 	/** Incremental harvest found no new records */
-	EMPTY_INCREMENTAL;
+	EMPTY_INCREMENTAL,
+
+	/** Validation is in progress; never eligible as a completed parent. */
+	VALIDATING,
+	VALIDATION_FINISHED_ERROR,
+	VALIDATION_STOPPED;
 	
 	
 	/**

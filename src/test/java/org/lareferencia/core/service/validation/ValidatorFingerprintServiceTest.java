@@ -31,6 +31,24 @@ class ValidatorFingerprintServiceTest {
         assertEquals(service.fingerprint(null).getHash(), service.fingerprint(null).getHash());
     }
 
+    @Test
+    void pipelineChangesForEitherTransformerAndDiagnoseMode() {
+        var network = new org.lareferencia.core.domain.Network();
+        String baseline = service.fingerprintNetwork(network).getHash();
+        var transformer = new org.lareferencia.core.domain.Transformer();
+        var rule = new org.lareferencia.core.domain.TransformerRule();
+        rule.setRunorder(1); rule.setJsonserialization("{\"value\":\"one\"}");
+        transformer.getRules().add(rule); network.setTransformer(transformer);
+        String primary = service.fingerprintNetwork(network).getHash();
+        assertNotEquals(baseline, primary);
+        network.setTransformer(null); network.setSecondaryTransformer(transformer);
+        assertNotEquals(primary, service.fingerprintNetwork(network).getHash());
+        assertNotEquals(service.fingerprintNetwork(network, false).getHash(), service.fingerprintNetwork(network, true).getHash());
+        String previous = service.fingerprintNetwork(network).getHash();
+        rule.setJsonserialization("{\"value\":\"two\"}");
+        assertNotEquals(previous, service.fingerprintNetwork(network).getHash());
+    }
+
     private Validator validator(ValidatorRule... rules) {
         Validator validator = new Validator();
         for (ValidatorRule rule : rules) {
