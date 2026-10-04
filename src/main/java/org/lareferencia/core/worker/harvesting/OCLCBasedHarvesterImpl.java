@@ -541,6 +541,8 @@ public class OCLCBasedHarvesterImpl extends BaseHarvestingEventSource implements
 			logger.error("Identify Error: " + e.getMessage());
 		} catch (TransformerException e) {
 			logger.error("Identify Error: " + e.getMessage());
+        } catch (RuntimeException e) {
+            logger.warn("Unexpected Identify failure for {}; continuing without Identify parameters", originURL, e);
 		}
 
 		return null;

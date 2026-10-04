@@ -224,9 +224,6 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 
 	private void runHarvesting() {
 
-		// Mapa de identify para contener información del request identify
-		Map<String, String> identifyMap = null;
-
 		// Granularidad de fecha
 		String granularity = DEFAULT_GRANDULARITY;
 
@@ -250,20 +247,31 @@ public class HarvestingWorker extends BaseWorker<NetworkRunningContext>
 		// Nota: previousSnapshotId se determina más adelante si es incremental
 		// La inicialización real se hace después de determinar el modo
 
-		// Fetch identify parameters si está habilitado
-		if (this.fetchIdentifyParameters) {
-			logger.debug("FETCH_IDENTIFY_PARAMETERS is true, fetching identify parameters");
-			identifyMap = harvester.identify(originURL);
-			if (identifyMap != null && identifyMap.containsKey("granularity") &&
-					identifyMap.get("granularity") != null && !identifyMap.get("granularity").isEmpty()) {
-				logInfoMessage("Identify Granularity found: " + identifyMap.get("granularity"));
-				granularity = identifyMap.get("granularity");
-			} else {
-				logInfoMessage("Identify Granularity not found, using default granularity: " + granularity);
-			}
-		} else {
-			logInfoMessage("Using default granularity: " + granularity);
-		}
+        // Identify is advisory: failures never invalidate a harvest.
+        if (this.fetchIdentifyParameters) {
+            try {
+                Map<String, String> identifyMap = harvester.identify(originURL);
+                if (isCancellationRequested()) return;
+                String reported = identifyMap == null ? null : identifyMap.get("granularity");
+                String candidate = reported == null ? "" : reported.trim();
+                if ("YYYY-MM-DD".equalsIgnoreCase(candidate)) {
+                    granularity = "YYYY-MM-DD";
+                    logInfoMessage("Identify Granularity found: " + granularity);
+                } else if (DEFAULT_GRANDULARITY.equalsIgnoreCase(candidate)) {
+                    logInfoMessage("Identify Granularity found: " + granularity);
+                } else {
+                    logInfoMessage("Identify granularity is missing or unsupported (" + reported
+                            + "); using default granularity: " + granularity);
+                }
+            } catch (RuntimeException e) {
+                if (isCancellationRequested()) return;
+                logger.warn("Identify failed for {}; using default granularity {}", originURL, granularity, e);
+                logInfoMessage("Identify unavailable: " + e.getClass().getSimpleName()
+                        + "; using default granularity: " + granularity);
+            }
+        } else {
+            logInfoMessage("Using default granularity: " + granularity);
+        }
 
 		if (runningContext.getNetwork() != null) {
 

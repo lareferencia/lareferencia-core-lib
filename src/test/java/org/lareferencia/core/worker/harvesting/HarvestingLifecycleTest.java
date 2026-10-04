@@ -100,6 +100,43 @@ class HarvestingLifecycleTest {
         verify(catalog).upsertBatch(eq(2L),batch.capture()); assertTrue(batch.getValue().get(0).isDeleted());
         verify(snapshots).setPreviousSnapshotId(2L,1L); verify(snapshots).finishHarvesting(2L);
     }
+    @Test void unexpectedIdentifyFailureStillHarvestsWithDefaultSeconds() {
+        configureIncrementalParent();
+        when(harvester.identify(network.getOriginURL())).thenThrow(new NullPointerException("malformed response"));
+        worker.run();
+        verifyDefaultIncrementalWindow(); verify(snapshots).finishHarvesting(2L); assertNull(worker.getExecutionFailure());
+    }
+    @Test void absentIdentifyResponseStillHarvestsWithDefaultSeconds() {
+        configureIncrementalParent(); when(harvester.identify(network.getOriginURL())).thenReturn(null);
+        worker.run(); verifyDefaultIncrementalWindow(); verify(snapshots).finishHarvesting(2L);
+    }
+    @Test void invalidGranularityCannotChangeIncrementalDateFormat() {
+        configureIncrementalParent(); when(harvester.identify(network.getOriginURL())).thenReturn(Map.of("granularity","yyyy-MM"));
+        worker.run(); verifyDefaultIncrementalWindow(); verify(snapshots).finishHarvesting(2L);
+    }
+    @Test void whitespaceAroundDailyGranularityIsAccepted() {
+        configureIncrementalParent(); when(harvester.identify(network.getOriginURL())).thenReturn(Map.of("granularity","  YYYY-MM-DD  "));
+        worker.run();
+        verify(harvester).harvest(anyString(),isNull(),anyString(),anyString(),eq("2026-01-02"),isNull(),isNull(),anyInt());
+    }
+    @Test void cancellationDuringIdentifyNeverStartsListRecords() {
+        doAnswer(c -> { worker.stop(); throw new IllegalStateException("request cancelled"); }).when(harvester).identify(anyString());
+        worker.run();
+        verify(harvester,never()).harvest(anyString(),any(),anyString(),anyString(),any(),any(),any(),anyInt());
+        verify(snapshots).markHarvestingStopped(2L); verify(snapshots,never()).finishHarvesting(2L);
+    }
+    private void configureIncrementalParent() {
+        worker.setIncremental(true);
+        var parent = new SnapshotMetadata(1L); parent.setNetwork(network);
+        when(snapshots.findLastGoodKnownSnapshot(network)).thenReturn(1L);
+        when(snapshots.getSnapshotMetadata(1L)).thenReturn(parent);
+        when(snapshots.getSnapshotStartDatestamp(1L)).thenReturn(LocalDateTime.of(2026,1,2,3,4,5));
+        var configuration = mock(HarvestingConfigurationStore.class); when(configuration.compatible(parent,network)).thenReturn(true);
+        field("harvestingConfigurationStore",configuration);
+    }
+    private void verifyDefaultIncrementalWindow() {
+        verify(harvester).harvest(anyString(),isNull(),anyString(),anyString(),eq("2026-01-02T03:04:05Z"),isNull(),isNull(),anyInt());
+    }
     private HarvestingEvent event(HarvestingEventStatus status) { var event = new HarvestingEvent(); event.setStatus(status); event.setMessage("fixture"); return event; }
     private void field(String name,Object value) { ReflectionTestUtils.setField(worker,name,value); }
 }

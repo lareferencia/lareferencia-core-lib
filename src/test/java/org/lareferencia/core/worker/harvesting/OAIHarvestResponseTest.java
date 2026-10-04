@@ -13,6 +13,11 @@ import org.lareferencia.core.util.date.YearMonthDayDateFormatter;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class OAIHarvestResponseTest {
+    @Test void unexpectedIdentifyExceptionReturnsNoParameters() {
+        var harvester = new OCLCBasedHarvesterImpl();
+        assertNull(assertDoesNotThrow(() -> harvester.identify(null)));
+    }
+
     @Test void lastPageWithoutTokenPreservesDeletedHeaderDateAndStops() throws Exception {
         var requests = new AtomicInteger();
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
