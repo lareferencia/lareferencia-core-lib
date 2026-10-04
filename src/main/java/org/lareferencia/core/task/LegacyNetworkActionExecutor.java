@@ -103,8 +103,8 @@ public class LegacyNetworkActionExecutor implements INetworkActionExecutor {
     @Override
     public List<NetworkAction> getAvailableActions() {
         // Legacy actions remain discovered from the same Spring beans/XML as
-        // before. Bean name order is only the deterministic bootstrap order;
-        // after reconciliation the installation catalogue is authoritative.
+        // before. Discovery is deterministic; the catalogue applies the initial
+        // policy and owns the persisted execution order after reconciliation.
         List<NetworkAction> discovered = applicationContext.getBeansOfType(NetworkAction.class).entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(Map.Entry::getValue).toList();

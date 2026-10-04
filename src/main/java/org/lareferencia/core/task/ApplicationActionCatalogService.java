@@ -44,28 +44,34 @@ public class ApplicationActionCatalogService {
         boolean bootstrap = repository.countByEngineType(engineType) == 0;
         List<ApplicationAction> existing = repository.findAllByEngineTypeOrderByExecutionOrderAscActionKeyAsc(engineType);
         // Rows created before execution_order existed are marked -1 by the
-        // migration. Use the discovery sequence exactly once to preserve the
-        // configured legacy order rather than inventing an alphabetical one.
+        // migration and need a one-time initialization of their sequence.
         boolean initializeExistingOrder = !bootstrap && !existing.isEmpty()
                 && existing.stream().allMatch(row -> row.getExecutionOrder() < 0);
         int nextOrder = existing.stream().mapToInt(ApplicationAction::getExecutionOrder).max().orElse(-1) + 1;
         if (initializeExistingOrder) nextOrder = 0;
+        List<NetworkAction> ordered = new ArrayList<>(discovered);
+        if ("legacy".equals(engineType) && (bootstrap || initializeExistingOrder)) {
+            ordered.sort(LegacyActionCatalogDefaults.order());
+        } else if (!bootstrap && !initializeExistingOrder) {
+            // Multiple new actions append in a stable sequence, regardless of discovery order.
+            ordered.sort(Comparator.comparing(NetworkAction::getName));
+        }
         existing.forEach(row -> row.setAvailable(false));
         repository.saveAll(existing);
 
         int created = 0;
         int updated = 0;
         OffsetDateTime now = OffsetDateTime.now();
-        for (int position = 0; position < discovered.size(); position++) {
-            NetworkAction descriptor = discovered.get(position);
+        for (int position = 0; position < ordered.size(); position++) {
+            NetworkAction descriptor = ordered.get(position);
             ApplicationAction row = repository.findByEngineTypeAndActionKey(engineType, descriptor.getName()).orElse(null);
             if (row == null) {
                 row = new ApplicationAction();
                 row.setEngineType(engineType);
                 row.setActionKey(descriptor.getName());
-                row.setEnabled(bootstrap && descriptor.isEnabledByDefault());
-                // The initial sequence preserves the executor's configured
-                // sequence. Afterwards it is installation configuration.
+                row.setEnabled(bootstrap && ("legacy".equals(engineType)
+                        ? LegacyActionCatalogDefaults.enabled(descriptor.getName()) : descriptor.isEnabledByDefault()));
+                // Defaults only apply to first creation. Later discoveries append disabled.
                 row.setExecutionOrder(bootstrap ? position : nextOrder++);
                 row.setConfiguration(defaultConfiguration(descriptor));
                 validateConfiguration(descriptor.getConfigurationSchema(), row.getConfiguration());

@@ -3,6 +3,7 @@ package org.lareferencia.core.task;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,13 +27,80 @@ class ApplicationActionCatalogServiceTest {
         action.setName("harvesting");
         action.setDescription("Harvesting");
 
-        var result = service.reconcile("legacy", List.of(action), "test");
+        var result = service.reconcile("flowable", List.of(action), "test");
 
         assertTrue(rows.get(0).isEnabled());
         assertTrue(rows.get(0).isAvailable());
         assertTrue(result.bootstrap());
         assertEquals(1, result.created());
         assertEquals(0, rows.get(0).getExecutionOrder());
+    }
+
+    @Test
+    void reconcile_EmptyLegacyCatalogue_UsesMigrationDefaultsBeforeUnknownActions() {
+        service.reconcile("legacy", List.of(action("ZZ_CUSTOM"), action("VALIDATION_ACTION"),
+                action("DARK_RECONCILE_ACTION"), action("AA_CUSTOM"), action("HARVESTING_ACTION"),
+                action("DARK_STAGE_ACTION"), action("SEMANTIC_INDEXING_ACTION")), "system:startup");
+
+        assertEquals(List.of("HARVESTING_ACTION", "DARK_STAGE_ACTION", "DARK_RECONCILE_ACTION",
+                "VALIDATION_ACTION", "SEMANTIC_INDEXING_ACTION", "AA_CUSTOM", "ZZ_CUSTOM"),
+                service.list("legacy").stream().map(ApplicationAction::getActionKey).toList());
+        assertTrue(service.require("legacy", "HARVESTING_ACTION").isEnabled());
+        assertTrue(service.require("legacy", "VALIDATION_ACTION").isEnabled());
+        assertFalse(service.require("legacy", "DARK_STAGE_ACTION").isEnabled());
+        assertFalse(service.require("legacy", "DARK_RECONCILE_ACTION").isEnabled());
+        assertFalse(service.require("legacy", "SEMANTIC_INDEXING_ACTION").isEnabled());
+        assertFalse(service.require("legacy", "AA_CUSTOM").isEnabled());
+    }
+
+    @Test
+    void reconcile_RestartAndNewActions_PreservesCustomPolicyAndAppendsDisabled() {
+        service.reconcile("legacy", List.of(action("HARVESTING_ACTION"), action("VALIDATION_ACTION")), "startup");
+        service.move("legacy", "VALIDATION_ACTION", ApplicationActionCatalogService.MoveDirection.UP, "admin");
+        var validation = service.require("legacy", "VALIDATION_ACTION");
+        validation.setEnabled(false);
+
+        service.reconcile("legacy", List.of(action("ZZ_CUSTOM"), action("XOAI_INDEXING_ACTION"),
+                action("HARVESTING_ACTION"), action("AA_CUSTOM"), action("VALIDATION_ACTION")), "restart");
+
+        assertEquals(List.of("VALIDATION_ACTION", "HARVESTING_ACTION", "AA_CUSTOM", "XOAI_INDEXING_ACTION", "ZZ_CUSTOM"),
+                service.list("legacy").stream().map(ApplicationAction::getActionKey).toList());
+        assertFalse(validation.isEnabled());
+        assertFalse(service.require("legacy", "XOAI_INDEXING_ACTION").isEnabled());
+        assertFalse(service.require("legacy", "AA_CUSTOM").isEnabled());
+        assertFalse(service.require("legacy", "ZZ_CUSTOM").isEnabled());
+    }
+
+    @Test
+    void reconcile_DisappearingAndReturningAction_KeepsItsPositionAndConfiguration() {
+        service.reconcile("legacy", List.of(action("HARVESTING_ACTION"), action("VALIDATION_ACTION")), "startup");
+        var harvesting = service.require("legacy", "HARVESTING_ACTION");
+        var configuration = mapper.createObjectNode().put("custom", true);
+        harvesting.setConfiguration(configuration);
+        service.reconcile("legacy", List.of(action("VALIDATION_ACTION")), "restart");
+        assertFalse(harvesting.isAvailable());
+        service.reconcile("legacy", List.of(action("VALIDATION_ACTION"), action("HARVESTING_ACTION")), "restart");
+        assertTrue(harvesting.isAvailable());
+        assertTrue(harvesting.isEnabled());
+        assertEquals(0, harvesting.getExecutionOrder());
+        assertEquals(configuration, harvesting.getConfiguration());
+        assertEquals(2, rows.size());
+    }
+
+    @Test
+    void reconcile_UninitializedOrder_AppliesDefaultsOnceAndPreservesEnabledState() {
+        service.reconcile("legacy", List.of(action("HARVESTING_ACTION"), action("VALIDATION_ACTION")), "startup");
+        rows.forEach(row -> { row.setExecutionOrder(-1); row.setEnabled(false); });
+        service.reconcile("legacy", List.of(action("VALIDATION_ACTION"), action("HARVESTING_ACTION")), "restart");
+        assertEquals(0, service.require("legacy", "HARVESTING_ACTION").getExecutionOrder());
+        assertEquals(1, service.require("legacy", "VALIDATION_ACTION").getExecutionOrder());
+        assertTrue(rows.stream().noneMatch(ApplicationAction::isEnabled));
+    }
+
+    private NetworkAction action(String name) {
+        NetworkAction action = new NetworkAction();
+        action.setName(name);
+        return action;
     }
 
     @Test
