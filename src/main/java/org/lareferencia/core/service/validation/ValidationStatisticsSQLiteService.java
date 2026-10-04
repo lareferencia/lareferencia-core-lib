@@ -492,10 +492,12 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
     private void ensureDatabaseOpenForRead(Long snapshotId, SnapshotMetadata metadata) throws IOException {
         if (!dbManager.hasActiveDataSource(snapshotId)) {
             dbManager.openSnapshotForRead(metadata);
-            List<Long> ruleIds = metadata.getRuleDefinitions().keySet()
-                    .stream().sorted().collect(Collectors.toList());
-            recordRepository.registerRuleIds(snapshotId, ruleIds);
         }
+        // Another consumer (for example indexing) may have opened the database
+        // without registering this repository's dynamic rule columns.
+        List<Long> ruleIds = metadata.getRuleDefinitions().keySet()
+                .stream().sorted().collect(Collectors.toList());
+        recordRepository.registerRuleIds(snapshotId, ruleIds);
     }
 
     private void flushBuffers(Long snapshotId) {
