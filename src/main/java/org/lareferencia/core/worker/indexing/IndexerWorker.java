@@ -163,6 +163,8 @@ public class IndexerWorker extends BaseIndexerWorker {
 	 * Initializes the indexer before processing starts.
 	 */
 	public void preRun() {
+		// Empty incremental runs never call prePage; reset state for every execution.
+		stringBuffer = new StringBuffer();
 
 		if (executeDeletion && !executeIndexing) { // si es un borrado sin indexacion
 
@@ -192,8 +194,9 @@ public class IndexerWorker extends BaseIndexerWorker {
 				delete(runningContext.getNetwork().getAcronym());
 				}
 
-				logger.debug("Full indexing (" + this.targetSchemaName + "): " + snapshotId);
-				logInfo("Full indexing: " + runningContext.toString() + "(" + this.targetSchemaName + ")");
+				String mode = useIncrementalDelta ? "Incremental indexing" : "Full indexing";
+				logger.debug(mode + " (" + this.targetSchemaName + "): " + snapshotId);
+				logInfo(mode + ": " + runningContext.toString() + "(" + this.targetSchemaName + ")");
 
 				// establece el transformador para indexación
 				try {
@@ -347,9 +350,10 @@ public class IndexerWorker extends BaseIndexerWorker {
 
 	public void postPage() {
 
-		if (stringBuffer.length() > 0) {
+		if (stringBuffer != null && stringBuffer.length() > 0) {
 			try {
 				this.sendUpdateToSolr("<add>" + stringBuffer.toString() + "</add>");
+				stringBuffer.setLength(0);
 			} catch (SolrServerException e) {
 				logError("Issues whe connecting to SOLR: " + runningContext.toString() + ": " + e.getMessage());
 				logger.debug(stringBuffer);
