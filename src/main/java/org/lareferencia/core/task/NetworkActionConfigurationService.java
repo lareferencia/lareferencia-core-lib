@@ -26,6 +26,21 @@ public class NetworkActionConfigurationService {
     }
 
     @Transactional
+    public void ensureDefaults(Network network, String engineType, List<NetworkAction> actions) {
+        for (NetworkAction action : actions) {
+            ApplicationAction application = catalog.require(engineType, action.getName());
+            var existing = repository.findByNetworkIdAndApplicationActionId(network.getId(), application.getId());
+            if (existing.isEmpty()) {
+                reconcile(network, engineType, List.of(action));
+            } else if (existing.get().getConfiguration() == null || existing.get().getConfiguration().isNull()) {
+                // An empty object inherits installation defaults; preserve existing policies and audit data.
+                existing.get().setConfiguration(mapper.createObjectNode());
+                repository.save(existing.get());
+            }
+        }
+    }
+
+    @Transactional
     public void reconcile(Network network, String engineType, List<NetworkAction> actions) {
         for (NetworkAction action : actions) {
             ApplicationAction application = catalog.require(engineType, action.getName());

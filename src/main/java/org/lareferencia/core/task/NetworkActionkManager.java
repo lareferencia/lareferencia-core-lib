@@ -93,6 +93,11 @@ public class NetworkActionkManager {
 		return executor.getAvailableActions();
 	}
 
+	/** Ensures missing per-network policies exist without replacing saved settings. */
+	public void reconcileNetwork(Network network) {
+		networkActionConfiguration.ensureDefaults(network, executor.getEngineType(), executor.getAvailableActions());
+	}
+
 	/** v5-visible actions after applying installation policy. */
 	public List<NetworkAction> getEnabledActions() {
 		return executor.getAvailableActions().stream()
