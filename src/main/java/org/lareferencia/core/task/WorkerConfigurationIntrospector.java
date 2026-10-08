@@ -10,11 +10,13 @@ import java.util.Map;
 import java.util.Set;
 
 import org.springframework.context.ApplicationContext;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.stereotype.Service;
 
 /** Discovers editable scalar JavaBean properties without exposing worker runtime state or dependencies. */
 @Service
 public class WorkerConfigurationIntrospector {
+    static final Set<String> PROXY_PROPERTIES = Set.of("exposeProxy", "frozen", "preFiltered", "proxyTargetClass");
     private static final Set<String> RUNTIME_PROPERTIES = Set.of("class", "incremental", "runningContext", "scheduledFuture", "status", "id");
     private final ApplicationContext context;
     public WorkerConfigurationIntrospector(ApplicationContext context) { this.context = context; }
@@ -27,11 +29,12 @@ public class WorkerConfigurationIntrospector {
         Class<?> type = context.getType(beanName);
         Object instance = null;
         try { instance = context.getBean(beanName); } catch (RuntimeException ignored) { /* schema still uses its class */ }
+        if (instance != null) type = AopUtils.getTargetClass(instance);
         final Object workerInstance = instance;
         if (type != null) {
             try {
                 for (PropertyDescriptor property : Introspector.getBeanInfo(type).getPropertyDescriptors()) {
-                    if (RUNTIME_PROPERTIES.contains(property.getName()) || property.getWriteMethod() == null
+                    if (RUNTIME_PROPERTIES.contains(property.getName()) || PROXY_PROPERTIES.contains(property.getName()) || property.getWriteMethod() == null
                             || !supported(property.getPropertyType())) continue;
                     properties.computeIfAbsent(property.getName(), name -> property(name, property, workerInstance));
                 }

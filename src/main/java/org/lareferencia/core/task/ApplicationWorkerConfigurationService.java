@@ -56,6 +56,14 @@ public class ApplicationWorkerConfigurationService {
                 row.setConfiguration(migrated != null ? migrated.deepCopy() : defaults(descriptor));
             }
             row.setAvailable(true); row.setDefinition(definition(descriptor)); row.setLastSeenAt(now); row.setUpdatedBy(updatedBy);
+            if (row.getConfiguration() != null && row.getConfiguration().isObject()) {
+                // Older introspection accidentally persisted Spring proxy settings as worker parameters.
+                ObjectNode configuration = (ObjectNode) row.getConfiguration().deepCopy();
+                WorkerConfigurationIntrospector.PROXY_PROPERTIES.forEach(name -> {
+                    if (!row.getDefinition().path("schema").path("properties").has(name)) configuration.remove(name);
+                });
+                row.setConfiguration(configuration);
+            }
             validator.validateConfiguration(row.getDefinition().path("schema"), row.getConfiguration());
             repository.save(row);
         });
