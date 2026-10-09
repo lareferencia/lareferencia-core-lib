@@ -63,107 +63,107 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:repositoryType", order = 1)
-	private static String repoTypeField = "repository:repositoryType";
+	private String repoTypeField = "repository:repositoryType";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:repositoryURL", order = 2)
-	private static String repoUrlField = "repository:repositoryURL";
+	private String repoUrlField = "repository:repositoryURL";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:institutionType", order = 3)
-	private static String instTypeField = "repository:institutionType";
+	private String instTypeField = "repository:institutionType";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:institutionURL", order = 4)
-	private static String instUrlField = "repository:institutionURL";
+	private String instUrlField = "repository:institutionURL";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:baseURL", order = 5)
-	private static String oaiUrlField = "repository:baseURL";
+	private String oaiUrlField = "repository:baseURL";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository.responsible", order = 6)
-	private static String lastFirstResponsibleField = "repository.responsible";
+	private String lastFirstResponsibleField = "repository.responsible";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:responsibleCharge", order = 7)
-	private static String responsibleChargeField = "repository:responsibleCharge";
+	private String responsibleChargeField = "repository:responsibleCharge";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:mail", order = 8)
-	private static String contactEmailField = "repository:mail";
+	private String contactEmailField = "repository:mail";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:country", order = 9)
-	private static String countryField = "repository:country";
+	private String countryField = "repository:country";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:city", order = 10)
-	private static String cityField = "repository:city";
+	private String cityField = "repository:city";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:phone", order = 11)
-	private static String phoneField = "repository:phone";
+	private String phoneField = "repository:phone";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:software", order = 12)
-	private static String softwareField = "repository:software";
+	private String softwareField = "repository:software";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:journalTitle", order = 13)
-	private static String journalTitleField = "repository:journalTitle";
+	private String journalTitleField = "repository:journalTitle";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:DOI", order = 14)
-	private static String doiField = "repository:DOI";
+	private String doiField = "repository:DOI";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:ISSN", order = 15)
-	private static String issnField = "repository:ISSN";
+	private String issnField = "repository:ISSN";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:ISSN_L", order = 16)
-	private static String issnLField = "repository:ISSN_L";
+	private String issnLField = "repository:ISSN_L";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:repositoryID", order = 17)
-	private static String repoIdField = "repository:repositoryID";
+	private String repoIdField = "repository:repositoryID";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:name", order = 18)
-	private static String repoNameField = "repository:name";
+	private String repoNameField = "repository:name";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:harvestDate", order = 19)
-	private static String harvestDateField = "repository:harvestDate";
+	private String harvestDateField = "repository:harvestDate";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "repository:altered", order = 20)
-	private static String statusField = "repository:altered";
+	private String statusField = "repository:altered";
 
 	@Getter
 	@Setter
 	@SchemaProperty(defaultValue = "others:identifier", order = 21)
-	private static String oaiIdentifierField = "others:identifier";
+	private String oaiIdentifierField = "others:identifier";
 
 	/**
 	 * Creates a new provenance metadata rule.

@@ -99,9 +99,9 @@ class AddProvenanceMetadataRuleTest {
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
-        verify(metadata).removeFieldOcurrence(AddProvenanceMetadataRule.getRepoNameField());
-        verify(metadata).removeFieldOcurrence(AddProvenanceMetadataRule.getContactEmailField());
-        verify(metadata).removeFieldOcurrence(AddProvenanceMetadataRule.getOaiIdentifierField());
+        verify(metadata).removeFieldOcurrence(rule.getRepoNameField());
+        verify(metadata).removeFieldOcurrence(rule.getContactEmailField());
+        verify(metadata).removeFieldOcurrence(rule.getOaiIdentifierField());
     }
 
     @Test
@@ -122,36 +122,36 @@ class AddProvenanceMetadataRuleTest {
     @Test
     @DisplayName("Should verify getter and setter for repoTypeField")
     void testRepoTypeFieldGetterSetter() {
-        AddProvenanceMetadataRule.setRepoTypeField("custom:repoType");
-        assertEquals("custom:repoType", AddProvenanceMetadataRule.getRepoTypeField());
+        rule.setRepoTypeField("custom:repoType");
+        assertEquals("custom:repoType", rule.getRepoTypeField());
     }
 
     @Test
     @DisplayName("Should verify getter and setter for repoUrlField")
     void testRepoUrlFieldGetterSetter() {
-        AddProvenanceMetadataRule.setRepoUrlField("custom:repoUrl");
-        assertEquals("custom:repoUrl", AddProvenanceMetadataRule.getRepoUrlField());
+        rule.setRepoUrlField("custom:repoUrl");
+        assertEquals("custom:repoUrl", rule.getRepoUrlField());
     }
 
     @Test
     @DisplayName("Should verify getter and setter for instTypeField")
     void testInstTypeFieldGetterSetter() {
-        AddProvenanceMetadataRule.setInstTypeField("custom:instType");
-        assertEquals("custom:instType", AddProvenanceMetadataRule.getInstTypeField());
+        rule.setInstTypeField("custom:instType");
+        assertEquals("custom:instType", rule.getInstTypeField());
     }
 
     @Test
     @DisplayName("Should verify getter and setter for instUrlField")
     void testInstUrlFieldGetterSetter() {
-        AddProvenanceMetadataRule.setInstUrlField("custom:instUrl");
-        assertEquals("custom:instUrl", AddProvenanceMetadataRule.getInstUrlField());
+        rule.setInstUrlField("custom:instUrl");
+        assertEquals("custom:instUrl", rule.getInstUrlField());
     }
 
     @Test
     @DisplayName("Should verify getter and setter for oaiUrlField")
     void testOaiUrlFieldGetterSetter() {
-        AddProvenanceMetadataRule.setOaiUrlField("custom:oaiUrl");
-        assertEquals("custom:oaiUrl", AddProvenanceMetadataRule.getOaiUrlField());
+        rule.setOaiUrlField("custom:oaiUrl");
+        assertEquals("custom:oaiUrl", rule.getOaiUrlField());
     }
 
     @Test
