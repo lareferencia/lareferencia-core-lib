@@ -36,6 +36,7 @@ import org.w3c.dom.Node;
 
 import java.io.*;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -100,7 +101,6 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 	@SchemaProperty(defaultValue = "false", order = 4)
 	Boolean testValueAsPrefix = false;
 
-	Set<String> existingValues = new HashSet<String>();
 
 	/**
 	 * Creates a new field content translation rule.
@@ -174,60 +174,51 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
-		boolean wasTransformed = false;
+        boolean wasTransformed = false;
+        // Track the destination, including when the source is a different field.
+        // Counts handle repeated source values and mappings between existing terms.
+        Map<String, Integer> destinationCounts = new HashMap<>();
+        Set<Node> destinationNodes = new HashSet<>(metadata.getFieldNodes(writeFieldName));
+        for (Node node : destinationNodes) {
+            if (node.getFirstChild() != null && node.getFirstChild().getNodeValue() != null) {
+                destinationCounts.merge(node.getFirstChild().getNodeValue(), 1, Integer::sum);
+            }
+        }
 
-		// setup existing values
-		existingValues.clear();
-		for (Node node : metadata.getFieldNodes(testFieldName))
-			existingValues.add(node.getFirstChild().getNodeValue());
+        for (Node node : metadata.getFieldNodes(testFieldName)) {
+            if (node.getFirstChild() == null) continue;
+            String occurrence = node.getFirstChild().getNodeValue();
+            if (occurrence == null) continue;
+            String translated = null;
+            if (!Boolean.TRUE.equals(testValueAsPrefix)) {
+                translated = translationMap.get(occurrence);
+            } else {
+                // Preserve dictionary ordering, but apply only the first matching prefix.
+                for (String prefix : translationMap.keySet()) {
+                    if (occurrence.startsWith(prefix)) {
+                        translated = translationMap.get(prefix);
+                        break;
+                    }
+                }
+            }
+            if (translated == null) continue;
+            boolean sourceInDestination = destinationNodes.contains(node);
+            // An identity translation already in the destination needs no mutation.
+            if (sourceInDestination && occurrence.equals(translated)) continue;
 
-		String occr = null;
-		String translatedOccr = null;
-
-		// recorre las ocurrencias del campo de test
-		for (Node node : metadata.getFieldNodes(testFieldName)) {
-
-			occr = node.getFirstChild().getNodeValue();
-
-			// Busca el valor completo, no el prefijo
-			if (!testValueAsPrefix) {
-
-				// if translation contains the value and the translated value does not yet
-				// exists
-				if (translationMap.containsKey(occr) && !existingValues.contains(translationMap.get(occr))) {
-					translatedOccr = translationMap.get(occr);
-					wasTransformed |= !occr.equals(translatedOccr);
-
-					if (replaceOccurrence)
-						metadata.removeNode(node);
-
-					metadata.addFieldOcurrence(writeFieldName, translatedOccr);
-					existingValues.add(translatedOccr);
-
-				}
-
-			} else { // Busca el prefijo
-
-				Boolean found = false;
-				// recorre los valores del diccionarrio de reemplazo
-				for (String testValue : translationMap.keySet()) {
-
-					// si el valor del diccionario de reemplazo es prefijo de la
-					if (!found && occr.startsWith(testValue)) {
-						translatedOccr = translationMap.get(testValue);
-						wasTransformed = true;
-
-						if (replaceOccurrence)
-							metadata.removeNode(node);
-
-						metadata.addFieldOcurrence(writeFieldName, translatedOccr);
-						existingValues.add(translatedOccr);
-
-					}
-				}
-			}
-
-		}
+            if (Boolean.TRUE.equals(replaceOccurrence)) {
+                metadata.removeNode(node);
+                wasTransformed = true;
+                if (sourceInDestination) {
+                    destinationCounts.computeIfPresent(occurrence, (value, count) -> count - 1);
+                }
+            }
+            if (destinationCounts.getOrDefault(translated, 0) == 0) {
+                metadata.addFieldOcurrence(writeFieldName, translated);
+                destinationCounts.merge(translated, 1, Integer::sum);
+                wasTransformed = true;
+            }
+        }
 
 		return wasTransformed;
 	}
