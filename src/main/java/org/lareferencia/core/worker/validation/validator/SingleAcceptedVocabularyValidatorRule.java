@@ -24,6 +24,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -51,12 +53,23 @@ public class SingleAcceptedVocabularyValidatorRule extends AbstractValidatorRule
     @SchemaProperty(type = "array", order = 2)
     private final List<VocabularyTerm> vocabulary;
 
+    @SchemaProperty(type = "array", order = 3)
+    private final List<String> otherVocabularyValues;
+
+    @JsonIgnore
+    private final Set<String> ignoredValues;
+
     @JsonIgnore
     private final Map<String, Boolean> acceptedByValue;
 
+    public SingleAcceptedVocabularyValidatorRule(String fieldname, List<VocabularyTerm> vocabulary) {
+        this(fieldname, vocabulary, null);
+    }
+
     @JsonCreator
     public SingleAcceptedVocabularyValidatorRule(@JsonProperty("fieldname") String fieldname,
-                                                @JsonProperty("vocabulary") List<VocabularyTerm> vocabulary) {
+                                                @JsonProperty("vocabulary") List<VocabularyTerm> vocabulary,
+                                                @JsonProperty("otherVocabularyValues") List<String> otherVocabularyValues) {
         if (fieldname == null || fieldname.isBlank()) {
             throw new IllegalArgumentException("A metadata field is required");
         }
@@ -72,6 +85,18 @@ public class SingleAcceptedVocabularyValidatorRule extends AbstractValidatorRule
         if (!terms.containsValue(true)) {
             throw new IllegalArgumentException("At least one vocabulary term must be accepted");
         }
+        List<String> otherValues = otherVocabularyValues == null ? List.of() : otherVocabularyValues;
+        Set<String> ignored = new HashSet<>();
+        for (String value : otherValues) {
+            if (value == null || value.isBlank() || !ignored.add(value)) {
+                throw new IllegalArgumentException("Other vocabulary values must be nonblank and unique");
+            }
+            if (terms.containsKey(value)) {
+                throw new IllegalArgumentException("A value cannot belong to both vocabulary collections");
+            }
+        }
+        this.otherVocabularyValues = List.copyOf(otherValues);
+        this.ignoredValues = Set.copyOf(ignored);
         this.fieldname = fieldname;
         this.vocabulary = List.copyOf(vocabulary);
         this.acceptedByValue = Map.copyOf(terms);
@@ -81,17 +106,29 @@ public class SingleAcceptedVocabularyValidatorRule extends AbstractValidatorRule
 
     @Override
     public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
+        List<String> occurrences = metadata.getFieldOcurrences(fieldname);
         List<String> matches = new ArrayList<>();
-        for (String value : metadata.getFieldOcurrences(fieldname)) {
+        for (String value : occurrences) {
             if (acceptedByValue.containsKey(value)) matches.add(value);
         }
         boolean valid = matches.size() == 1 && acceptedByValue.get(matches.get(0));
         List<ContentValidatorResult> details = new ArrayList<>();
-        for (String value : matches) {
-            details.add(new ContentValidatorResult(valid, value));
-        }
-        if (matches.isEmpty()) {
-            details.add(new ContentValidatorResult(false, "no_vocabulary_occurrences_found"));
+        if (!matches.isEmpty()) {
+            // Only vocabulary matches explain acceptance or concurrent values.
+            // Preserve their order and repetitions, including unaccepted terms.
+            details.add(new ContentValidatorResult(valid, String.join(" · ", matches)));
+        } else if (!occurrences.isEmpty()) {
+            // Retain unmatched values so operators can identify candidate mappings.
+            for (String value : occurrences) {
+                if (!ignoredValues.contains(value)) {
+                    details.add(new ContentValidatorResult(false, value));
+                }
+            }
+            if (details.isEmpty()) {
+                details.add(new ContentValidatorResult(false, "no_vocabulary_occurrences_found"));
+            }
+        } else {
+            details.add(new ContentValidatorResult(false, "no_occurrences_found"));
         }
         ValidatorRuleResult result = new ValidatorRuleResult();
         result.setRule(this);
