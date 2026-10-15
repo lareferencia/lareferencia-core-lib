@@ -175,10 +175,15 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
         boolean wasTransformed = false;
-        // Track the destination, including when the source is a different field.
-        // Counts handle repeated source values and mappings between existing terms.
+        // When search and write fields refer to the same logical metadata field,
+        // searchFieldName defines all occurrences being translated. For example,
+        // dc.type.* includes values nested under driver, openaire, and none while
+        // writeFieldName may intentionally target only dc.type.none. For mappings
+        // between different fields, uniqueness is checked in the destination.
+        String destinationScope = logicalField(testFieldName).equals(logicalField(writeFieldName))
+                ? allSubfields(testFieldName) : allSubfields(writeFieldName);
         Map<String, Integer> destinationCounts = new HashMap<>();
-        Set<Node> destinationNodes = new HashSet<>(metadata.getFieldNodes(writeFieldName));
+        Set<Node> destinationNodes = new HashSet<>(metadata.getFieldNodes(destinationScope));
         for (Node node : destinationNodes) {
             if (node.getFirstChild() != null && node.getFirstChild().getNodeValue() != null) {
                 destinationCounts.merge(node.getFirstChild().getNodeValue(), 1, Integer::sum);
@@ -222,6 +227,16 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 
 		return wasTransformed;
 	}
+
+    private static String allSubfields(String fieldName) {
+        int lastSeparator = fieldName.lastIndexOf('.');
+        return lastSeparator < 0 ? fieldName : fieldName.substring(0, lastSeparator + 1) + "*";
+    }
+
+    private static String logicalField(String fieldName) {
+        int lastSeparator = fieldName.lastIndexOf('.');
+        return lastSeparator < 0 ? fieldName : fieldName.substring(0, lastSeparator);
+    }
 
 	/**
 	 * Sets the translation map for field value translations.
