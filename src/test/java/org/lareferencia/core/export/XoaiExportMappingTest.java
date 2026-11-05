@@ -49,6 +49,23 @@ class XoaiExportMappingTest {
         assertThrows(IllegalArgumentException.class, () -> mapping("{\"x\":{\"select\":\"dc.title.*\",\"type\":\"boolean\"}}").project(XML));
         assertThrows(Exception.class, () -> scalar.project("<!DOCTYPE metadata [<!ENTITY e SYSTEM 'file:///etc/passwd'>]><metadata>&e;</metadata>"));
         assertThrows(IllegalArgumentException.class, () -> scalar.project("<record/>"));
+        assertThrows(IllegalArgumentException.class, () -> mapping("{\"x\":{\"select\":\"dc.title\",\"type\":\"string\",\"maxLength\":-1}}"));
+    }
+
+    @Test void maxLengthSkipsOversizedValuesAfterNormalizationAndCountsUnicodeCodePoints() throws Exception {
+        var projection = mapping("""
+            {"rights":{"select":"dc.rights.*","type":"string","normalize":["trim"],"maxLength":8}}
+            """);
+        String xml = """
+            <metadata xmlns="http://www.lyncode.com/xoai"><element name="dc"><element name="rights">
+            <element name="license"><field name="value">  CC BY  </field></element>
+            <element name="text"><field name="value">This is a very long copyright text</field></element>
+            <element name="unicode"><field name="value">😀😀😀😀😀😀😀😀😀</field></element>
+            </element></element></metadata>
+            """;
+        var rights = projection.project(xml).path("rights");
+        assertEquals(1, rights.size());
+        assertEquals("CC BY", rights.get(0).asText());
     }
     @Test void sequentialOccurrencesKeepAttributesWithTheirOwnValue() throws Exception {
         var mapping = mapping("""

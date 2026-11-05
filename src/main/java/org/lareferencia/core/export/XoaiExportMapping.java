@@ -73,12 +73,16 @@ public final class XoaiExportMapping {
                     });
                 }
             } else {
-                allowed(rule, Set.of("select", "type", "many", "normalize", "unique"));
+                allowed(rule, Set.of("select", "type", "many", "normalize", "unique", "maxLength"));
                 expression(rule.path("select"), false);
                 if (!Set.of("string", "integer", "boolean").contains(rule.path("type").asText()))
                     throw new IllegalArgumentException("Unsupported type");
                 for (String key : List.of("many", "unique"))
                     if (rule.has(key) && !rule.get(key).isBoolean()) throw new IllegalArgumentException(key + " must be boolean");
+                if (rule.has("maxLength") && (!rule.get("maxLength").canConvertToInt() || rule.get("maxLength").asInt() < 0))
+                    throw new IllegalArgumentException("maxLength must be a non-negative integer");
+                if (rule.has("maxLength") && !rule.path("type").asText().equals("string"))
+                    throw new IllegalArgumentException("maxLength is only supported for string fields");
                 if (rule.has("normalize")) {
                     if (!rule.get("normalize").isArray()) throw new IllegalArgumentException("normalize must be array");
                     rule.get("normalize").forEach(n -> { if (!n.isTextual() || !n.asText().equals("trim")) throw new IllegalArgumentException("Unknown normalization"); });
@@ -146,8 +150,6 @@ public final class XoaiExportMapping {
             boolean grouped = rule.has("forEach");
             NodeList nodes = (NodeList) XPathFactory.newInstance().newXPath().evaluate(
                     grouped ? selectionExpression(rule.get("forEach")) : expression(rule.get("select"), false), context, XPathConstants.NODESET);
-            if (!grouped && !rule.path("many").asBoolean(true) && nodes.getLength() > 1)
-                throw new IllegalArgumentException("Multiple values for scalar " + entry.getKey());
             ArrayNode values = JSON.createArrayNode();
             Set<JsonNode> seen = new HashSet<>();
             for (int i = 0; i < nodes.getLength(); i++) {
@@ -161,6 +163,7 @@ public final class XoaiExportMapping {
                 else {
                     String text = nodes.item(i).getTextContent();
                     if (rule.path("normalize").isArray() && rule.get("normalize").size() > 0) text = text.trim();
+                    if (rule.has("maxLength") && text.codePointCount(0, text.length()) > rule.get("maxLength").asInt()) continue;
                     switch (rule.get("type").asText()) {
                         case "integer":
                             if (!text.matches("[+-]?[0-9]+")) throw new IllegalArgumentException("Invalid integer");
