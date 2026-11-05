@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "XOAI export mapping v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "specVersion",
+    "name",
+    "version",
+    "inputSchema",
+    "fields"
+  ],
+  "properties": {
+    "specVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "inputSchema": {
+      "const": "xoai"
+    },
+    "fields": {
+      "$ref": "#/$defs/fields"
+    }
+  },
+  "$defs": {
+    "fields": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "select",
+              "type"
+            ],
+            "properties": {
+              "select": {
+                "type": "string",
+                "pattern": "^(?:(?:[A-Za-z_][A-Za-z0-9_-]*|\\*)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|\\*))*(?::[A-Za-z_][A-Za-z0-9_-]*)?|:[A-Za-z_][A-Za-z0-9_-]*)$"
+              },
+              "type": {
+                "enum": [
+                  "string",
+                  "integer",
+                  "boolean"
+                ]
+              },
+              "many": {
+                "type": "boolean",
+                "default": true
+              },
+              "unique": {
+                "type": "boolean",
+                "default": false
+              },
+              "normalize": {
+                "type": "array",
+                "items": {
+                  "const": "trim"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "forEach",
+              "fields"
+            ],
+            "properties": {
+              "forEach": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|\\*)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|\\*))*$"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|\\*)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|\\*))*$"
+                    }
+                  }
+                ]
+              },
+              "fields": {
+                "$ref": "#/$defs/fields"
+              },
+              "occurrenceStart": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+                "description": "Each named field starts an occurrence; following sibling fields belong to it. Requires direct :field selectors."
+              },
+              "includeContext": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "schema",
+                    "qualifier",
+                    "path"
+                  ]
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "occurrenceStart"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "fields": {
+                      "additionalProperties": {
+                        "required": [
+                          "select",
+                          "type"
+                        ],
+                        "properties": {
+                          "select": {
+                            "pattern": "^:[A-Za-z_][A-Za-z0-9_-]*$"
+                          }
+                        },
+                        "not": {
+                          "required": [
+                            "forEach"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

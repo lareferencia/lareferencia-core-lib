@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Metadata enrichment return v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "exportId",
+    "network",
+    "catalogId",
+    "identifier",
+    "metadataHash",
+    "enrichment"
+  ],
+  "properties": {
+    "exportId": {
+      "type": "string",
+      "pattern": "^exp-"
+    },
+    "network": {
+      "type": "string",
+      "minLength": 1
+    },
+    "catalogId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metadataHash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "enrichment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "schemaVersion",
+        "runId",
+        "generatedAt",
+        "values"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schemaVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "values": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

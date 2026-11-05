@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Common complete metadata record v1 (export contract v2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "network",
+    "catalogId",
+    "identifier",
+    "metadataHash",
+    "data"
+  ],
+  "properties": {
+    "network": {
+      "type": "string",
+      "minLength": 1
+    },
+    "catalogId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metadataHash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "titles",
+        "creators",
+        "contributors",
+        "keywords",
+        "descriptions",
+        "publishers",
+        "dates",
+        "types",
+        "formats",
+        "identifiers",
+        "sources",
+        "languages",
+        "relations",
+        "coverage",
+        "rights",
+        "others",
+        "repository",
+        "bundles",
+        "additionalMetadata"
+      ],
+      "properties": {
+        "titles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "creators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "contributors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "descriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "publishers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "dates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "types": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "formats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "identifiers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "rights": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "others": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "handle",
+              "identifier",
+              "lastModifyDate"
+            ],
+            "properties": {
+              "handle": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "identifier": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "lastModifyDate": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "repository": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mail",
+              "name"
+            ],
+            "properties": {
+              "mail": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "name": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "bundles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {}
+          }
+        },
+        "additionalMetadata": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/additionalOccurrence"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "occurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "qualifier": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "const": "none"
+          }
+        }
+      }
+    },
+    "additionalOccurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "path"
+      ],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

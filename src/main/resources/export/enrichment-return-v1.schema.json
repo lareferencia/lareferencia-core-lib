@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Metadata enrichment return v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "exportId",
+    "recordKey",
+    "source",
+    "input",
+    "enrichment"
+  ],
+  "properties": {
+    "exportId": {
+      "type": "string",
+      "pattern": "^exp-"
+    },
+    "recordKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "network",
+        "catalogId",
+        "identifier",
+        "snapshotRef",
+        "originalMetadataHash"
+      ],
+      "properties": {
+        "network": {
+          "type": "string",
+          "minLength": 1
+        },
+        "catalogId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identifier": {
+          "type": "string",
+          "minLength": 1
+        },
+        "snapshotRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "originalMetadataHash": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variant",
+        "metadataHash"
+      ],
+      "properties": {
+        "variant": {
+          "enum": [
+            "original",
+            "processed"
+          ]
+        },
+        "metadataHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payloadHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "enrichment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "schemaVersion",
+        "runId",
+        "generatedAt",
+        "values"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schemaVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "values": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}
