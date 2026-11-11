@@ -23,6 +23,8 @@ package org.lareferencia.core.worker.indexing;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.solr.client.solrj.SolrQuery;
+import org.lareferencia.core.worker.solr.RunningSolrException;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.lareferencia.core.worker.solr.BaseSolrWorker;
 import lombok.Getter;
@@ -38,7 +40,7 @@ import lombok.Setter;
  */
 public class FullUnindexerWorker extends BaseSolrWorker<NetworkRunningContext> {
 
-    private static Logger logger = LogManager.getLogger(IndexerWorker.class);
+    private static Logger logger = LogManager.getLogger(FullUnindexerWorker.class);
 
     @Getter
     @Setter
@@ -60,34 +62,52 @@ public class FullUnindexerWorker extends BaseSolrWorker<NetworkRunningContext> {
     /**
      * Executes the unindexing operation for the network.
      */
+    private String networkQuery;
+    private long documentsBefore;
+
     @Override
-    public void execute() {
-        String networkAcronym = runningContext.getNetwork().getAcronym();
-
-        logger.debug("Executing index deletion (without indexing): " + networkAcronym);
-        logInfo("WORKER:" + this.getName() + ":  UnIndex:: by: " + this.solrNetworkIDField + ":"
-                + networkAcronym);
-
+    public void execute() throws RunningSolrException {
+        String acronym = runningContext.getNetwork().getAcronym();
+        networkQuery = solrNetworkIDField + ":" + acronym;
         try {
-            deleteByField(this.solrNetworkIDField, networkAcronym);
-        } catch (Exception e) {
-            error();
-            logError("WORKER:" + this.getName() + ": UnIndex:: by: " + this.solrNetworkIDField + ":"
-                    + networkAcronym + " :: " + e.getMessage());
+            documentsBefore = countNetworkDocuments();
+            logger.info("WORKER:{}: Unindex target={} query={} documentsBefore={}",
+                    getName(), getSolrUrl(), networkQuery, documentsBefore);
+            if (documentsBefore == 0) {
+                logger.warn("No documents match {} in {}. Check this worker's Solr URL against the indexer and VuFind.",
+                        networkQuery, getSolrUrl());
+            }
+            deleteByField(solrNetworkIDField, acronym);
+        } catch (Exception exception) {
+            throw new RunningSolrException("Unindex failed: target=" + getSolrUrl()
+                    + " query=" + networkQuery + " :: " + exception.getMessage());
         }
     }
 
-    /******************* Auxiliares ********** */
-    private void error() {
-        this.stop();
+    @Override
+    protected void postRun() throws RunningSolrException {
+        try {
+            solrCommit();
+            long remaining = countNetworkDocuments();
+            logger.info("WORKER:{}: Unindex committed target={} query={} documentsBefore={} documentsRemaining={}",
+                    getName(), getSolrUrl(), networkQuery, documentsBefore, remaining);
+            if (remaining > 0) {
+                throw new RunningSolrException("Unindex verification failed: " + remaining
+                        + " documents remain in " + getSolrUrl() + " for " + networkQuery
+                        + ". Check concurrent indexing and the Solr query.");
+            }
+        } catch (RunningSolrException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new RunningSolrException("Unindex commit or verification failed: target=" + getSolrUrl()
+                    + " query=" + networkQuery + " :: " + exception.getMessage());
+        }
     }
 
-    private void logError(String message) {
-        logger.error(message);
-    }
-
-    private void logInfo(String message) {
-        logger.info(message);
+    private long countNetworkDocuments() throws Exception {
+        SolrQuery query = new SolrQuery(networkQuery);
+        query.setRows(0);
+        return solrClient.query(query).getResults().getNumFound();
     }
 
     @Override
