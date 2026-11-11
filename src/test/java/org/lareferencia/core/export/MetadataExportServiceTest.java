@@ -181,6 +181,27 @@ class MetadataExportServiceTest {
             assertTrue(Files.isRegularFile(failure.directory().resolve("records.sqlite")));
         } finally { Thread.interrupted(); }
     }
+    @Test void nonEmptyWalsRefuseImmutableReadsAndFailThePackage() throws Exception {
+        var source = sources.get(0);
+        // A WAL-mode catalog left with an open connection simulates an unfinalized snapshot.
+        Connection pending = DriverManager.getConnection("jdbc:sqlite:" + source.directory().resolve("catalog/catalog.db"));
+        try (Statement s = pending.createStatement()) {
+            s.execute("PRAGMA journal_mode=WAL");
+            s.execute("INSERT INTO oai_record VALUES ('new','oai:new','2026-11-05','original',0)");
+        }
+        assertTrue(Files.size(source.directory().resolve("catalog/catalog.db-wal")) > 0);
+        var failure = assertThrows(MetadataExportService.ExportFailure.class,
+                () -> service.export(request("original", "jsonl", "collection", false, "none", null, null)));
+        assertTrue(failure.getMessage().contains("non-empty WAL"), failure.getMessage());
+        assertEquals("FAILED", ExportJson.JSON.readTree(failure.directory().resolve("manifest.json").toFile()).path("status").asText());
+        // Empty sidecar WALs are harmless once the database is checkpointed.
+        pending.close();
+        for (var each : sources) try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + each.directory().resolve("catalog/catalog.db")); Statement s = c.createStatement()) {
+            if (each == source) s.execute("DELETE FROM oai_record WHERE id='new'");
+            s.execute("PRAGMA journal_mode=DELETE");
+        }
+        assertEquals(4, service.export(request("original", "jsonl", "collection", false, "none", null, null)).exported());
+    }
     @Test void networkPartitionsAreSeparatedAndIndexPositionsRecoverJsonAndXml() throws Exception {
         for (String format : List.of("json", "xml")) {
             var request = new ExportRequest(List.of("RCAAP", "IBICT"), false, "original", format,

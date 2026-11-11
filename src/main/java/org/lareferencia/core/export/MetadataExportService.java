@@ -9,11 +9,16 @@ import java.time.Instant;
 import java.util.*;
 import org.lareferencia.core.metadata.IMetadataStore;
 import org.lareferencia.core.util.PathUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /** Streaming export orchestration; no mutation of snapshots or metadata. */
 @Service
 public class MetadataExportService {
+    private static final Logger log = LoggerFactory.getLogger(MetadataExportService.class);
+    /** Cumulative progress is logged every N attempted records, matching other long-running shell loops. */
+    private static final long PROGRESS_INTERVAL = 10000;
     public record Result(Path directory, String status, long attempted, long exported, long filtered, long errors) {
         public boolean successful() { return status.equals("COMPLETE"); }
     }
@@ -59,21 +64,26 @@ public class MetadataExportService {
                     ExportBatchWriter writer = batches) {
                 for (var source : selection.sources()) {
                     source.verification().verify();
+                    long sourceAttempted = 0, sourceExported = 0, sourceFiltered = 0, sourceErrors = 0;
+                    log.info("Export {}: source {} ({}): started", exportId, source.reference(), source.acronym());
                     try (ExportCatalogReader catalog = new ExportCatalogReader(source, needsValidation(request))) {
                         ExportCatalogReader.Row row;
                         while ((row = catalog.next()) != null) {
                             if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Export interrupted");
-                            attempted++;
+                            attempted++; sourceAttempted++;
+                            if (attempted % PROGRESS_INTERVAL == 0)
+                                log.info("Export {}: attempted {}, exported {}, filtered {}, errors {}",
+                                        exportId, attempted, exported, filtered, errors);
                             ObjectNode envelope = envelope(exportId, source, row, request.variant());
                             Prepared prepared;
                             try {
                                 validateRow(row, request);
                                 if (request.validOnly() && !Boolean.TRUE.equals(row.valid())) {
-                                    index.add(envelope, row, "FILTERED", null, null); filtered++; continue;
+                                    index.add(envelope, row, "FILTERED", null, null); filtered++; sourceFiltered++; continue;
                                 }
                                 prepared = prepare(envelope, source, request, mapping);
                             } catch (RecordFailure e) {
-                                errors++;
+                                errors++; sourceErrors++;
                                 ObjectNode error = compact(envelope); error.remove("data");
                                 error.put("error", e.getMessage());
                                 errorWriter.write(ExportJson.JSON.writeValueAsString(error)); errorWriter.newLine();
@@ -81,9 +91,11 @@ public class MetadataExportService {
                             }
                             String partition = request.partitionBy().equals("none") ? "data" : PathUtils.sanitizeNetworkAcronym(source.acronym());
                             var location = writer.write(partition, PathUtils.sanitizeNetworkAcronym(source.acronym()) + "_" + row.id(), prepared.bytes());
-                            index.add(envelope, row, "EXPORTED", location, null); exported++;
+                            index.add(envelope, row, "EXPORTED", location, null); exported++; sourceExported++;
                         }
                     }
+                    log.info("Export {}: source {} ({}): finished: attempted {}, exported {}, filtered {}, errors {}",
+                            exportId, source.reference(), source.acronym(), sourceAttempted, sourceExported, sourceFiltered, sourceErrors);
                     source.verification().verify();
                 }
             }
