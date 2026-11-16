@@ -33,6 +33,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.zip.GZIPInputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -79,9 +80,9 @@ class MetadataStoreFSImplTest {
         String networkAcronym = testSnapshotMetadata.getNetwork().getAcronym();
         String sanitizedNetwork = networkAcronym != null ? networkAcronym.toUpperCase() : "UNKNOWN";
         return new File(tempDir.toFile(), sanitizedNetwork + "/metadata/" + 
-                       hash.substring(0, 1) + "/" + 
-                       hash.substring(1, 2) + "/" + 
-                       hash.substring(2, 3) + "/" + 
+                       hash.substring(0, 1).toUpperCase(Locale.ROOT) + "/" +
+                       hash.substring(1, 2).toUpperCase(Locale.ROOT) + "/" +
+                       hash.substring(2, 3).toUpperCase(Locale.ROOT) + "/" +
                        hash + ".xml.gz");
     }
 
@@ -367,15 +368,18 @@ class MetadataStoreFSImplTest {
 
     @Test
     @DisplayName("storeAndReturnHash should handle hash with lowercase letters")
-    void testStoreAndReturnHashLowercaseHash() {
+    void testStoreAndReturnHashLowercaseHash() throws MetadataRecordStoreException {
         String metadata = "<record><title>Test</title></record>";
         hashingHelper.setNextHash("abc123456789");
 
-        store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        String hash = store.storeAndReturnHash(testSnapshotMetadata, metadata);
+        assertEquals("abc123456789", hash);
 
         // Hash should be stored, and partition path should use uppercase
         File file = getExpectedFilePath("abc123456789");
+        assertEquals(tempDir.resolve("TEST/metadata/A/B/C/abc123456789.xml.gz"), file.toPath());
         assertTrue(file.exists());
+        assertEquals(metadata, store.getMetadata(testSnapshotMetadata, hash));
     }
 
     @Test
