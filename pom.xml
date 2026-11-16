@@ -29,13 +29,13 @@
 	<artifactId>lareferencia-core-lib</artifactId>
 	<name>LA Referencia core lib</name>
 	<description>LA Referencia core library</description>
-	<version>5.0.0-rc3</version>
 
 	<parent>
-		<groupId>org.lareferencia</groupId>
-		<artifactId>lareferencia-parent</artifactId>
-		<version>5.0.0-rc3</version>
-	</parent>
+        <groupId>org.lareferencia</groupId>
+        <artifactId>lareferencia-parent</artifactId>
+        <version>5.0.0-rc3</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
 
 	<dependencies>
 
@@ -51,7 +51,6 @@
 		<dependency>
 			<groupId>org.lareferencia</groupId>
 			<artifactId>lareferencia-oclc-harvester</artifactId>
-			<version>5.0.0-rc3</version>
 		</dependency>
 
 
