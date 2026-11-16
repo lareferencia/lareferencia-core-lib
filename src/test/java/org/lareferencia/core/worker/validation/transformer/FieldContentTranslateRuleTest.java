@@ -52,6 +52,12 @@ class FieldContentTranslateRuleTest {
         return node;
     }
 
+    private void stubSourceAndDestinationNodes(List<Node> nodes) {
+        when(metadata.getFieldNodes("dc.type")).thenReturn(nodes);
+        // The rule checks all destination subfields before translating sources.
+        when(metadata.getFieldNodes("dc.*")).thenReturn(nodes);
+    }
+
     @Test
     @DisplayName("Should translate value using translation array")
     void testBasicTranslation() {
@@ -63,7 +69,7 @@ class FieldContentTranslateRuleTest {
         rule.setReplaceOccurrence(true);
 
         Node node = createMockNode("article");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        stubSourceAndDestinationNodes(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -81,7 +87,7 @@ class FieldContentTranslateRuleTest {
         rule.setTranslationArray(translations);
 
         Node node = createMockNode("ARTICLE");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        stubSourceAndDestinationNodes(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -99,7 +105,7 @@ class FieldContentTranslateRuleTest {
         rule.setReplaceOccurrence(false);
 
         Node node = createMockNode("article");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        stubSourceAndDestinationNodes(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -118,11 +124,30 @@ class FieldContentTranslateRuleTest {
 
         Node node1 = createMockNode("article");
         Node node2 = createMockNode("Artículo");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(node1, node2));
+        stubSourceAndDestinationNodes(Arrays.asList(node1, node2));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
-        assertFalse(result);
+        // Replacing a source is a transformation even when its translation
+        // already exists and no additional destination occurrence is needed.
+        assertTrue(result);
+        verify(metadata).removeNode(node1);
+        verify(metadata, never()).removeNode(node2);
+        verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Should preserve the source when its translation exists and replacement is disabled")
+    void testExistingTranslationWithoutReplacement() {
+        rule.setTranslationArray(Collections.singletonList(new Translation("article", "Artículo")));
+        rule.setReplaceOccurrence(false);
+
+        Node source = createMockNode("article");
+        Node translated = createMockNode("Artículo");
+        stubSourceAndDestinationNodes(Arrays.asList(source, translated));
+
+        assertFalse(rule.transform(snapshotMetadata, record, metadata));
+        verify(metadata, never()).removeNode(any());
         verify(metadata, never()).addFieldOcurrence(anyString(), anyString());
     }
 
@@ -137,6 +162,7 @@ class FieldContentTranslateRuleTest {
 
         Node node = createMockNode("article");
         when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        when(metadata.getFieldNodes("dc.type.*")).thenReturn(Collections.emptyList());
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -153,7 +179,7 @@ class FieldContentTranslateRuleTest {
         rule.setTranslationArray(translations);
 
         Node node = createMockNode("thesis");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        stubSourceAndDestinationNodes(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -170,7 +196,7 @@ class FieldContentTranslateRuleTest {
         );
         rule.setTranslationArray(translations);
 
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.emptyList());
+        stubSourceAndDestinationNodes(Collections.emptyList());
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -191,7 +217,7 @@ class FieldContentTranslateRuleTest {
         Node node1 = createMockNode("article");
         Node node2 = createMockNode("book");
         Node node3 = createMockNode("thesis");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Arrays.asList(node1, node2, node3));
+        stubSourceAndDestinationNodes(Arrays.asList(node1, node2, node3));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -211,7 +237,7 @@ class FieldContentTranslateRuleTest {
         rule.setTranslationArray(translations);
 
         Node node = createMockNode("español");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        stubSourceAndDestinationNodes(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -228,7 +254,7 @@ class FieldContentTranslateRuleTest {
         rule.setTranslationArray(translations);
 
         Node node = createMockNode("article");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        stubSourceAndDestinationNodes(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -244,7 +270,7 @@ class FieldContentTranslateRuleTest {
         rule.setTranslationArray(translations);
 
         Node node = createMockNode("journal article");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        stubSourceAndDestinationNodes(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -258,7 +284,7 @@ class FieldContentTranslateRuleTest {
         rule.setTranslationArray(Collections.emptyList());
 
         Node node = createMockNode("article");
-        when(metadata.getFieldNodes("dc.type")).thenReturn(Collections.singletonList(node));
+        stubSourceAndDestinationNodes(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
