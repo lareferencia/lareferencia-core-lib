@@ -2,7 +2,7 @@
 
 Shared library for the LA Referencia platform: OAI-PMH harvesting, metadata
 processing, catalog and validation persistence, statistics, workers and the
-workflow/action engine (verified against `src/main/java/org/lareferencia/core/`, 2026-09-23).
+workflow/action engine (verified against `src/main/java/org/lareferencia/core/`, 2026-11-16).
 
 ## 🎯 Packages (`org.lareferencia.core`)
 
@@ -19,6 +19,7 @@ workflow/action engine (verified against `src/main/java/org/lareferencia/core/`,
 | `util` | Cross-cutting utilities (`ConfigPathResolver`, …) |
 | `embedding` | Embedding support |
 | `oabroker` | OA Broker integration |
+| `export` | Read-only LGK export, XOAI mapping, batches, provenance and SQLite package index |
 
 Conventions: the current namespace is `org.lareferencia.core` (never the legacy
 `org.lareferencia.backend`). See
@@ -36,6 +37,16 @@ Key behaviors:
   action configuration tables consolidated in `V5.0.0.8__Harvester_action_configuration.sql`
   (see [`docs/WORKFLOW_ACTIONS.md`](../docs/WORKFLOW_ACTIONS.md)).
 
+## Metadata export
+
+`MetadataExportService` reads completed LGK snapshots through dedicated immutable
+SQLite connections. It rejects non-empty WAL files instead of exporting stale
+data, verifies source consistency and records per-record failures. Mapping
+profiles, package layouts and the enrichment-return contract are described in
+[the export guide](../docs/METADATA_EXPORT.md) and
+[the exchange format](../docs/METADATA_EXCHANGE_FORMAT.md). Importing returned
+enrichments is not implemented by this export flow.
+
 ## 📄 License
 
 Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.  
@@ -48,4 +59,4 @@ See [LICENSE.txt](../LICENSE.txt) for complete terms.
 ---
 
 **LA Referencia** - Red Latinoamericana y de España de Ciencia Abierta  
-Part of the LA Referencia Platform 5.0.0-rc3
+Part of the LA Referencia Platform; Maven version inherited from `lareferencia-parent`.
