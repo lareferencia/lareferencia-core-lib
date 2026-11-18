@@ -137,7 +137,12 @@ public final class XoaiExportMapping {
         StringBuilder xpath = new StringBuilder(".");
         if (!parts[0].isEmpty()) for (String part : parts[0].split("\\."))
             xpath.append(part.equals("*") ? "//*[local-name()='element']" : "/*[local-name()='element' and @name='" + part + "']");
-        if (!elements) xpath.append("/*[local-name()='field' and @name='").append(parts.length > 1 ? parts[1] : "value").append("']");
+        if (!elements) {
+            String field = parts.length > 1 ? parts[1] : "value";
+            xpath.append("/*[local-name()='field' and (").append("@name='").append(field).append("'");
+            if (field.equals("value")) xpath.append(" or not(@name)");
+            xpath.append(")]");
+        }
         return xpath.toString();
     }
 
@@ -189,7 +194,8 @@ public final class XoaiExportMapping {
         Node current = null;
         for (Node child = element.getFirstChild(); child != null; child = child.getNextSibling()) {
             if (!(child instanceof Element field) || !"field".equals(field.getLocalName())) continue;
-            if (start.equals(field.getAttribute("name"))) {
+            String fieldName = field.hasAttribute("name") ? field.getAttribute("name") : "value";
+            if (start.equals(fieldName)) {
                 current = element.cloneNode(false);
                 groups.add(current);
             }

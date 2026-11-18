@@ -67,6 +67,28 @@ class XoaiExportMappingTest {
         assertEquals(1, rights.size());
         assertEquals("CC BY", rights.get(0).asText());
     }
+    @Test void unnamedFieldsMatchValueSelectorsAndStartOccurrences() throws Exception {
+        var projection = mapping("""
+            {"flat":{"select":"dc.subject.*:value","type":"string"},
+             "groups":{"forEach":"dc.subject.*","occurrenceStart":"value","fields":{
+               "value":{"select":":value","type":"string","many":false},
+               "language":{"select":":language","type":"string","many":false}}}}
+            """);
+        var result = projection.project("""
+            <metadata xmlns="http://www.lyncode.com/xoai"><element name="dc"><element name="subject"><element name="pt">
+            <field>ANARQUISMO</field><field name="language">por</field>
+            <field name="value">SINDICALISMO</field><field name="language">spa</field>
+            <field></field></element></element></element></metadata>
+            """);
+        assertEquals(3, result.path("flat").size());
+        assertEquals("ANARQUISMO", result.at("/groups/0/value").asText());
+        assertEquals("por", result.at("/groups/0/language").asText());
+        assertEquals("SINDICALISMO", result.at("/groups/1/value").asText());
+        assertEquals("spa", result.at("/groups/1/language").asText());
+        assertEquals("", result.at("/groups/2/value").asText());
+        assertEquals(3, result.path("groups").size());
+    }
+
     @Test void sequentialOccurrencesKeepAttributesWithTheirOwnValue() throws Exception {
         var mapping = mapping("""
             {"titles":{"forEach":"dc.title.*","occurrenceStart":"value","fields":{
