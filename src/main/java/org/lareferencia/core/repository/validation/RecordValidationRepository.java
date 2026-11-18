@@ -212,8 +212,18 @@ public class RecordValidationRepository {
      * Streams all validation records.
      */
     public Stream<ValidationRecord> streamAll(Long snapshotId) throws IOException {
+        return streamAll(snapshotId, false);
+    }
+
+    /** Required reads must fail if the protected validation database is unavailable. */
+    public Stream<ValidationRecord> streamAllRequired(Long snapshotId) throws IOException {
+        return streamAll(snapshotId, true);
+    }
+
+    private Stream<ValidationRecord> streamAll(Long snapshotId, boolean required) throws IOException {
         DataSource ds = dbManager.getDataSource(snapshotId);
         if (ds == null) {
+            if (required) throw new IOException("Required validation database is not open for snapshot " + snapshotId);
             return Stream.empty();
         }
 

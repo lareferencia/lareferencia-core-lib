@@ -294,6 +294,11 @@ public class OAIRecordCatalogRepository {
         return streamRecords(metadata, SELECT_ALL_SQL);
     }
 
+    /** Required reads must never treat an unavailable catalog as an empty snapshot. */
+    public Stream<OAIRecord> streamAllRequired(SnapshotMetadata metadata) {
+        return streamRecords(metadata, SELECT_ALL_SQL, true);
+    }
+
     /**
      * Stream de registros no eliminados.
      * 
@@ -435,10 +440,15 @@ public class OAIRecordCatalogRepository {
      * El Stream debe ser cerrado después de uso para liberar recursos.
      */
     private Stream<OAIRecord> streamRecords(SnapshotMetadata metadata, String sql) {
+        return streamRecords(metadata, sql, false);
+    }
+
+    private Stream<OAIRecord> streamRecords(SnapshotMetadata metadata, String sql, boolean required) {
         Long snapshotId = metadata.getSnapshotId();
         DataSource ds = dbManager.getDataSource(snapshotId);
 
         if (ds == null) {
+            if (required) throw new IllegalStateException("Required catalog is not open for snapshot " + snapshotId);
             logger.warn("CATALOG REPO: DataSource not found for snapshot {}", snapshotId);
             return Stream.empty();
         }
