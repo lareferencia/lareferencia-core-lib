@@ -9,6 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
+import org.lareferencia.core.repository.catalog.CatalogDatabaseManager;
+import org.lareferencia.core.repository.validation.ValidationDatabaseManager;
 import org.lareferencia.core.repository.catalog.OAIRecord;
 import org.lareferencia.core.repository.catalog.OAIRecordCatalogRepository;
 import org.lareferencia.core.repository.validation.RecordValidationRepository;
@@ -23,14 +25,19 @@ import com.google.common.hash.Funnels;
 public class MetadataOrphanAnalysisService {
     private static final double FALSE_POSITIVE_PROBABILITY = 0.01d;
     private final IMetadataStore metadataStore;
+    private final CatalogDatabaseManager catalogDatabases;
+    private final ValidationDatabaseManager validationDatabases;
     private final OAIRecordCatalogRepository oaiRecords;
     private final RecordValidationRepository validationRecords;
 
     public MetadataOrphanAnalysisService(IMetadataStore metadataStore, OAIRecordCatalogRepository oaiRecords,
-            RecordValidationRepository validationRecords) {
+            RecordValidationRepository validationRecords, CatalogDatabaseManager catalogDatabases,
+            ValidationDatabaseManager validationDatabases) {
         this.metadataStore = metadataStore;
         this.oaiRecords = oaiRecords;
         this.validationRecords = validationRecords;
+        this.catalogDatabases = catalogDatabases;
+        this.validationDatabases = validationDatabases;
     }
 
     public MetadataOrphanAnalysis analyze(List<SnapshotMetadata> protectedSnapshots)
@@ -39,6 +46,10 @@ public class MetadataOrphanAnalysisService {
         AtomicLong oaiCount = new AtomicLong();
         AtomicLong validationCount = new AtomicLong();
         for (SnapshotMetadata snapshot : protectedSnapshots) collect(snapshot, retained, oaiCount, validationCount);
+        if (oaiCount.get() == 0 && validationCount.get() == 0) {
+            throw new IOException("No metadata references were loaded from protected snapshots "
+                    + protectedSnapshots.stream().map(SnapshotMetadata::getSnapshotId).toList());
+        }
         AtomicLong scanned = new AtomicLong();
         AtomicLong candidates = new AtomicLong();
         metadataStore.forEachHash(protectedSnapshots.get(0), hash -> {
@@ -69,6 +80,10 @@ public class MetadataOrphanAnalysisService {
         AtomicLong oaiCount = new AtomicLong();
         AtomicLong validationCount = new AtomicLong();
         for (SnapshotMetadata snapshot : protectedSnapshots) collect(snapshot, retained, oaiCount, validationCount);
+        if (oaiCount.get() == 0 && validationCount.get() == 0) {
+            throw new IOException("No metadata references were loaded from protected snapshots "
+                    + protectedSnapshots.stream().map(SnapshotMetadata::getSnapshotId).toList());
+        }
 
         AtomicLong scanned = new AtomicLong();
         AtomicLong candidates = new AtomicLong();
@@ -109,26 +124,38 @@ public class MetadataOrphanAnalysisService {
                 maxMetadataEntries, maxDeletes));
     }
 
-    private BloomFilter<CharSequence> retainedHashes(List<SnapshotMetadata> protectedSnapshots) {
+    private BloomFilter<CharSequence> retainedHashes(List<SnapshotMetadata> protectedSnapshots) throws IOException {
         if (protectedSnapshots == null || protectedSnapshots.isEmpty())
             throw new IllegalArgumentException("At least one protected snapshot is required");
-        long expected = Math.max(1L, protectedSnapshots.stream().mapToLong(this::countReferences).sum());
+        // Open every protected database before counting or scanning the metadata store.
+        // Missing files and unreadable databases must abort the complete operation.
+        for (SnapshotMetadata snapshot : protectedSnapshots) {
+            catalogDatabases.openSnapshotForRead(snapshot);
+            validationDatabases.openSnapshotForRead(snapshot);
+        }
+        long references = 0;
+        for (SnapshotMetadata snapshot : protectedSnapshots) references += countReferences(snapshot);
+        long expected = Math.max(1L, references);
         return BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8), expected, FALSE_POSITIVE_PROBABILITY);
     }
 
-    private long countReferences(SnapshotMetadata snapshot) {
-        try (Stream<OAIRecord> records = oaiRecords.streamAll(snapshot)) {
-            return records.count() + validationRecords.count(snapshot.getSnapshotId());
+    private long countReferences(SnapshotMetadata snapshot) throws IOException {
+        long count;
+        try (Stream<OAIRecord> records = oaiRecords.streamAllRequired(snapshot)) {
+            count = records.count();
+        }
+        try (Stream<ValidationRecord> records = validationRecords.streamAllRequired(snapshot.getSnapshotId())) {
+            return count + records.count();
         }
     }
 
     private void collect(SnapshotMetadata snapshot, BloomFilter<CharSequence> retained, AtomicLong oaiCount,
             AtomicLong validationCount) throws IOException {
-        try (Stream<OAIRecord> records = oaiRecords.streamAll(snapshot)) {
+        try (Stream<OAIRecord> records = oaiRecords.streamAllRequired(snapshot)) {
             records.map(OAIRecord::getOriginalMetadataHash).filter(hash -> hash != null && !hash.isBlank())
                     .forEach(hash -> { retained.put(hash); oaiCount.incrementAndGet(); });
         }
-        try (Stream<ValidationRecord> records = validationRecords.streamAll(snapshot.getSnapshotId())) {
+        try (Stream<ValidationRecord> records = validationRecords.streamAllRequired(snapshot.getSnapshotId())) {
             records.map(ValidationRecord::getPublishedMetadataHash).filter(hash -> hash != null && !hash.isBlank())
                     .forEach(hash -> { retained.put(hash); validationCount.incrementAndGet(); });
         }
