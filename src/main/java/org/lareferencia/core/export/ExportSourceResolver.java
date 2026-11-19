@@ -86,10 +86,14 @@ public class ExportSourceResolver {
         ObjectNode databases = node.putObject("databaseVersions");
         for (String file : List.of("catalog/catalog.db", "catalog/catalog.db-wal", "validation/validation.db", "validation/validation.db-wal")) {
             Path path = directory.resolve(file);
-            if (Files.exists(path)) {
+            try {
                 var attrs = Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class);
+                // SQLite can create or remove an empty sidecar without changing the database.
+                if (file.endsWith("-wal") && attrs.isRegularFile() && attrs.size() == 0) continue;
                 databases.putObject(file).put("size", attrs.size()).put("modified", attrs.lastModifiedTime().toString())
                     .put("fileKey", Objects.toString(attrs.fileKey(), null));
+            } catch (NoSuchFileException absent) {
+                // An absent sidecar contributes nothing to the fingerprint.
             }
         }
         return node;
