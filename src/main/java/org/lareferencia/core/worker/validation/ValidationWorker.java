@@ -226,6 +226,12 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 
 				if (runningContext.getNetwork().getValidator() != null) {
 					validator = validationManager.createValidatorFromModel(runningContext.getNetwork().getValidator());
+                    for (IValidatorRule rule : validator.getRules()) {
+                        var definition = snapshotMetadata.getRuleDefinition(rule.getRuleId());
+                        if (definition != null) {
+                            definition.setOccurrenceCaptureEnabled(detailedDiagnose && rule.isStoreOccurrences());
+                        }
+                    }
 				} else {
 					logInfo("No Validator was found for " + runningContext.toString() + "!!!");
 				}

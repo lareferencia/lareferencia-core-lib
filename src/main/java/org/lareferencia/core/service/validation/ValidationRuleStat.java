@@ -50,6 +50,7 @@ public class ValidationRuleStat {
     QuantifierValues quantifier;
     /** Whether this rule is mandatory for record validity */
     Boolean mandatory;
+    Boolean occurrenceCaptureEnabled;
     /** Number of times the rule validated successfully */
     Integer validCount;
     /** Number of times the rule validation failed */

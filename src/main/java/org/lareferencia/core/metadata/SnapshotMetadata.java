@@ -147,6 +147,8 @@ public class SnapshotMetadata {
         private String description;
         private String quantifier;
         private Boolean mandatory;
+        /** Effective collection policy during validation; absent in older reports. */
+        private Boolean occurrenceCaptureEnabled;
 
         public RuleDefinition(Long ruleID, String name, String description, String quantifier, Boolean mandatory) {
             this.ruleID = ruleID;

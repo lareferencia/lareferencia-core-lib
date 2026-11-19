@@ -121,27 +121,36 @@ public class RuleOccurrenceRepository {
      */
     public Map<String, Integer> countByRuleAndValidity(Long snapshotId, Long ruleId, boolean isValid)
             throws IOException {
+        return countByRuleAndValidity(snapshotId, ruleId, isValid, List.of());
+    }
+
+    private Map<String, Integer> countByRuleAndValidity(Long snapshotId, Long ruleId, boolean isValid,
+            List<String> filters) throws IOException {
         DataSource ds = dbManager.getDataSource(snapshotId);
         if (ds == null) {
             return Collections.emptyMap();
         }
 
-        String sql = """
+        StringBuilder sql = new StringBuilder("""
                 SELECT occurrence_value, COUNT(*) as cnt
                 FROM rule_occurrences ro
-                JOIN record_validation rv ON rv.identifier_hash = ro.identifier_hash
-                WHERE ro.rule_id = ? AND ro.is_valid = ? AND rv.deleted = 0
-                GROUP BY occurrence_value
-                ORDER BY cnt DESC
-                """;
+                JOIN record_validation ON record_validation.identifier_hash = ro.identifier_hash
+                WHERE ro.rule_id = ? AND ro.is_valid = ? AND record_validation.deleted = 0
+                """);
+        List<Object> params = new ArrayList<>();
+        params.add(ruleId);
+        params.add(isValid ? 1 : 0);
+        RecordValidationRepository.applyFilters(sql, filters, params);
+        sql.append(" GROUP BY occurrence_value ORDER BY cnt DESC");
 
         Map<String, Integer> result = new LinkedHashMap<>();
 
         try (Connection conn = ds.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
 
-            stmt.setInt(1, ruleId.intValue());
-            stmt.setInt(2, isValid ? 1 : 0);
+            for (int i = 0; i < params.size(); i++) {
+                stmt.setObject(i + 1, params.get(i));
+            }
 
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
@@ -167,9 +176,14 @@ public class RuleOccurrenceRepository {
      * @return Map with "valid" and "invalid" keys, each containing value->count map
      */
     public Map<String, Map<String, Integer>> getOccurrencesByRule(Long snapshotId, Long ruleId) throws IOException {
+        return getOccurrencesByRule(snapshotId, ruleId, List.of());
+    }
+
+    public Map<String, Map<String, Integer>> getOccurrencesByRule(Long snapshotId, Long ruleId,
+            List<String> filters) throws IOException {
         Map<String, Map<String, Integer>> result = new HashMap<>();
-        result.put("valid", countByRuleAndValidity(snapshotId, ruleId, true));
-        result.put("invalid", countByRuleAndValidity(snapshotId, ruleId, false));
+        result.put("valid", countByRuleAndValidity(snapshotId, ruleId, true, filters));
+        result.put("invalid", countByRuleAndValidity(snapshotId, ruleId, false, filters));
         return result;
     }
 

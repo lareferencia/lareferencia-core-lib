@@ -89,6 +89,34 @@ class IncrementalValidationLifecycleTest {
         db.openSnapshotForRead(child); assertEquals(0,records.count(2L));
         db.openSnapshotForRead(parent); assertEquals(1,records.countValid(1L));
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void recordsEffectiveCapturePolicyEvenWhenThereAreNoValues(boolean detailed) throws Exception {
+        worker.setIncremental(false);
+        var options = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        options.put("DETAILED_DIAGNOSE", detailed);
+        worker.setRunningContext(new NetworkRunningContext(network, "validate", options));
+        var model = new org.lareferencia.core.domain.Validator();
+        network.setValidator(model);
+        var validator = new ValidatorImpl();
+        for (long id : new long[]{7, 8}) {
+            child.registerRule(id, "Rule " + id, "", "ALL", false);
+            var rule = mock(IValidatorRule.class);
+            when(rule.getRuleId()).thenReturn(id);
+            when(rule.isStoreOccurrences()).thenReturn(id == 7);
+            validator.getRules().add(rule);
+        }
+        var validation = mock(ValidationService.class);
+        when(validation.createValidatorFromModel(model)).thenReturn(validator);
+        field(worker, "validationManager", validation);
+        catalog.upsertRecord(2L, OAIRecord.create("record", LocalDateTime.of(2026,1,2,0,0), null, true));
+        worker.run();
+
+        var frozen = statistics.getSnapshotValidationStats(2L).getSnapshotMetadata();
+        assertEquals(detailed, frozen.getRuleDefinition(7L).getOccurrenceCaptureEnabled());
+        assertFalse(frozen.getRuleDefinition(8L).getOccurrenceCaptureEnabled());
+    }
+
     @Test void requestedFullValidationDoesNotReuseParent() throws Exception {
         worker.setIncremental(false);
         // A full run must traverse the inherited record; storage failure must not publish VALID.

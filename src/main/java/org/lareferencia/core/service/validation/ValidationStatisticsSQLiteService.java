@@ -25,6 +25,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.domain.NetworkSnapshot;
+import org.lareferencia.core.domain.SnapshotStatus;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 
@@ -291,19 +292,11 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
         logger.debug("SQLITE: Querying stats for snapshot {}, filters={}", snapshot.getId(), fq);
 
         try {
-            SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshot.getId());
-            if (metadata == null) {
-                throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshot.getId());
-            }
-
             SnapshotValidationStats stats;
-
-            if (fq != null && !fq.isEmpty()) {
-                // Compute filtered stats from database
-                stats = buildFilteredStats(metadata, fq);
-            } else {
-                // Read from JSON (precomputed)
+            if (fq == null || fq.isEmpty()) {
                 stats = getSnapshotValidationStats(snapshot.getId());
+            } else {
+                stats = buildFilteredStats(metadataForReport(snapshot.getId()), fq);
             }
 
             return ValidationStatsResult.fromSnapshotValidationStats(stats);
@@ -321,10 +314,7 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                 snapshotID, pageable.getPageNumber(), pageable.getPageSize());
 
         try {
-            SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotID);
-            if (metadata == null) {
-                throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshotID);
-            }
+            SnapshotMetadata metadata = metadataForReport(snapshotID);
 
             // Ensure database is open for reading
             ensureDatabaseOpenForRead(snapshotID, metadata);
@@ -359,17 +349,11 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
         logger.debug("SQLITE: Querying rule occurrences for snapshot {}, rule {}", snapshotID, ruleID);
 
         try {
-            SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotID);
-            if (metadata == null) {
-                throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshotID);
-            }
-
-            // Ensure database is open for reading
-            ensureDatabaseOpenForRead(snapshotID, metadata);
+            openReportDatabase(snapshotID);
 
             // Get occurrences from rule_occurrences table
             Map<String, Map<String, Integer>> occurrences = occurrenceRepository.getOccurrencesByRule(snapshotID,
-                    ruleID);
+                    ruleID, fq);
 
             // Convert to result format
             ValidationRuleOccurrencesCount result = new ValidationRuleOccurrencesCount();
@@ -401,13 +385,8 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
             throws ValidationStatisticsException {
 
         try {
-            SnapshotMetadata metadata = snapshotStore.getSnapshotMetadata(snapshotID);
-            if (metadata == null) {
-                throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshotID);
-            }
-
-            // Ensure database is open for reading
-            ensureDatabaseOpenForRead(snapshotID, metadata);
+            openReportDatabase(snapshotID);
+            recordRepository.registerRuleIds(snapshotID, dbManager.readRuleIds(snapshotID));
 
             ValidationRecord record = recordRepository.getByIdentifier(snapshotID, identifier);
             if (record == null) {
@@ -431,7 +410,23 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                 throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshotID);
             }
 
-            return readStatsJson(metadata);
+            if (Files.notExists(statsPath(metadata))
+                    && snapshotStore.getSnapshotStatus(snapshotID) == SnapshotStatus.VALID) {
+                return buildFilteredStats(metadataForReport(snapshotID), List.of());
+            }
+            SnapshotValidationStats stats = readStatsJson(metadata);
+            // Aggregates remain useful even if an old JSON has counters but
+            // incomplete labels, or its detail database has since been removed.
+            SnapshotMetadata archived = stats.getSnapshotMetadata();
+            if (archived == null) {
+                archived = new SnapshotMetadata(snapshotID);
+                stats.setSnapshotMetadata(archived);
+            }
+            if (archived.getRuleDefinitions() == null) archived.setRuleDefinitions(new LinkedHashMap<>());
+            for (Long ruleId : stats.getRuleStats().keySet()) {
+                archived.registerRule(ruleId, ruleId.toString(), null, null, null);
+            }
+            return stats;
 
         } catch (IOException e) {
             throw new ValidationStatisticsException("Error reading stats: " + e.getMessage(), e);
@@ -526,24 +521,60 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
     }
 
     private void writeStatsJson(Long snapshotId) throws IOException {
-        String snapshotPath = PathUtils.getSnapshotPath(basePath, currentMetadata);
-        Path statsPath = Paths.get(snapshotPath, VALIDATION_SUBDIR, STATS_FILENAME);
-
+        Path statsPath = statsPath(currentMetadata);
         Files.createDirectories(statsPath.getParent());
-        objectMapper.writeValue(statsPath.toFile(), currentStats);
+        Path temp = Files.createTempFile(statsPath.getParent(), STATS_FILENAME, ".tmp");
+        try {
+            objectMapper.writeValue(temp.toFile(), currentStats);
+            try {
+                Files.move(temp, statsPath, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
+                Files.move(temp, statsPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temp);
+        }
 
         logger.debug("SQLITE: Wrote stats JSON to {}", statsPath);
     }
 
+    private Path statsPath(SnapshotMetadata locator) {
+        return Paths.get(PathUtils.getSnapshotPath(basePath, locator), VALIDATION_SUBDIR, STATS_FILENAME);
+    }
+
     private SnapshotValidationStats readStatsJson(SnapshotMetadata metadata) throws IOException {
-        String snapshotPath = PathUtils.getSnapshotPath(basePath, metadata);
-        Path statsPath = Paths.get(snapshotPath, VALIDATION_SUBDIR, STATS_FILENAME);
-
-        if (!Files.exists(statsPath)) {
-            throw new IOException("Stats file not found: " + statsPath);
+        SnapshotValidationStats stats = objectMapper.readValue(statsPath(metadata).toFile(), SnapshotValidationStats.class);
+        if (stats.getSnapshotMetadata() != null && stats.getSnapshotMetadata().getSnapshotId() != null
+                && !metadata.getSnapshotId().equals(stats.getSnapshotMetadata().getSnapshotId())) {
+            throw new IOException("Validation summary belongs to another snapshot: " + metadata.getSnapshotId());
         }
+        return stats;
+    }
 
-        return objectMapper.readValue(statsPath.toFile(), SnapshotValidationStats.class);
+    private SnapshotMetadata openReportDatabase(Long snapshotId) throws IOException, ValidationStatisticsException {
+        SnapshotMetadata locator = snapshotStore.getSnapshotMetadata(snapshotId);
+        if (locator == null) throw new ValidationStatisticsException("Snapshot metadata not found: " + snapshotId);
+        if (!dbManager.hasActiveDataSource(snapshotId)) dbManager.openSnapshotForRead(locator);
+
+        return locator;
+    }
+
+    /** The SQL network locates the files. Rule definitions belong to the validation that wrote them. */
+    private SnapshotMetadata metadataForReport(Long snapshotId) throws IOException, ValidationStatisticsException {
+        SnapshotMetadata locator = openReportDatabase(snapshotId);
+        SnapshotMetadata archived = Files.notExists(statsPath(locator)) ? null : readStatsJson(locator).getSnapshotMetadata();
+        // Older or incomplete snapshots may have only SQLite. Recover their IDs
+        // and counts without assigning today's labels or mandatory flags to them.
+        Map<Long, SnapshotMetadata.RuleDefinition> definitions = new LinkedHashMap<>();
+        for (Long id : dbManager.readRuleIds(snapshotId)) {
+            SnapshotMetadata.RuleDefinition definition = archived == null || archived.getRuleDefinitions() == null
+                    ? null : archived.getRuleDefinition(id);
+            definitions.put(id, definition != null ? definition
+                    : new SnapshotMetadata.RuleDefinition(id, id.toString(), null, null, null));
+        }
+        return new SnapshotMetadata(snapshotId, locator.getSize(), locator.getTransformedSize(), locator.getValidSize(),
+                locator.getCreatedAt(), archived != null && archived.getNetwork() != null ? archived.getNetwork() : locator.getNetwork(), definitions);
     }
 
     private SnapshotValidationStats buildFilteredStats(SnapshotMetadata metadata, List<String> filters)
@@ -629,22 +660,25 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                     .add(occurrence.getOccurrenceValue());
         }
 
-        return new ValidationStatObservation(
+        ValidationStatObservation observation = new ValidationStatObservation(
                 record.getIdentifierHash(),
                 record.getIdentifier(),
                 metadata.getSnapshotId(),
                 metadata.getNetwork().getOriginURL(),
-                null, // repositoryName
+                null, // setSpec was not recorded in validation.db
                 metadata.getNetwork().getMetadataPrefix(),
                 metadata.getNetwork().getAcronym(),
-                null, // institutionName
-                null, // setSpec
+                metadata.getNetwork().getName(),
+                metadata.getNetwork().getInstitutionName(),
                 record.isValid(),
                 record.isTransformed(),
                 validOccurrences,
                 invalidOccurrences,
                 validRulesID,
                 invalidRulesID);
+        // The SQLite row has an OAI datestamp, but no time of validation.
+        observation.setValidationDate(null);
+        return observation;
     }
 
     private RecordValidation convertToRecordValidation(ValidationRecord record, Long snapshotId) throws IOException {
