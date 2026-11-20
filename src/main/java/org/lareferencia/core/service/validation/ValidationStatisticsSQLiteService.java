@@ -299,7 +299,9 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
                 stats = buildFilteredStats(metadataForReport(snapshot.getId()), fq);
             }
 
-            return ValidationStatsResult.fromSnapshotValidationStats(stats);
+            ValidationStatsResult result = ValidationStatsResult.fromSnapshotValidationStats(stats);
+            resolveHistoricalOccurrenceAvailability(snapshot.getId(), result);
+            return result;
 
         } catch (IOException e) {
             throw new ValidationStatisticsException("Error querying stats: " + e.getMessage(), e);
@@ -480,6 +482,22 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
     // ========================================
     // PRIVATE HELPERS
     // ========================================
+
+    private void resolveHistoricalOccurrenceAvailability(Long snapshotId, ValidationStatsResult result) {
+        List<ValidationRuleStat> historicalRules = result.getRulesByID().values().stream()
+                .filter(rule -> rule.getOccurrenceCaptureEnabled() == null).toList();
+        if (historicalRules.isEmpty()) return;
+        try {
+            SnapshotMetadata locator = snapshotStore.getSnapshotMetadata(snapshotId);
+            if (locator == null) return;
+            var available = occurrenceRepository.rulesWithOccurrences(locator,
+                    historicalRules.stream().map(ValidationRuleStat::getRuleID).toList());
+            historicalRules.forEach(rule -> rule.setStoredOccurrencesAvailable(available.contains(rule.getRuleID())));
+        } catch (IOException e) {
+            // Older reports can retain summary counts after their database is removed.
+            logger.debug("Cannot resolve occurrence availability for snapshot {}", snapshotId, e);
+        }
+    }
 
     /**
      * Ensures database is open for reading and rule IDs are registered.

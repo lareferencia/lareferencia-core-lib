@@ -178,6 +178,14 @@ public class ValidationDatabaseManager {
         logger.debug("VALIDATION DB: Opened database for reading - snapshot {} (WAL mode)", snapshotId);
     }
 
+    /** Opens an existing snapshot without applying schema migrations. */
+    Connection openReadOnlyConnection(SnapshotMetadata metadata) throws SQLException {
+        Path database = Paths.get(PathUtils.getSnapshotPath(basePath, metadata), VALIDATION_SUBDIR, DB_FILENAME);
+        var config = new org.sqlite.SQLiteConfig();
+        config.setReadOnly(true);
+        return DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath(), config.toProperties());
+    }
+
     /** Read the schema created for this snapshot, including snapshots predating the JSON summary. */
     public List<Long> readRuleIds(Long snapshotId) throws IOException {
         List<Long> ids = new ArrayList<>();

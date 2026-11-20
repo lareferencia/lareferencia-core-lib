@@ -91,6 +91,7 @@ class HistoricalValidationReportTest {
             assertEquals("ONE_OR_MORE", rule.getQuantifier().name());
             assertTrue(rule.getMandatory());
             assertFalse(rule.getOccurrenceCaptureEnabled());
+            assertNull(rule.getStoredOccurrencesAvailable());
             assertTrue(report.getRulesByID().get("8").getOccurrenceCaptureEnabled());
         }
         assertEquals(1, global.getRulesByID().get("7").getInvalidCount());
@@ -149,7 +150,25 @@ class HistoricalValidationReportTest {
         assertEquals(2, report.getSize());
         assertEquals(1, report.getRulesByID().get("7").getValidCount());
         assertNull(report.getRulesByID().get("7").getMandatory());
+        assertNull(report.getRulesByID().get("7").getStoredOccurrencesAvailable());
         assertEquals("Original language", report.getRulesByID().get("8").getName());
+    }
+
+    @Test
+    void archivedSummaryResolvesAvailabilityWithoutChangingUnknownCaptureFlags() throws Exception {
+        Path file = directory.resolve("FIX/snapshots/snapshot_18/validation/validation-stats.json");
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var json = mapper.readTree(file.toFile());
+        for (var definition : json.at("/snapshotMetadata/ruleDefinitions")) {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) definition).remove("occurrenceCaptureEnabled");
+        }
+        mapper.writeValue(file.toFile(), json);
+
+        var report = statistics.queryValidatorRulesStatsBySnapshot(snapshot, List.of());
+        assertNull(report.getRulesByID().get("7").getOccurrenceCaptureEnabled());
+        assertFalse(report.getRulesByID().get("7").getStoredOccurrencesAvailable());
+        assertTrue(report.getRulesByID().get("8").getStoredOccurrencesAvailable());
+        assertFalse(databases.hasActiveDataSource(ID));
     }
 
     @Test
@@ -166,6 +185,8 @@ class HistoricalValidationReportTest {
             assertNull(rule.getMandatory());
             assertNull(rule.getQuantifier());
             assertNull(rule.getOccurrenceCaptureEnabled());
+            assertFalse(rule.getStoredOccurrencesAvailable());
+            assertTrue(report.getRulesByID().get("8").getStoredOccurrencesAvailable());
             assertEquals(1, rule.getInvalidCount());
         }
     }

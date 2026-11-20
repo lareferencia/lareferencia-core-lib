@@ -20,6 +20,7 @@
 
 package org.lareferencia.core.repository.validation;
 
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -108,6 +109,28 @@ public class RuleOccurrenceRepository {
         } catch (SQLException e) {
             throw new IOException("Failed to insert occurrences: " + e.getMessage(), e);
         }
+    }
+
+    /** Finds rules with occurrences for active records without aggregating their values. */
+    public Set<Long> rulesWithOccurrences(SnapshotMetadata metadata, List<Long> ruleIds) throws IOException {
+        String sql = """
+                SELECT 1 FROM rule_occurrences ro
+                JOIN record_validation rv ON rv.identifier_hash = ro.identifier_hash
+                WHERE ro.rule_id = ? AND rv.deleted = 0
+                LIMIT 1
+                """;
+        Set<Long> available = new HashSet<>();
+        try (Connection conn = dbManager.openReadOnlyConnection(metadata); PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (Long ruleId : ruleIds) {
+                stmt.setLong(1, ruleId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) available.add(ruleId);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to check stored occurrences: " + e.getMessage(), e);
+        }
+        return available;
     }
 
     /**
