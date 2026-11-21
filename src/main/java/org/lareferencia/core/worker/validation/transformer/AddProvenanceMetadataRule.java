@@ -176,30 +176,26 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 	 * 
 	 * @param attributes the attribute map
 	 * @param fieldName  the field name to retrieve
-	 * @return the field value as string, or null if not found
+	 * @return the field value as string, or an empty string for missing and null attributes
 	 */
 	private String getField(Map<String, Object> attributes, String fieldName) {
 
-		if (attributes.containsKey(fieldName) && attributes.get(fieldName) != null)
-			return attributes.get(fieldName).toString();
-		else
-			return "";
+		// Missing and null attributes still publish an empty field in the record.
+		Object value = attributes.get(fieldName);
+		return value == null ? "" : value.toString();
 	}
 
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata)
 			throws ValidationException {
 
-		// LAReferenciaNetworkAttributes attributes = (LAReferenciaNetworkAttributes)
-		// snapshotMetadata.getNetwork().getAttributes();
-
+		// Only these three fields are replaced. The other fields append on every run.
 		metadata.removeFieldOcurrence(repoNameField);
 		metadata.removeFieldOcurrence(contactEmailField);
 		metadata.removeFieldOcurrence(oaiIdentifierField);
 
 		try {
 			SnapshotMetadata.NetworkInfo network = snapshotMetadata.getNetwork();
-			// AbstractNetworkAttributes attributes = network.getAttributes();
 			Map<String, Object> attributes = network.getAttributes();
 
 			metadata.addFieldOcurrence(repoTypeField, getField(attributes, "source_type"));
@@ -215,22 +211,12 @@ public class AddProvenanceMetadataRule extends AbstractTransformerRule {
 
 			metadata.addFieldOcurrence(oaiIdentifierField, metadata.getIdentifier());
 
-			// Construcción de id con prefijo "od"
-			/*
-			 * int numUnderscore = 12 - (attr_fields.get("repository_id").length() + 2);
-			 * String preUnderscore = ""; for(int i = 0; i<numUnderscore; i++) {
-			 * preUnderscore += "_"; } String idWithPrefix =
-			 * "od"+preUnderscore+attr_fields.get("repository_id");
-			 */
 			String idWithPrefix = "opendoar:" + getField(attributes, "repository_id");
 
 			metadata.addFieldOcurrence(repoIdField, idWithPrefix);
 			metadata.addFieldOcurrence(harvestDateField, record.getDatestamp().toString());
-			metadata.addFieldOcurrence(repoNameField, "" + snapshotMetadata.getNetwork().getName() + " - "
-					+ snapshotMetadata.getNetwork().getInstitutionName());
-			// TODO: transformed status not available in IOAIRecord - need to get from
-			// validation stats
-			// metadata.addFieldOcurrence(statusField, "" + record.getTransformed());
+			metadata.addFieldOcurrence(repoNameField, network.getName() + " - "
+					+ network.getInstitutionName());
 		} catch (Exception e) {
 			throw new ValidationException(
 					"An exception occured during AddProvenaceMedatada Transformation:" + e.getMessage());

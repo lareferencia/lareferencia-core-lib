@@ -303,10 +303,13 @@ public class OAIRecordMetadata {
 			// Repeated writes to a literal field use the first matching field's actual parent.
 			// It can be in a later branch when several elements have the same name.
 			Node existing = literalField ? MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath()) : null;
-			Node parent;
-			if (existing != null) {
-				parent = existing.getParentNode();
-			} else {
+			Node parent = existing != null ? existing.getParentNode() : null;
+			if (parent == null && literalField && path.size() > 1) {
+				// Provenance often adds several different fields to the same existing container.
+				// For a missing field the historical writer uses the first matching parent.
+				parent = MedatadaDOMHelper.getSingleNode(DOMDocument, path.get(path.size() - 2).getXpath());
+			}
+			if (parent == null) {
 				parent = MedatadaDOMHelper.getSingleNode(DOMDocument, XOAIXPATHHelper.getRootXPATH());
 				for (int i = 0; i < path.size() - 1; i++) {
 					OAIMetadataElement element = path.get(i);

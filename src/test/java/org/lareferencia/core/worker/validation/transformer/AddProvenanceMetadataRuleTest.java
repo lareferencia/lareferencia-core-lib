@@ -9,12 +9,16 @@ import org.lareferencia.core.domain.NetworkSnapshot;
 import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
+import org.lareferencia.core.worker.validation.RuleSerializer;
+import org.w3c.dom.Element;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -184,6 +188,61 @@ class AddProvenanceMetadataRuleTest {
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
+    }
+
+    @Test
+    void legacyProfilePublishesEmptyFieldsInOrderAndReplacesOnlyThreeFields() throws Exception {
+        var loaded = new RuleSerializer().deserializeTransformerFromJsonString("""
+                {"@class":"org.lareferencia.backend.validation.transformer.AddProvenanceMetadataRule"}
+                """);
+        attributes.put("source_type", null);
+        attributes.put("country", "  Perú & Chile  ");
+        attributes.put("repository_id", 123);
+        var xml = new OAIRecordMetadata("oai:repo:1", "<metadata/>");
+        assertTrue(loaded.transform(snapshotMetadata, record, xml));
+        // Check the elements after serialization, even when an empty text node disappears.
+        var published = new OAIRecordMetadata("oai:repo:1", xml.toString());
+        var fields = published.getDOMDocument().getElementsByTagName("field");
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < fields.getLength(); i++) {
+            names.add(((Element) fields.item(i)).getAttribute("name"));
+        }
+        assertEquals(List.of("repositoryType", "repositoryURL", "institutionType", "institutionURL",
+                "baseURL", "mail", "country", "DOI", "ISSN", "ISSN_L", "repositoryID", "harvestDate",
+                "name", "identifier"), names);
+        assertEquals("", fields.item(0).getTextContent());
+        assertEquals("", fields.item(1).getTextContent());
+        assertEquals("  Perú & Chile  ", fields.item(6).getTextContent());
+        assertEquals("opendoar:123", fields.item(10).getTextContent());
+        attributes.remove("repository_id");
+        assertTrue(loaded.transform(snapshotMetadata, record, xml));
+        assertEquals(25, xml.getDOMDocument().getElementsByTagName("field").getLength());
+        assertEquals(List.of("opendoar:123", "opendoar:"), xml.getFieldOcurrences("repository:repositoryID"));
+        assertEquals(1, xml.getFieldNodesIncludingEmpty("repository:mail").size());
+        assertEquals(1, xml.getFieldNodesIncludingEmpty("repository:name").size());
+        assertEquals(List.of("oai:repo:1"), xml.getFieldOcurrences("others:identifier"));
+        assertEquals(2, xml.getFieldNodesIncludingEmpty("repository:repositoryType").size());
+    }
+
+    @Test
+    void customFieldsUseFirstAvailableParentAndKeepExistingFieldInItsOwnBranch() throws Exception {
+        var loaded = new RuleSerializer().deserializeTransformerFromJsonString("""
+                {"@class":"org.lareferencia.backend.validation.transformer.AddProvenanceMetadataRule",
+                 "repoTypeField":"dc.source:type","repoUrlField":"dc.source:url"}
+                """);
+        var xml = new OAIRecordMetadata("id", """
+                <metadata xmlns="http://www.lyncode.com/xoai"><element name="dc">
+                  <element name="source"><field name="note">first</field></element>
+                  <element name="source"><field name="url">old</field></element>
+                </element></metadata>
+                """);
+        var first = xml.getFieldNodes("dc.source:note").get(0).getParentNode();
+        var second = xml.getFieldNodes("dc.source:url").get(0).getParentNode();
+        assertTrue(loaded.transform(snapshotMetadata, record, xml));
+        var type = xml.getFieldNodesIncludingEmpty("dc.source:type").get(0);
+        assertSame(first, type.getParentNode());
+        assertSame(second, xml.getFieldNodesIncludingEmpty("dc.source:url").get(1).getParentNode());
+        assertEquals(first.getNamespaceURI(), type.getNamespaceURI());
     }
 
     @Test
