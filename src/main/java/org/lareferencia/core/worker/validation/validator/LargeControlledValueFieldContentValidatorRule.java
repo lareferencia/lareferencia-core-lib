@@ -29,7 +29,12 @@ import org.lareferencia.core.worker.validation.SchemaProperty;
 import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 
 import java.io.*;
+import java.util.AbstractList;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.RandomAccess;
+import java.util.Set;
 
 /**
  * Validator for large controlled value lists, supporting CSV-based value
@@ -48,7 +53,7 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 	 * Constructs a new large controlled value validator.
 	 */
 	public LargeControlledValueFieldContentValidatorRule() {
-		super();
+		controlledValues = new IndexedVocabulary();
 	}
 
 	/**
@@ -65,7 +70,7 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 	 */
 	public String getControlledValuesCSV() {
 		if (controlledValuesCSV == null)
-			return getCSVStringFromControlledValues(this.controlledValues);
+			return String.join(CSV_SEPARATOR, controlledValues);
 		else
 			return controlledValuesCSV;
 	}
@@ -102,26 +107,6 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 		}
 
 		logger.debug("\nFin Carga validador: valores controlados desde cadenaCSV");
-	}
-
-	/**
-	 * Converts a list of controlled values to a CSV string.
-	 *
-	 * @param controlledList list of controlled values
-	 * @return CSV string representation
-	 */
-	private String getCSVStringFromControlledValues(List<String> controlledList) {
-		// TODO: Cambiar por un String Buffer para mejorar performance
-		String result = "";
-
-		for (int i = 0; i < controlledList.size(); i++) {
-
-			result += controlledList.get(i);
-			if (i < controlledList.size() - 1)
-				result += CSV_SEPARATOR;
-		}
-
-		return result;
 	}
 
 	/**
@@ -168,4 +153,52 @@ public class LargeControlledValueFieldContentValidatorRule extends ControlledVal
 			e.printStackTrace();
 		}
 	}
+
+    /** Keeps the mutable list API, including duplicate entries and their order in CSV. */
+    private static final class IndexedVocabulary extends AbstractList<String> implements RandomAccess {
+        private final List<String> terms = new ArrayList<>();
+        private volatile Set<String> membership;
+
+        @Override
+        public boolean contains(Object value) {
+            Set<String> index = membership;
+            if (index == null) {
+                index = new HashSet<>(terms);
+                membership = index;
+            }
+            return index.contains(value);
+        }
+
+        @Override
+        public int size() {
+            return terms.size();
+        }
+
+        @Override
+        public String get(int position) {
+            return terms.get(position);
+        }
+
+        @Override
+        public String set(int position, String term) {
+            String previous = terms.set(position, term);
+            membership = null;
+            return previous;
+        }
+
+        @Override
+        public void add(int position, String term) {
+            terms.add(position, term);
+            membership = null;
+            modCount++;
+        }
+
+        @Override
+        public String remove(int position) {
+            String previous = terms.remove(position);
+            membership = null;
+            modCount++;
+            return previous;
+        }
+    }
 }
