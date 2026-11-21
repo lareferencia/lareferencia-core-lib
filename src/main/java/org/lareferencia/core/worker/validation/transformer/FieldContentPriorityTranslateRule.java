@@ -21,9 +21,7 @@
 package org.lareferencia.core.worker.validation.transformer;
 
 import java.util.HashSet;
-import java.util.Hashtable;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
@@ -102,57 +100,48 @@ public class FieldContentPriorityTranslateRule extends AbstractTransformerRule {
 		logger.debug(list);
 	}
 
-	Set<String> existingValues = new HashSet<String>();
-
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-
-		// setup existing values
-		existingValues.clear();
-		for (Node node : metadata.getFieldNodes(testFieldName))
+		List<Node> sourceNodes = metadata.getFieldNodes(testFieldName);
+		// The historical rule suppresses values seen in the source, even after their removal.
+		Set<String> existingValues = new HashSet<>();
+		for (Node node : sourceNodes) {
 			existingValues.add(node.getFirstChild().getNodeValue());
-
-		String occr = null;
-
-		boolean matchFound = false;
-		boolean changed = false;
-
-		for (Translation trl : this.getTranslationArray()) {
-
-			// recorre las ocurrencias del campo de test
-			for (Node node : metadata.getFieldNodes(testFieldName)) {
-
-				occr = node.getFirstChild().getNodeValue();
-
-				if (testValueAsPrefix) // si se debe testear el prefijo
-					matchFound = occr.startsWith(trl.getSearch());
-				else // caso de testing de valor completo
-					matchFound = occr.equals(trl.getSearch());
-
-				// if found and not already exists
-				if (matchFound && !existingValues.contains(trl.getReplace())) {
-
-					if (replaceOccurrence) // Si esta marcao el reemplazo del
-						metadata.removeNode(node); // remueve la ocurrencia
-
-					// agrega la ocurrencia
-					metadata.addFieldOcurrence(writeFieldName, trl.getReplace());
-					existingValues.add(trl.getReplace());
-					changed = true;
-
-				}
-
-				// si no deben reemplazare todas las ocurrencias y fue encontrada
-				if (!replaceAllMatchingOccurrences && matchFound)
-					break;
-			}
-
-			// si no deben reemplazare todas las ocurrencias y fue encontrada
-			if (!replaceAllMatchingOccurrences && matchFound)
-				break;
 		}
 
+		boolean changed = false;
+		boolean refreshSource = false;
+		for (Translation translation : getTranslationArray()) {
+			if (refreshSource) {
+				// A previous entry may have written into the source, including through a wildcard.
+				sourceNodes = metadata.getFieldNodes(testFieldName);
+				refreshSource = false;
+			}
+
+			boolean matchFound = false;
+			for (Node node : sourceNodes) {
+				String value = node.getFirstChild().getNodeValue();
+				matchFound = testValueAsPrefix
+						? value.startsWith(translation.getSearch()) : value.equals(translation.getSearch());
+
+				if (matchFound && !existingValues.contains(translation.getReplace())) {
+					if (replaceOccurrence) {
+						metadata.removeNode(node);
+					}
+					metadata.addFieldOcurrence(writeFieldName, translation.getReplace());
+					existingValues.add(translation.getReplace());
+					refreshSource = true;
+					changed = true;
+				}
+				if (!replaceAllMatchingOccurrences && matchFound) {
+					break;
+				}
+			}
+			// First-match mode stops even when the replacement already existed.
+			if (!replaceAllMatchingOccurrences && matchFound) {
+				break;
+			}
+		}
 		return changed;
 	}
-
 }
