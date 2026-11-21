@@ -295,97 +295,47 @@ public class OAIRecordMetadata {
 	 * @param content the content for the new field occurrence
 	 */
 	public void addFieldOcurrence(String fieldName, String content) {
-
 		try {
-			
-			String parentXPATH = XOAIXPATHHelper.getRootXPATH();
-			Node parentNode = MedatadaDOMHelper.getSingleNode(DOMDocument, parentXPATH);
-			
-			List<OAIMetadataElement> elements = XOAIXPATHHelper.getXPATHList(fieldName);
+			List<OAIMetadataElement> path = XOAIXPATHHelper.getXPATHList(fieldName);
+			OAIMetadataElement target = path.get(path.size() - 1);
+			boolean literalField = target.getType() == Type.field && fieldName.indexOf('\'') < 0;
 
-			// esto va a definir todos los nodos no definidos, mira hasta el anteultimo elemento
-			for (int i=0; i<elements.size()-1; i++) {
-				
-				OAIMetadataElement elem = elements.get(i);
-				String xpath =  elem.getXpath();
-		
-				if ( !MedatadaDOMHelper.isNodeDefined(DOMDocument, xpath) ) {
-					Node newNode = MedatadaDOMHelper.addChildElementWithNameAttr(parentNode, elem.getType().toString(), elem.getName());
+			// Repeated writes to a literal field use the first matching field's actual parent.
+			// It can be in a later branch when several elements have the same name.
+			Node existing = literalField ? MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath()) : null;
+			Node parent;
+			if (existing != null) {
+				parent = existing.getParentNode();
+			} else {
+				parent = MedatadaDOMHelper.getSingleNode(DOMDocument, XOAIXPATHHelper.getRootXPATH());
+				for (int i = 0; i < path.size() - 1; i++) {
+					OAIMetadataElement element = path.get(i);
+					String xpath = element.getXpath();
+					if (!MedatadaDOMHelper.isNodeDefined(DOMDocument, xpath)) {
+						MedatadaDOMHelper.addChildElementWithNameAttr(parent, element.getType().toString(), element.getName());
+					}
+					parent = MedatadaDOMHelper.getSingleNode(DOMDocument, xpath);
 				}
-				
-					
-				parentNode = MedatadaDOMHelper.getSingleNode(DOMDocument, xpath);
-			}
-			
-			// trata el ultimo elemento aparte
-			
-			OAIMetadataElement lastElem = elements.get(elements.size()-1); 
-			String xpath =  lastElem.getXpath();
-			
-			// si el ultimo elemento ya esta definido
-			if ( MedatadaDOMHelper.isNodeDefined(DOMDocument, xpath) ) {
-				
-				// lo obtiene
-				Node node = MedatadaDOMHelper.getSingleNode(DOMDocument, xpath);
-				
-				if ( lastElem.getType() == Type.field ) { // si es de tipo field
-					
-					// agrega un nuevo nodo al padre (element), de tipo field, con el mismo nombre y con el valor deseado
-					Node newNode = MedatadaDOMHelper.addChildElementWithNameAttr(node.getParentNode(), Type.field.toString(), lastElem.getName());
-					MedatadaDOMHelper.setNodeText(newNode, content);
-				
-				}
-				else { // si no es de tipo field es de tipo element, entonces
-				
-					// agrega un nuevo nodo hijo, de tipo field, con nombre value y el contenido
-					Node newNode = MedatadaDOMHelper.addChildElementWithNameAttr(node, Type.field.toString(), "value");
-					MedatadaDOMHelper.setNodeText(newNode, content);
-					
-				}
-	
-			}
-			else { // si no esta definido
-				
 
-				if ( lastElem.getType() == Type.field ) { // si es de tipo field
-					
-					// agrega un nuevo nodo al padre (anteultimo elemento), de tipo field, con el mismo nombre y con el valor deseado
-					Node newNode = MedatadaDOMHelper.addChildElementWithNameAttr(parentNode, Type.field.toString(), lastElem.getName());
-					MedatadaDOMHelper.setNodeText(newNode, content);
-				
+				// Creating ancestor elements cannot introduce a missing literal field. Element
+				// selectors ($) and paths containing XPath quotes keep their original lookup order.
+				if (!literalField && MedatadaDOMHelper.isNodeDefined(DOMDocument, target.getXpath())) {
+					existing = MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath());
+					parent = target.getType() == Type.field ? existing.getParentNode() : existing;
+				} else if (target.getType() == Type.element) {
+					parent = MedatadaDOMHelper.addChildElementWithNameAttr(parent, Type.element.toString(), target.getName());
 				}
-				else { // si no es de tipo field es de tipo element, entonces
-					
-					// agrega un nuevo nodo hijo al anteultimo nodo, de tipo element, usando el nombre del ultimo elemento
-					Node newElementNode = MedatadaDOMHelper.addChildElementWithNameAttr(parentNode, Type.element.toString(), lastElem.getName());
-				
-					// a ese nuevo nodo element le agrega un nuevo nodo hijo, de tipo field, con nombre value y el contenido
-					Node newFieldNode = MedatadaDOMHelper.addChildElementWithNameAttr(newElementNode, Type.field.toString(), "value");
-					MedatadaDOMHelper.setNodeText(newFieldNode, content);
-					
-				}
-				
-				
-				/**
-				 * Nota: Se puede resumir este codigo juntando casos y puede quedar más corto, pero prefiero dejar los casos 
-				 * separados para facilitar el debug.
-				 */
 			}
-			
-
-		
-		} catch (DOMException e) {
-			logger.error("Error en agregador de metadato:" +fieldName);
-			e.printStackTrace();
-		} 
-		
-		catch (TransformerException e) {
-			logger.error("Error en agregador de metadato:" +fieldName);
+			String name = target.getType() == Type.field ? target.getName() : "value";
+			Node field = MedatadaDOMHelper.addChildElementWithNameAttr(parent, Type.field.toString(), name);
+			MedatadaDOMHelper.setNodeText(field, content);
+		} catch (DOMException | TransformerException e) {
+			logger.error("Error en agregador de metadato:" + fieldName);
 			e.printStackTrace();
 		}
 	}
-	
-	
+
+
 	/**
 	 * Gets the content of a field that starts with a specified prefix, removing the prefix.
 	 * 

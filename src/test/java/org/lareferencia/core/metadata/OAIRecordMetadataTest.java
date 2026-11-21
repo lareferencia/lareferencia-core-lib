@@ -40,6 +40,24 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @DisplayName("OAIRecordMetadata Tests")
 class OAIRecordMetadataTest {
+
+    @Test
+    void appendsBesideTheFirstMatchingFieldAcrossRepeatedBranches() throws Exception {
+        var metadata = new OAIRecordMetadata("id", """
+                <metadata xmlns="http://www.lyncode.com/xoai"><element name="dc">
+                  <element name="type"><field name="lang">es</field></element>
+                  <element name="type"><field name="value" id="original">paper</field></element>
+                  <element name="type"><field name="value">book</field></element>
+                </element></metadata>
+                """);
+        var original = metadata.getFieldNodes("dc.type").get(0);
+        metadata.addFieldOcurrence("dc.type", "added");
+        assertEquals(List.of("paper", "added", "book"), metadata.getFieldOcurrences("dc.type"));
+        var added = metadata.getFieldNodes("dc.type").get(1);
+        assertSame(original.getParentNode(), added.getParentNode());
+        assertEquals(original.getNamespaceURI(), added.getNamespaceURI());
+        assertNull(added.getAttributes().getNamedItem("id"));
+    }
     
     private static final String TEST_IDENTIFIER = "oai:test:12345";
     

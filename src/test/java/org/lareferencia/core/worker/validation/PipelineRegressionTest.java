@@ -69,6 +69,19 @@ class PipelineRegressionTest {
         assertEquals(List.of("article"), xml.getFieldOcurrences("dc.subject"));
     }
 
+    @Test void bulkRenamesKeepAllOccurrencesAndApplyMappingsInOrder() throws Exception {
+        var metadata = record("paper", "paper", "book");
+        metadata.addFieldOcurrence("dc.subject", "original");
+        var rule = new FieldNameBulkTranslateRule();
+        rule.setTranslationArray(List.of(new Translation("dc.type", "dc.subject"),
+                new Translation("dc.subject", "dc.subject"), new Translation("dc.subject", "dc.final")));
+        assertTrue(rule.transform(null, null, metadata));
+        assertEquals(List.of("original", "paper", "paper", "book"), metadata.getFieldOcurrences("dc.final"));
+        assertTrue(metadata.getFieldOcurrences("dc.type").isEmpty());
+        assertTrue(metadata.getFieldOcurrences("dc.subject").isEmpty());
+        assertFalse(rule.transform(null, null, metadata));
+    }
+
     @Test void regexTranslationPreservesLaterSourceValuesAndReplacesOnlyTheFirstMatch() throws Exception {
         var xml = record("xx", "Yx", "xxx", "xxx");
         var rule = new RegexTranslateRule();
