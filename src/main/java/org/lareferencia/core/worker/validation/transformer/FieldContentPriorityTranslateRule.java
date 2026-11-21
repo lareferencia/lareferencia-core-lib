@@ -115,6 +115,7 @@ public class FieldContentPriorityTranslateRule extends AbstractTransformerRule {
 		String occr = null;
 
 		boolean matchFound = false;
+		boolean changed = false;
 
 		for (Translation trl : this.getTranslationArray()) {
 
@@ -137,6 +138,7 @@ public class FieldContentPriorityTranslateRule extends AbstractTransformerRule {
 					// agrega la ocurrencia
 					metadata.addFieldOcurrence(writeFieldName, trl.getReplace());
 					existingValues.add(trl.getReplace());
+					changed = true;
 
 				}
 
@@ -150,7 +152,7 @@ public class FieldContentPriorityTranslateRule extends AbstractTransformerRule {
 				break;
 		}
 
-		return matchFound;
+		return changed;
 	}
 
 }

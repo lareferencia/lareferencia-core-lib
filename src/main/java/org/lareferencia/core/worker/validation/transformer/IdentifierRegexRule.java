@@ -83,13 +83,16 @@ public class IdentifierRegexRule extends AbstractTransformerRule {
 	 * 
 	 * @param record   the OAI record to transform
 	 * @param metadata the metadata (not used in this rule)
-	 * @return true always, as transformation is always applied
+	 * @return true when the replacement changes the identifier
 	 */
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
 		// set the new identifier value as the result of the regex replace
-		record.setIdentifier(record.getIdentifier().replaceAll(regexSearch, regexReplace));
+		String original = record.getIdentifier();
+		String translated = original.replaceAll(regexSearch, regexReplace);
+		if (translated.equals(original)) return false;
+		record.setIdentifier(translated);
 		return true;
 
 	}

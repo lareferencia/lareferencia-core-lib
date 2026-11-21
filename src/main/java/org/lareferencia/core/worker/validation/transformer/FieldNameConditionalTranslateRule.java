@@ -44,7 +44,13 @@ import org.w3c.dom.Node;
 @ValidatorRuleMeta
 public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
 
-	static int MAX_NODE_COUNT = 100;
+	private static final int LEGACY_OCCURRENCE_LIMIT = 101;
+
+    @Getter
+    @Setter
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_DEFAULT)
+    @SchemaProperty(defaultValue = "false", order = 3)
+    private boolean processAllOccurrences;
 
 	/**
 	 * Target field name for the renamed fields.
@@ -110,7 +116,7 @@ public class FieldNameConditionalTranslateRule extends AbstractTransformerRule {
 			wasTransformed = true;
 
 			i++;
-			if (i > MAX_NODE_COUNT)
+			if (!processAllOccurrences && i >= LEGACY_OCCURRENCE_LIMIT)
 				break;
 		}
 

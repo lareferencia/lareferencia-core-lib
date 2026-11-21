@@ -452,6 +452,24 @@ public class OAIRecordMetadata {
 	
 
 	
+    /** Select field elements for cleanup, including elements without a text child. */
+    public List<Node> getFieldNodesIncludingEmpty(String fieldName) {
+        try {
+            NodeList nodes = MedatadaDOMHelper.getNodeList(DOMDocument, XOAIXPATHHelper.getXPATH(fieldName));
+            List<Node> result = new ArrayList<>(nodes.getLength());
+            for (int i = 0; i < nodes.getLength(); i++) {
+                Node node = nodes.item(i);
+                if (node.getNodeType() == Node.ELEMENT_NODE &&
+                        ("field".equals(node.getLocalName()) || "field".equals(node.getNodeName()))) {
+                    result.add(node);
+                }
+            }
+            return result;
+        } catch (TransformerException e) {
+            throw new IllegalArgumentException("Cannot select field " + fieldName, e);
+        }
+    }
+
 	/**
 	 * Extracts bitstream (file) metadata from this record.
 	 * 

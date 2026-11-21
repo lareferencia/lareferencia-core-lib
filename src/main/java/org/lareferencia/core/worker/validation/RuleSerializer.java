@@ -151,7 +151,7 @@ public class RuleSerializer {
 	public IValidatorRule deserializeValidatorFromJsonString(String jsonString) {
 
 		try {
-			AbstractValidatorRule rule =  mapper.readValue(jsonString, AbstractValidatorRule.class);
+			AbstractValidatorRule rule =  mapper.readValue(RuleTypeAliases.resolve(jsonString), AbstractValidatorRule.class);
 			autowireIfPossible(rule);
 			
 			return rule;
@@ -181,7 +181,7 @@ public class RuleSerializer {
 	public ITransformerRule deserializeTransformerFromJsonString(String jsonString) {
 
 		try {
-			AbstractTransformerRule rule = mapper.readValue(jsonString, AbstractTransformerRule.class);
+			AbstractTransformerRule rule = mapper.readValue(RuleTypeAliases.resolve(jsonString), AbstractTransformerRule.class);
 			autowireIfPossible(rule);
 			return rule;
 		} catch (JsonParseException e) {

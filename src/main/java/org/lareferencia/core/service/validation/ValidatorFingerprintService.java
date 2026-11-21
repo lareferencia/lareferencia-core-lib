@@ -12,12 +12,20 @@ package org.lareferencia.core.service.validation;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Year;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+import org.lareferencia.core.domain.Network;
+import org.lareferencia.core.domain.Transformer;
+import org.lareferencia.core.domain.TransformerRule;
 import org.lareferencia.core.domain.Validator;
 import org.lareferencia.core.domain.ValidatorRule;
+import org.lareferencia.core.metadata.SnapshotMetadata.NetworkInfo;
+import org.lareferencia.core.worker.validation.RuleTypeAliases;
+import org.lareferencia.core.worker.validation.transformer.FieldContentNormalizeRule;
+import org.lareferencia.core.worker.validation.validator.DynamicYearRangeFieldContentValidatorRule;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -37,11 +45,15 @@ public class ValidatorFingerprintService {
     static final int FORMAT_VERSION = 1;
     static final String ALGORITHM = "SHA-256";
     static final String CANONICALIZER = "validator-v1";
-    private static final String VALIDATION_ENGINE_VERSION = "validator-engine-v1";
+    private static final String VALIDATION_ENGINE_VERSION = "validator-engine-v2";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ValidatorFingerprint fingerprint(Validator validator) {
+        return fingerprint(validator, Year.now().getValue());
+    }
+
+    private ValidatorFingerprint fingerprint(Validator validator, int referenceYear) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("fingerprintVersion", FORMAT_VERSION);
         root.put("validationEngineVersion", VALIDATION_ENGINE_VERSION);
@@ -54,7 +66,7 @@ public class ValidatorFingerprintService {
             ArrayNode rules = root.putArray("rules");
             List<String> normalizedRules = new ArrayList<>();
             for (ValidatorRule rule : validator.getRules()) {
-                normalizedRules.add(canonicalRule(rule));
+                normalizedRules.add(canonicalRule(rule, referenceYear));
             }
             normalizedRules.sort(Comparator.naturalOrder());
             for (String normalizedRule : normalizedRules) {
@@ -71,33 +83,38 @@ public class ValidatorFingerprintService {
     }
 
     /** Fingerprint every input used before validation, including ordered transformations. */
-    public ValidatorFingerprint fingerprintNetwork(org.lareferencia.core.domain.Network network) {
+    public ValidatorFingerprint fingerprintNetwork(Network network) {
         return fingerprintNetwork(network, false);
     }
 
-    public ValidatorFingerprint fingerprintNetwork(org.lareferencia.core.domain.Network network, boolean detailedDiagnose) {
+    public ValidatorFingerprint fingerprintNetwork(Network network, boolean detailedDiagnose) {
+        return fingerprintNetwork(network, detailedDiagnose, Year.now().getValue());
+    }
+
+    public ValidatorFingerprint fingerprintNetwork(Network network, boolean detailedDiagnose,
+                                                   int referenceYear) {
         ObjectNode pipeline = objectMapper.createObjectNode();
         pipeline.put("pipelineVersion", 2);
         pipeline.put("detailedDiagnose", detailedDiagnose);
-        pipeline.put("validator", fingerprint(network.getValidator()).getHash());
-        pipeline.set("primary", canonicalTransformer(network.getTransformer()));
-        pipeline.set("secondary", canonicalTransformer(network.getSecondaryTransformer()));
+        pipeline.put("validator", fingerprint(network.getValidator(), referenceYear).getHash());
+        pipeline.set("primary", canonicalTransformer(network.getTransformer(), referenceYear));
+        pipeline.set("secondary", canonicalTransformer(network.getSecondaryTransformer(), referenceYear));
         pipeline.set("network", sortObjectFields(objectMapper.valueToTree(
-                new org.lareferencia.core.metadata.SnapshotMetadata.NetworkInfo(network))));
+                new NetworkInfo(network))));
         return new ValidatorFingerprint(2, ALGORITHM, "validation-pipeline-v2", sha256(writeCanonical(pipeline)));
     }
 
-    private JsonNode canonicalTransformer(org.lareferencia.core.domain.Transformer transformer) {
+    private JsonNode canonicalTransformer(Transformer transformer, int referenceYear) {
         ArrayNode rules = objectMapper.createArrayNode();
         if (transformer != null) {
             transformer.getRules().stream()
-                    .sorted(Comparator.comparing(org.lareferencia.core.domain.TransformerRule::getRunorder))
-                    .forEach(rule -> rules.add(canonicalizeJson(rule.getJsonserialization())));
+                    .sorted(Comparator.comparing(TransformerRule::getRunorder))
+                    .forEach(rule -> rules.add(canonicalizeJson(rule.getJsonserialization(), referenceYear)));
         }
         return rules;
     }
 
-    private String canonicalRule(ValidatorRule rule) {
+    private String canonicalRule(ValidatorRule rule, int referenceYear) {
         ObjectNode normalized = objectMapper.createObjectNode();
         if (rule.getId() == null) {
             normalized.putNull("id");
@@ -110,16 +127,27 @@ public class ValidatorFingerprintService {
         } else {
             normalized.put("quantifier", rule.getQuantifier().name());
         }
-        normalized.set("definition", canonicalizeJson(rule.getJsonserialization()));
+        normalized.set("definition", canonicalizeJson(rule.getJsonserialization(), referenceYear));
         return writeCanonical(normalized);
     }
 
-    private JsonNode canonicalizeJson(String json) {
+    private JsonNode canonicalizeJson(String json, int referenceYear) {
         if (json == null) {
             return objectMapper.nullNode();
         }
         try {
-            return sortObjectFields(objectMapper.readTree(json));
+            JsonNode definition = objectMapper.readTree(json);
+            String type = RuleTypeAliases.canonicalName(definition.path("@class").asText());
+            if (FieldContentNormalizeRule.class.getName().equals(type)) {
+                type = RuleTypeAliases.canonicalName(definition.path("validationRule").path("@class").asText());
+            }
+            if (DynamicYearRangeFieldContentValidatorRule.class.getName().equals(type)) {
+                ObjectNode dated = objectMapper.createObjectNode();
+                dated.put("referenceYear", referenceYear);
+                dated.set("definition", definition);
+                return sortObjectFields(dated);
+            }
+            return sortObjectFields(definition);
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Validator rule contains invalid JSON", e);
         }

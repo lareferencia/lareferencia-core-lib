@@ -55,7 +55,7 @@ class FieldContentTranslateRuleTest {
     private void stubSourceAndDestinationNodes(List<Node> nodes) {
         when(metadata.getFieldNodes("dc.type")).thenReturn(nodes);
         // The rule checks all destination subfields before translating sources.
-        when(metadata.getFieldNodes("dc.*")).thenReturn(nodes);
+        when(metadata.getFieldNodes("dc.type.*")).thenReturn(nodes);
     }
 
     @Test

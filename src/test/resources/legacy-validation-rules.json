@@ -1,0 +1,164 @@
+{
+  "validator": [
+    {
+      "@class": "org.lareferencia.backend.validation.validator.ContentLengthFieldContentValidatorRule",
+      "fieldname": "dc.title",
+      "minLength": 1
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.validator.ControlledValueFieldContentValidatorRule",
+      "fieldname": "dc.type",
+      "controlledValues": [
+        "article"
+      ]
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.validator.LargeControlledValueFieldContentValidatorRule",
+      "fieldname": "dc.type",
+      "controlledValuesCSV": "article;book"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.validator.RegexFieldContentValidatorRule",
+      "fieldname": "dc.title",
+      "regexString": ".+"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.validator.DynamicYearRangeFieldContentValidatorRule",
+      "fieldname": "dc.date",
+      "lowerLimit": 100
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.validator.URLExistFieldValidatorRule",
+      "fieldname": "dc.url"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.validator.FieldExpressionValidatorRule",
+      "expression": "dc.type=='article'"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.validator.NodeOccursConditionalValidatorRule",
+      "xpathExpression": "//field"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.validator.SingleAcceptedVocabularyValidatorRule",
+      "fieldname": "dc.type",
+      "vocabulary": [
+        {
+          "value": "article",
+          "accepted": true
+        }
+      ]
+    }
+  ],
+  "transformer": [
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldContentTranslateRule",
+      "testFieldName": "dc.type",
+      "writeFieldName": "dc.type",
+      "translationArray": [
+        {
+          "search": "A",
+          "replace": "B"
+        }
+      ]
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldContentPriorityTranslateRule",
+      "testFieldName": "dc.type",
+      "writeFieldName": "dc.type",
+      "translationArray": []
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldContentConditionalAddOccrRule",
+      "fieldName": "dc.source",
+      "valueToAdd": "a",
+      "conditionalExpression": "dc.type=='missing'"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldContentNormalizeRule",
+      "fieldName": "dc.type",
+      "removeInvalidOccurrences": true,
+      "validationRule": {
+        "@class": "org.lareferencia.backend.validation.validator.ContentLengthFieldContentValidatorRule",
+        "minLength": 1
+      }
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldContentRemoveWhiteSpacesTranslateRule",
+      "fieldName": "dc.source"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldNameTranslateRule",
+      "sourceFieldName": "dc.old",
+      "targetFieldName": "dc.new"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldNameConditionalTranslateRule",
+      "sourceXPathExpression": "//absent",
+      "targetFieldName": "dc.new"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldNameBulkTranslateRule",
+      "translationArray": []
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.FieldAddRule",
+      "targetFieldName": "dc.note",
+      "value": "org.lareferencia.backend.validation.validator.RegexFieldContentValidatorRule"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.RegexTranslateRule",
+      "sourceFieldName": "dc.source",
+      "targetFieldName": "dc.source",
+      "regexSearch": "A",
+      "regexReplace": "B"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.IdentifierRegexRule",
+      "regexSearch": "old",
+      "regexReplace": "new"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.AddProvenanceMetadataRule"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.AddRepoNameRule"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.ReduceHeavyRecords",
+      "fieldsToRemove": [
+        "dc.large"
+      ]
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.RemoveEmptyOccrsRule",
+      "fieldName": "dc.source"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.RemoveDuplicateOccrsRule",
+      "fieldName": "dc.source"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.RemoveDuplicatePrefixedOccrs"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.RemoveAllButFirstOccrRule",
+      "fieldName": "dc.source"
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.RemoveBlacklistOccrsRule",
+      "fieldName": "dc.source",
+      "blacklist": [
+        "x"
+      ]
+    },
+    {
+      "@class": "org.lareferencia.backend.validation.transformer.RemoveDuplicateVocabularyOccrsRule",
+      "fieldName": "dc.type",
+      "vocabulary": [
+        "article",
+        "book"
+      ]
+    }
+  ]
+}

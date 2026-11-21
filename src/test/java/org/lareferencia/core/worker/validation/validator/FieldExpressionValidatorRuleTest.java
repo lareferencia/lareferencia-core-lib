@@ -47,7 +47,6 @@ class FieldExpressionValidatorRuleTest {
     private FieldExpressionValidatorRule createRuleWithQuantifier(QuantifierValues quantifier) {
         FieldExpressionValidatorRule rule = new FieldExpressionValidatorRule();
         rule.setQuantifier(quantifier);
-        rule.evaluator = new FieldExpressionEvaluator(quantifier);
         return rule;
     }
 

@@ -76,9 +76,9 @@ public class RemoveEmptyOccrsRule extends AbstractTransformerRule {
 		List<Node> removeList = new ArrayList<Node>();
 
 		// recorre las ocurrencias del campo de test
-		for (Node node : metadata.getFieldNodes(fieldName)) {
+		for (Node node : metadata.getFieldNodesIncludingEmpty(fieldName)) {
 
-			String occr = node.getFirstChild().getNodeValue();
+			String occr = node.getTextContent();
 
 			if (occr.trim().isEmpty()) {
 				removeList.add(node);

@@ -286,20 +286,18 @@ public abstract class MedatadaDOMHelper {
 		Node parentNode = node.getParentNode();
 		
 		// Cannot remove root node
-		if (parentNode == null) {
-			return;
-		}
+		if (parentNode == null || parentNode.getNodeType() == Node.DOCUMENT_NODE) {
+            return;
+        }
+        parentNode.removeChild(node);
 		
-		parentNode.removeChild(node); 
-		
-		while ( parentNode != null && node != parentNode && countChildsOfTypeElement(parentNode) == 0) {
-			node = parentNode; 
-			parentNode = node.getParentNode();
-			
-			if (parentNode != null) {
-				parentNode.removeChild(node);
-			}
-		}
+        while (parentNode.getParentNode() != null
+                && parentNode.getParentNode().getNodeType() != Node.DOCUMENT_NODE
+                && countChildsOfTypeElement(parentNode) == 0) {
+            node = parentNode;
+            parentNode = node.getParentNode();
+            parentNode.removeChild(node);
+        }
 	}
 	
 	/**

@@ -20,9 +20,7 @@
 
 package org.lareferencia.core.worker.validation.validator;
 
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.Date;
+import java.time.Year;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -82,6 +80,12 @@ public class DynamicYearRangeFieldContentValidatorRule extends AbstractValidator
 	private int lowerLimit;
 
 	private Pattern pattern;
+    private int referenceYear = Year.now().getValue();
+
+    /** The same year is used for every record and for the run's fingerprint. */
+    public void useReferenceYear(int year) {
+        this.referenceYear = year;
+    }
 
 	/**
 	 * Sets the regex string for year extraction.
@@ -114,11 +118,8 @@ public class DynamicYearRangeFieldContentValidatorRule extends AbstractValidator
 				Integer year = Integer.parseInt(matcher.group());
 
 				// find a dynamic valid range using lower and upper limits
-				Date actualDate = new Date();
-				LocalDate localDate = actualDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
-
-				Integer startYear = localDate.getYear() - lowerLimit;
-				Integer endYear = localDate.getYear() + upperLimit;
+                int startYear = referenceYear - lowerLimit;
+                int endYear = referenceYear + upperLimit;
 
 				result.setReceivedValue(year.toString());
 				result.setValid(year >= startYear && year <= endYear);

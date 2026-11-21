@@ -80,6 +80,10 @@ public class ReduceHeavyRecords extends AbstractTransformerRule {
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
+        return removeFields(metadata, fieldsToRemove);
+    }
+
+    static boolean removeFields(OAIRecordMetadata metadata, List<String> fieldsToRemove) {
 		boolean wasTransformed = false;
 
 		for (String fieldName : fieldsToRemove) {

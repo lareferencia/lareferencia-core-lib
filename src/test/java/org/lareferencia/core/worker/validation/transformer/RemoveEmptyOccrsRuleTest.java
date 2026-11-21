@@ -43,9 +43,7 @@ class RemoveEmptyOccrsRuleTest {
 
     private Node createMockNode(String value) {
         Node node = mock(Node.class);
-        Node textNode = mock(Node.class);
-        when(node.getFirstChild()).thenReturn(textNode);
-        when(textNode.getNodeValue()).thenReturn(value);
+        when(node.getTextContent()).thenReturn(value);
         return node;
     }
 
@@ -55,7 +53,7 @@ class RemoveEmptyOccrsRuleTest {
         Node emptyNode = createMockNode("");
         Node validNode = createMockNode("Valid content");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(emptyNode, validNode));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Arrays.asList(emptyNode, validNode));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -70,7 +68,7 @@ class RemoveEmptyOccrsRuleTest {
         Node whitespaceNode = createMockNode("   ");
         Node validNode = createMockNode("Content");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(whitespaceNode, validNode));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Arrays.asList(whitespaceNode, validNode));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -86,7 +84,7 @@ class RemoveEmptyOccrsRuleTest {
         Node newlineNode = createMockNode("\n\n");
         Node validNode = createMockNode("Valid");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(tabNode, newlineNode, validNode));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Arrays.asList(tabNode, newlineNode, validNode));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -102,7 +100,7 @@ class RemoveEmptyOccrsRuleTest {
         Node node1 = createMockNode("Content 1");
         Node node2 = createMockNode("Content 2");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(node1, node2));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Arrays.asList(node1, node2));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -113,7 +111,7 @@ class RemoveEmptyOccrsRuleTest {
     @Test
     @DisplayName("Should handle empty field list")
     void testEmptyFieldList() {
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.emptyList());
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Collections.emptyList());
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -128,7 +126,7 @@ class RemoveEmptyOccrsRuleTest {
         Node empty2 = createMockNode("  ");
         Node empty3 = createMockNode("\t");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(empty1, empty2, empty3));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Arrays.asList(empty1, empty2, empty3));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -146,7 +144,7 @@ class RemoveEmptyOccrsRuleTest {
         Node valid1 = createMockNode("Content");
         Node valid2 = createMockNode("More content");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Arrays.asList(empty, valid1, whitespace, valid2));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Arrays.asList(empty, valid1, whitespace, valid2));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -162,7 +160,7 @@ class RemoveEmptyOccrsRuleTest {
     void testPreserveContentWithWhitespace() {
         Node node = createMockNode("  content  ");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(node));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -182,7 +180,7 @@ class RemoveEmptyOccrsRuleTest {
     void testSingleEmptyOccurrence() {
         Node emptyNode = createMockNode("");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(emptyNode));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Collections.singletonList(emptyNode));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -195,7 +193,7 @@ class RemoveEmptyOccrsRuleTest {
     void testMixedWhitespaceTypes() {
         Node mixedNode = createMockNode(" \t\n\r ");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(mixedNode));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Collections.singletonList(mixedNode));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -208,7 +206,7 @@ class RemoveEmptyOccrsRuleTest {
     void testSingleCharacterContent() {
         Node node = createMockNode("a");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(node));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
@@ -221,7 +219,7 @@ class RemoveEmptyOccrsRuleTest {
     void testZeroWidthSpaces() {
         Node node = createMockNode("\u200B\u200B");
         
-        when(metadata.getFieldNodes("dc.description")).thenReturn(Collections.singletonList(node));
+        when(metadata.getFieldNodesIncludingEmpty("dc.description")).thenReturn(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 

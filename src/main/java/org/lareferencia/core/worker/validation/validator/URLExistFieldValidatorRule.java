@@ -20,14 +20,9 @@
 
 package org.lareferencia.core.worker.validation.validator;
 
-import lombok.Getter;
-import lombok.Setter;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.worker.validation.AbstractValidatorFieldContentRule;
 import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 
-import javax.net.ssl.HttpsURLConnection;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -41,12 +36,8 @@ import java.net.UnknownHostException;
  * Performs HTTP HEAD requests to verify URL availability, following redirects
  * automatically.
  */
-@Getter
-@Setter
 @ValidatorRuleMeta
 public class URLExistFieldValidatorRule extends AbstractValidatorFieldContentRule {
-
-	private static Logger logger = LogManager.getLogger(URLExistFieldValidatorRule.class);
 
 	/**
 	 * Constructs a new URLExistFieldValidatorRule instance.
@@ -67,41 +58,39 @@ public class URLExistFieldValidatorRule extends AbstractValidatorFieldContentRul
 	 */
 	private boolean exists(String url) throws MalformedURLException, UnknownHostException, IOException {
 
-		HttpsURLConnection.setFollowRedirects(true);
-		HttpURLConnection.setFollowRedirects(true);
+        HttpURLConnection connection = getConnection(new URL(url));
+        try {
+            int status = connection.getResponseCode();
+            if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM
+                    || status == HttpURLConnection.HTTP_SEE_OTHER) {
+                URL target = new URL(connection.getURL(), connection.getHeaderField("Location"));
+                connection.disconnect();
+                connection = getConnection(target);
+                status = connection.getResponseCode();
+            }
+            return status == HttpURLConnection.HTTP_OK;
+        } finally {
+            connection.disconnect();
+        }
+    }
 
-		HttpURLConnection conn = getConnection(url);
+    private HttpURLConnection getConnection(URL url) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("HEAD");
+        connection.setInstanceFollowRedirects(true);
+        connection.setConnectTimeout(connectTimeout);
+        connection.setReadTimeout(readTimeout);
+        return connection;
+    }
 
-		int responseCode = conn.getResponseCode();
-		logger.debug("Verificando: " + url + " :: " + responseCode);
+    private final int connectTimeout = timeout("lareferencia.validation.url.connectTimeoutMillis", 5000);
+    private final int readTimeout = timeout("lareferencia.validation.url.readTimeoutMillis", 10000);
 
-		// si es un redirect
-		if (responseCode == HttpURLConnection.HTTP_MOVED_TEMP || responseCode == HttpURLConnection.HTTP_MOVED_PERM
-				|| responseCode == HttpURLConnection.HTTP_SEE_OTHER) {
-			String redirectUrl = conn.getHeaderField("Location");
-			conn = getConnection(redirectUrl);
-			responseCode = conn.getResponseCode();
-			logger.debug("Verificando Redirect: " + redirectUrl + " :: " + responseCode);
-		}
-
-		return (responseCode == HttpURLConnection.HTTP_OK);
-	}
-
-	private HttpURLConnection getConnection(String url)
-			throws MalformedURLException, UnknownHostException, IOException {
-
-		HttpURLConnection con;
-
-		if (url.startsWith("https")) {
-			con = (HttpsURLConnection) new URL(url).openConnection();
-			con.setRequestMethod("HEAD");
-		} else {
-			con = (HttpURLConnection) new URL(url).openConnection();
-			con.setRequestMethod("HEAD");
-		}
-
-		return con;
-	}
+    private static int timeout(String property, int fallback) {
+        int millis = Integer.parseInt(System.getProperty(property, Integer.toString(fallback)));
+        if (millis < 1) throw new IllegalArgumentException(property + " must be positive");
+        return millis;
+    }
 
 	@Override
 	public ContentValidatorResult validate(String content) {

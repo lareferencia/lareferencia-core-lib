@@ -175,15 +175,16 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
         boolean wasTransformed = false;
-        // When search and write fields refer to the same logical metadata field,
-        // searchFieldName defines all occurrences being translated. For example,
-        // dc.type.* includes values nested under driver, openaire, and none while
-        // writeFieldName may intentionally target only dc.type.none. For mappings
-        // between different fields, uniqueness is checked in the destination.
-        String destinationScope = logicalField(testFieldName).equals(logicalField(writeFieldName))
-                ? allSubfields(testFieldName) : allSubfields(writeFieldName);
         Map<String, Integer> destinationCounts = new HashMap<>();
-        Set<Node> destinationNodes = new HashSet<>(metadata.getFieldNodes(destinationScope));
+        // XOAI has direct fields (dc:title), unqualified elements (dc.type)
+        // and qualified elements (dc.type.none). Only pool sibling qualifiers.
+        String base = writeFieldName;
+        boolean includeQualifiers = !base.contains(":") && base.contains(".");
+        if (includeQualifiers && base.lastIndexOf('.') > base.indexOf('.')) {
+            base = base.substring(0, base.lastIndexOf('.'));
+        }
+        Set<Node> destinationNodes = new HashSet<>(metadata.getFieldNodes(base));
+        if (includeQualifiers) destinationNodes.addAll(metadata.getFieldNodes(base + ".*"));
         for (Node node : destinationNodes) {
             if (node.getFirstChild() != null && node.getFirstChild().getNodeValue() != null) {
                 destinationCounts.merge(node.getFirstChild().getNodeValue(), 1, Integer::sum);
@@ -227,16 +228,6 @@ public class FieldContentTranslateRule extends AbstractTransformerRule {
 
 		return wasTransformed;
 	}
-
-    private static String allSubfields(String fieldName) {
-        int lastSeparator = fieldName.lastIndexOf('.');
-        return lastSeparator < 0 ? fieldName : fieldName.substring(0, lastSeparator + 1) + "*";
-    }
-
-    private static String logicalField(String fieldName) {
-        int lastSeparator = fieldName.lastIndexOf('.');
-        return lastSeparator < 0 ? fieldName : fieldName.substring(0, lastSeparator);
-    }
 
 	/**
 	 * Sets the translation map for field value translations.

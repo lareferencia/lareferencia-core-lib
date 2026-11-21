@@ -20,6 +20,10 @@
 
 package org.lareferencia.core.worker.validation;
 
+import java.time.Clock;
+import java.time.Year;
+import org.lareferencia.core.worker.validation.validator.DynamicYearRangeFieldContentValidatorRule;
+import org.lareferencia.core.worker.validation.transformer.FieldContentNormalizeRule;
 import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.util.Iterator;
@@ -134,6 +138,8 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 	@Autowired
 	private RecordValidationRepository validationRecordRepository;
 
+    private Clock clock = Clock.systemDefaultZone();
+    private int referenceYear;
 	private ValidatorFingerprint currentFingerprint;
 	private java.util.stream.Stream<OAIRecord> catalogStream;
 
@@ -170,6 +176,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
             snapshotStore.resetSnapshotValidationCounts(snapshotId);
             try { validationManifestStore.invalidate(snapshotMetadata); }
             catch (Exception e) { throw new IllegalStateException("Cannot invalidate previous validation manifest", e); }
+            referenceYear = Year.now(clock).getValue();
             currentFingerprint = computeValidatorFingerprint();
             reusingValidationDatabase = tryReuseParentValidation(currentFingerprint);
 
@@ -227,6 +234,7 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 				if (runningContext.getNetwork().getValidator() != null) {
 					validator = validationManager.createValidatorFromModel(runningContext.getNetwork().getValidator());
                     for (IValidatorRule rule : validator.getRules()) {
+                        pinYear(rule);
                         var definition = snapshotMetadata.getRuleDefinition(rule.getRuleId());
                         if (definition != null) {
                             definition.setOccurrenceCaptureEnabled(detailedDiagnose && rule.isStoreOccurrences());
@@ -246,6 +254,8 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 							.createTransformerFromModel(runningContext.getNetwork().getSecondaryTransformer());
 				}
 
+                pinNestedYears(transformer);
+                pinNestedYears(secondaryTransformer);
 				if (transformer == null && secondaryTransformer == null)
 					logInfo("No transformers for " + runningContext.toString() + "!!!");
 
@@ -267,12 +277,27 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 
 	}
 
+    private void pinYear(IValidatorRule rule) {
+        if (rule instanceof DynamicYearRangeFieldContentValidatorRule annual) {
+            annual.useReferenceYear(referenceYear);
+        }
+    }
+
+    private void pinNestedYears(ITransformer chain) {
+        if (chain == null) return;
+        for (var rule : chain.getRules()) {
+            if (rule instanceof FieldContentNormalizeRule normalize) {
+                pinYear(normalize.getValidationRule());
+            }
+        }
+    }
+
 	/** Computes provenance; the completion manifest is published only after finalization. */
 	private ValidatorFingerprint computeValidatorFingerprint() {
 		try {
 			ValidatorFingerprint fingerprint = validatorFingerprintService
 					.fingerprintNetwork(runningContext.getNetwork(), runningContext.getBooleanActionOption(
-                            "DETAILED_DIAGNOSE", "DETAILED_DIAGNOSE", false));
+                            "DETAILED_DIAGNOSE", "DETAILED_DIAGNOSE", false), referenceYear);
 
 			logger.info("Computed validation pipeline fingerprint {} for snapshot {}",
 					fingerprint.getHash(), snapshotMetadata.getSnapshotId());
