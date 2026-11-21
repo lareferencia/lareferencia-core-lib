@@ -84,6 +84,32 @@ class PipelineRegressionTest {
         }
     }
 
+    @Test void allPreservesEachRuleFamilysTreatmentOfMissingAndMixedValues() throws Exception {
+        var content = new RegexFieldContentValidatorRule();
+        content.setFieldname("dc.type");
+        content.setRegexString("article");
+        var expression = new FieldExpressionValidatorRule();
+        expression.setExpression("dc.type=='article'");
+        var nodes = new NodeOccursConditionalValidatorRule();
+        nodes.setSourceXPathExpression("//*[local-name()='field' and text()='article']");
+        for (var rule : List.of(content, expression, nodes)) {
+            rule.setQuantifier(QuantifierValues.ALL);
+        }
+
+        var missing = record();
+        var mixed = record("article", "book");
+        var matching = record("article", "article");
+        for (var rule : List.of(content, expression)) {
+            assertTrue(rule.validate(missing).getValid());
+            assertFalse(rule.validate(mixed).getValid());
+            assertTrue(rule.validate(matching).getValid());
+        }
+        assertFalse(nodes.validate(missing).getValid());
+        assertFalse(nodes.validate(record("book")).getValid());
+        assertTrue(nodes.validate(mixed).getValid());
+        assertTrue(nodes.validate(matching).getValid());
+    }
+
     @Test void emptyXmlElementIsRemovedAndItsSiblingSurvives() throws Exception {
         var xml = new OAIRecordMetadata("fixture", """
             <metadata><element name="dc"><field name="title"/><field name="title">  </field>

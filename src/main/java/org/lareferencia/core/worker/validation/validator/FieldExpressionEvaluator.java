@@ -123,17 +123,9 @@ public class FieldExpressionEvaluator extends AbstractEvaluator<Boolean> {
 			String operator = matcher.group(2);
 
 			int validOccurrencesCount = 0;
+			List<String> occrs = metadata.getFieldOcurrences(fieldName);
 
-			int occurrencesSize = 0;
-			
-			
-			List<String> occrs =  metadata.getFieldOcurrences(fieldName);
-			
-
-			for (String fieldValue :occrs) {
-
-				occurrencesSize++;
-
+			for (String fieldValue : occrs) {
 				ContentValidatorResult result = new ContentValidatorResult();
 				result.setReceivedValue(fieldName + " :: " + testValue + " " + operator + " " + fieldValue);
 				result.setValid(false);
@@ -180,27 +172,7 @@ public class FieldExpressionEvaluator extends AbstractEvaluator<Boolean> {
 			 * de acuerdo al cuantificador y la cantidad de reglas válidas
 			 * decide si la reglas es válida
 			 */
-			switch (quantifier) {
-
-			case ONE_ONLY:
-				return validOccurrencesCount == 1;
-
-			case ONE_OR_MORE:
-				return validOccurrencesCount >= 1;
-
-			case ZERO_OR_MORE:
-				return validOccurrencesCount >= 0;
-
-			case ZERO_ONLY:
-				return validOccurrencesCount == 0;
-
-			case ALL:
-				return validOccurrencesCount == occurrencesSize;
-
-			default:
-				return false;
-
-			}
+			return quantifier.matchesExpressionOperand(validOccurrencesCount, occrs.size());
 
 		} else {
 
