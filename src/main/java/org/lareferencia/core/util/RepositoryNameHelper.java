@@ -22,6 +22,7 @@ package org.lareferencia.core.util;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.lareferencia.core.metadata.OAIRecordMetadata;
 import org.springframework.stereotype.Component;
@@ -34,56 +35,10 @@ import org.w3c.dom.Node;
 @Component
 public class RepositoryNameHelper {
 
-	
-	
-	/**
-	 * Constructs a new RepositoryNameHelper instance.
-	 */
-	public RepositoryNameHelper() {
-		
-		/*
-		try {
-			pattern = Pattern.compile(DOMAIN_NAME_PATTERN_STR);
-		} catch (PatternSyntaxException e) {
-			logger.error("RepositoryNameHelper::Error en el patron: " +DOMAIN_NAME_PATTERN_STR);
-
-		}*/
-
-	}
-/*
-	public void setDetectREPattern(String patternString) {
-
-		try {
-			pattern = Pattern.compile(patternString);
-		} catch (PatternSyntaxException e) {
-			logger.error("RepositoryNameHelper::Error en el patron: " +patternString);
-
-		}
-	}
-
-
-	public static final String DOMAIN_NAME_PATTERN_STR = "[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*(\\.[A-Za-z-]{2,})";
-	private static final String NAME_PATTERN_STR = "[A-Za-z0-9-]{4,}";
-
-	public String detectRepositoryDomain(String identifier) {
-
-		String result = UNKNOWN;
-
-		Matcher matcher = pattern.matcher(identifier);
-
-		if (matcher.find())
-			result = matcher.group();
-
-		return result;
-	}
-*/
 	/**
 	 * Default name for repositories that cannot be classified.
 	 */
 	public static String UNKNOWN = "No clasificados";
-	
-	
-	
 
 	/**
 	 * Appends a name value to a metadata field with a specified prefix.
@@ -97,28 +52,41 @@ public class RepositoryNameHelper {
 	 */
 	public void appendNameToMetadata(OAIRecordMetadata metadata, String fieldname, String prefix, String value, Boolean replaceExisting) {
 
-		Node existingNode = null;
+		new NameWriter(metadata).append(fieldname, prefix, value, replaceExisting);
+	}
 
-		for (Node node : metadata.getFieldNodes(fieldname)) {
+	/** Applies successive name updates to one record, in profile order. */
+	public static final class NameWriter {
+		private final OAIRecordMetadata metadata;
+		private String selectedField;
+		private List<Node> nodes;
 
-			String occr = node.getFirstChild().getNodeValue();
-
-			if (occr.startsWith(prefix))
-				existingNode = node;
+		public NameWriter(OAIRecordMetadata metadata) {
+			this.metadata = metadata;
 		}
 
-		if (existingNode != null) {
-			if (replaceExisting) {
-				Node fieldNode = existingNode.getParentNode();
-				fieldNode.removeChild(existingNode);
-				metadata.addFieldOcurrence(fieldname, prefix + value);
+		public void append(String field, String prefix, String value, Boolean replaceExisting) {
+			// Repository, institution and acronym often share a field. A kept value leaves its selection valid.
+			if (nodes == null || !Objects.equals(selectedField, field)) {
+				nodes = metadata.getFieldNodes(field);
+				selectedField = field;
 			}
-
-		} else {
-			metadata.addFieldOcurrence(fieldname, prefix + value);
+			// Replacement removes only the last matching occurrence and leaves its parent in place.
+			for (int i = nodes.size() - 1; i >= 0; i--) {
+				Node node = nodes.get(i);
+				if (node.getFirstChild().getNodeValue().startsWith(prefix)) {
+					if (!replaceExisting) {
+						return;
+					}
+					node.getParentNode().removeChild(node);
+					break;
+				}
+			}
+			nodes = null;
+			metadata.addFieldOcurrence(field, prefix + value);
 		}
 	}
-	
+
 	/**
 	 * Removes duplicate field occurrences with a specified prefix from the metadata.
 	 * 

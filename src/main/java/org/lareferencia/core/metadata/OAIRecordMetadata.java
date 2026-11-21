@@ -300,16 +300,12 @@ public class OAIRecordMetadata {
 			OAIMetadataElement target = path.get(path.size() - 1);
 			boolean literalField = target.getType() == Type.field && fieldName.indexOf('\'') < 0;
 
-			// Repeated writes to a literal field use the first matching field's actual parent.
-			// It can be in a later branch when several elements have the same name.
-			Node existing = literalField ? MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath()) : null;
-			Node parent = existing != null ? existing.getParentNode() : null;
-			if (parent == null && literalField && path.size() > 1) {
-				// Provenance often adds several different fields to the same existing container.
-				// For a missing field the historical writer uses the first matching parent.
-				parent = MedatadaDOMHelper.getSingleNode(DOMDocument, path.get(path.size() - 2).getXpath());
-			}
-			if (parent == null) {
+			Node parent;
+			if (literalField) {
+				// The first matching field can belong to a later branch with the same name.
+				Node existing = MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath());
+				parent = existing != null ? existing.getParentNode() : findOrCreateFieldParent(path);
+			} else {
 				parent = MedatadaDOMHelper.getSingleNode(DOMDocument, XOAIXPATHHelper.getRootXPATH());
 				for (int i = 0; i < path.size() - 1; i++) {
 					OAIMetadataElement element = path.get(i);
@@ -320,10 +316,9 @@ public class OAIRecordMetadata {
 					parent = MedatadaDOMHelper.getSingleNode(DOMDocument, xpath);
 				}
 
-				// Creating ancestor elements cannot introduce a missing literal field. Element
-				// selectors ($) and paths containing XPath quotes keep their original lookup order.
-				if (!literalField && MedatadaDOMHelper.isNodeDefined(DOMDocument, target.getXpath())) {
-					existing = MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath());
+				// Element selectors ($) and paths containing quotes keep their historical lookup order.
+				if (MedatadaDOMHelper.isNodeDefined(DOMDocument, target.getXpath())) {
+					Node existing = MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath());
 					parent = target.getType() == Type.field ? existing.getParentNode() : existing;
 				} else if (target.getType() == Type.element) {
 					parent = MedatadaDOMHelper.addChildElementWithNameAttr(parent, Type.element.toString(), target.getName());
@@ -336,6 +331,27 @@ public class OAIRecordMetadata {
 			logger.error("Error en agregador de metadato:" + fieldName);
 			e.printStackTrace();
 		}
+	}
+
+	// Look up complete prefixes so repeated branches keep their document order. Once a
+	// prefix is absent, its descendants are absent too and can be created directly.
+	private Node findOrCreateFieldParent(List<OAIMetadataElement> path) throws TransformerException {
+		int firstMissing = path.size() - 1; // Exclude the terminal field.
+		Node parent = null;
+		while (firstMissing > 0) {
+			parent = MedatadaDOMHelper.getSingleNode(DOMDocument, path.get(firstMissing - 1).getXpath());
+			if (parent != null) {
+				break;
+			}
+			firstMissing--;
+		}
+		if (parent == null) {
+			parent = MedatadaDOMHelper.getSingleNode(DOMDocument, XOAIXPATHHelper.getRootXPATH());
+		}
+		for (int i = firstMissing; i < path.size() - 1; i++) {
+			parent = MedatadaDOMHelper.addChildElementWithNameAttr(parent, Type.element.toString(), path.get(i).getName());
+		}
+		return parent;
 	}
 
 

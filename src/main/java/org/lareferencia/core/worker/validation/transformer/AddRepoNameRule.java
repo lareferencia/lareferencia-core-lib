@@ -27,7 +27,7 @@ import lombok.Setter;
 import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
-import org.lareferencia.core.util.RepositoryNameHelper;
+import org.lareferencia.core.util.RepositoryNameHelper.NameWriter;
 import org.lareferencia.core.worker.validation.AbstractTransformerRule;
 import org.lareferencia.core.worker.validation.ValidatorRuleMeta;
 import org.lareferencia.core.worker.validation.SchemaProperty;
@@ -45,8 +45,6 @@ import org.lareferencia.core.worker.validation.SchemaProperty;
  */
 @ValidatorRuleMeta
 public class AddRepoNameRule extends AbstractTransformerRule {
-
-	private RepositoryNameHelper repositoryNameHelper;
 
 	@Getter
 	@Setter
@@ -107,23 +105,21 @@ public class AddRepoNameRule extends AbstractTransformerRule {
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
-		// Se carga el helper para la resolución de nombre de repositorios
-		repositoryNameHelper = new RepositoryNameHelper();
-
-		// Si está configurado agrega a la metadata el reponame y el instname
+		NameWriter names = new NameWriter(metadata);
 		if (doRepoNameAppend) {
-			repositoryNameHelper.appendNameToMetadata(metadata, repoNameField, repoNamePrefix,
+			names.append(repoNameField, repoNamePrefix,
 					snapshotMetadata.getNetwork().getName(), doRepoNameReplace);
 		}
 
 		if (doInstNameAppend) {
-			repositoryNameHelper.appendNameToMetadata(metadata, instNameField, instNamePrefix,
+			names.append(instNameField, instNamePrefix,
 					snapshotMetadata.getNetwork().getInstitutionName(), doInstNameReplace);
-			repositoryNameHelper.appendNameToMetadata(metadata, instAcronField, instAcronPrefix,
+			names.append(instAcronField, instAcronPrefix,
 					snapshotMetadata.getNetwork().getInstitutionAcronym(), doInstNameReplace);
 
 		}
 
+		// Enabled appends historically report a transformation even when all names were kept.
 		return doInstNameAppend || doRepoNameAppend;
 	}
 
