@@ -67,12 +67,29 @@
                 "minimum": 0,
                 "description": "Skip values whose Unicode code point count exceeds this limit, after normalization."
               },
+              "excludePrefixes": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "\\S" },
+                "description": "Skip values starting with any of these literal prefixes, ignoring case, after normalization."
+              },
+              "prefixDelimiters": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Require the end of the value or one of these characters immediately after an excluded prefix."
+              },
               "normalize": {
                 "type": "array",
                 "items": {
                   "const": "trim"
                 }
               }
+            },
+            "dependentSchemas": {
+              "excludePrefixes": { "properties": { "type": { "const": "string" } } }
+            },
+            "dependentRequired": {
+              "prefixDelimiters": ["excludePrefixes"]
             }
           },
           {
