@@ -22,11 +22,11 @@ package org.lareferencia.core.worker.validation.transformer;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import lombok.Getter;
 import lombok.Setter;
 
-import org.lareferencia.core.worker.validation.validator.ContentValidatorResult;
 import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
@@ -50,6 +50,9 @@ import org.w3c.dom.Node;
 @Setter
 @ValidatorRuleMeta
 public class FieldContentNormalizeRule extends AbstractTransformerRule {
+
+	// Only bypass a lookup whose syntax is known to be valid. Other paths keep their diagnostics.
+	private static final Pattern SIMPLE_FIELD = Pattern.compile("[a-zA-Z0-9_-]++(?:\\.[a-zA-Z0-9_*-]++)*+(?::[a-zA-Z0-9_-]++)?");
 
 	@Override
 	public String toString() {
@@ -79,40 +82,26 @@ public class FieldContentNormalizeRule extends AbstractTransformerRule {
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
-		ContentValidatorResult result;
-		boolean wasTransformed = false;
-		Set<String> occurencesHistory = new HashSet<String>();
-
-		// Ciclo de búsqueda
-		for (Node node : metadata.getFieldNodes(fieldName)) {
-
-			String occr = node.getFirstChild().getNodeValue();
-
-			if (removeInvalidOccurrences) {
-
-				result = validationRule.validate(occr);
-
-				wasTransformed |= !result.isValid();
-
-				if (!result.isValid()) {
-					metadata.removeNode(node);
-				}
-			}
-
-			if (removeDuplicatedOccurrences) {
-
-				if (occurencesHistory.contains(occr)) {
-					wasTransformed |= true;
-					metadata.removeNode(node);
-				}
-
-				occurencesHistory.add(occr);
-
-			}
-
+		if (Boolean.FALSE.equals(removeInvalidOccurrences) && Boolean.FALSE.equals(removeDuplicatedOccurrences)
+				&& fieldName != null && SIMPLE_FIELD.matcher(fieldName).matches()) {
+			return false;
 		}
 
-		return wasTransformed;
+		Set<String> seen = Boolean.TRUE.equals(removeDuplicatedOccurrences) ? new HashSet<>() : null;
+		boolean changed = false;
+		for (Node node : metadata.getFieldNodes(fieldName)) {
+			String value = node.getFirstChild().getNodeValue();
+			boolean invalid = removeInvalidOccurrences && !validationRule.validate(value).isValid();
+			if (invalid) {
+				metadata.removeNode(node);
+				changed = true;
+			}
+			// Invalid values also count as seen. A later occurrence can validate differently.
+			if (removeDuplicatedOccurrences && !seen.add(value) && !invalid) {
+				metadata.removeNode(node);
+				changed = true;
+			}
+		}
+		return changed;
 	}
-
 }
