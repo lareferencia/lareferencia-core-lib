@@ -20,7 +20,6 @@
 
 package org.lareferencia.core.worker.validation.transformer;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import org.lareferencia.core.domain.IOAIRecord;
@@ -69,26 +68,11 @@ public class RemoveAllButFirstOccrRule extends AbstractTransformerRule {
 	 */
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-
-		boolean wasTransformed = false;
-
-		List<Node> removeList = new ArrayList<Node>();
-
-		int i = 0;
-		// recorre las ocurrencias del campo de test
-		for (Node node : metadata.getFieldNodes(fieldName)) {
-
-			if (i != 0) {
-				removeList.add(node);
-				wasTransformed = true;
-			}
-			i++;
+		// getFieldNodes returns a snapshot in document order, safe to traverse during removal.
+		List<Node> nodes = metadata.getFieldNodes(fieldName);
+		for (int i = 1; i < nodes.size(); i++) {
+			metadata.removeNode(nodes.get(i));
 		}
-
-		for (Node node : removeList)
-			metadata.removeNode(node);
-
-		return wasTransformed;
+		return nodes.size() > 1;
 	}
-
 }

@@ -71,33 +71,15 @@ public class RemoveBlacklistOccrsRule extends AbstractTransformerRule {
 		blacklist = new ArrayList<String>();
 	}
 
-	/**
-	 * Internal list of nodes marked for removal during transformation.
-	 */
-	List<Node> removeList = new ArrayList<Node>();
-
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-
-		removeList.clear();
-
-		boolean wasTransformed = false;
-
-		// recorre las ocurrencias del campo de test
+		boolean removed = false;
 		for (Node node : metadata.getFieldNodes(fieldName)) {
-
-			String occr = node.getFirstChild().getNodeValue();
-
-			if (blacklist.contains(occr)) {
-				wasTransformed = true;
-				removeList.add(node);
+			if (blacklist.contains(node.getFirstChild().getNodeValue())) {
+				metadata.removeNode(node);
+				removed = true;
 			}
 		}
-
-		for (Node node : removeList)
-			metadata.removeNode(node);
-
-		return wasTransformed;
+		return removed;
 	}
-
 }

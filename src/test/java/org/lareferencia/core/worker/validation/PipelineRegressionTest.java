@@ -18,6 +18,45 @@ class PipelineRegressionTest {
         return xml;
     }
 
+    @Test void vocabularyCleanupPreservesFirstNodeAtBestRankAndUnknownSiblings() throws Exception {
+        var xml = new OAIRecordMetadata("fixture", """
+                <metadata><element name="a">
+                  <field name="value">book</field><field name="value">local</field>
+                  <field name="value" lang="es">paper</field><field name="value" lang="en">paper</field>
+                  <field name="value">local</field>
+                </element></metadata>
+                """);
+        var rule = new RemoveDuplicateVocabularyOccrsRule();
+        rule.setFieldName("a");
+        rule.setVocabulary(List.of("paper", "book", "paper"));
+        var firstPaper = xml.getFieldNodes("a").get(2);
+        assertTrue(rule.transform(null, null, xml));
+        assertEquals(List.of("local", "paper", "local"), xml.getFieldOcurrences("a"));
+        assertSame(firstPaper, xml.getFieldNodes("a").get(1));
+        assertFalse(rule.transform(null, null, xml));
+    }
+
+    @Test void vocabularyDiagnosticsKeepOrderDuplicatesAndUnicodeLengthBoundary() throws Exception {
+        String boundary = "🌎".repeat(255);
+        String tooLong = boundary + "x";
+        var rule = new SingleAcceptedVocabularyValidatorRule("dc.type",
+                List.of(new VocabularyTerm(boundary, true), new VocabularyTerm(tooLong, true),
+                        new VocabularyTerm("book", false)), List.of("ignored"));
+        var onlyLong = rule.validate(record(tooLong));
+        assertTrue(onlyLong.getValid());
+        assertEquals("no_reportable_values_found", onlyLong.getResults().get(0).getReceivedValue());
+        var mixed = rule.validate(record("ignored", "book", tooLong, boundary, "book"));
+        assertFalse(mixed.getValid());
+        assertEquals("book · " + boundary + " · book", mixed.getResults().get(0).getReceivedValue());
+        assertEquals("no_vocabulary_occurrences_found",
+                rule.validate(record("ignored")).getResults().get(0).getReceivedValue());
+        assertEquals("no_reportable_values_found",
+                rule.validate(record("ignored", tooLong + "y")).getResults().get(0).getReceivedValue());
+        var unknown = rule.validate(record("local", "ignored", "local", "custom"));
+        assertEquals(List.of("local", "local", "custom"), unknown.getResults().stream()
+                .map(ContentValidatorResult::getReceivedValue).toList());
+    }
+
     @Test void translationIsScopedToDestination() throws Exception {
         var xml = record("paper");
         xml.addFieldOcurrence("dc.subject", "article");

@@ -293,32 +293,23 @@ public abstract class MedatadaDOMHelper {
 		
         while (parentNode.getParentNode() != null
                 && parentNode.getParentNode().getNodeType() != Node.DOCUMENT_NODE
-                && countChildsOfTypeElement(parentNode) == 0) {
+                && !hasElementChild(parentNode)) {
             node = parentNode;
             parentNode = node.getParentNode();
             parentNode.removeChild(node);
         }
 	}
 	
-	/**
-	 * Counts the number of child elements (excluding text nodes) of a node.
-	 *
-	 * @param node the parent node
-	 * @return count of element children
-	 */
-	private static int countChildsOfTypeElement(Node node) {
-		
-		int size = 0;
-		for (int i=0; i<node.getChildNodes().getLength(); i++) {
-			
-			if ( node.getChildNodes().item(i).getNodeType() == Node.ELEMENT_NODE )
-				size++;
-			
+	/** Only element children keep a metadata container alive after removing a field. */
+	private static boolean hasElementChild(Node parent) {
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child.getNodeType() == Node.ELEMENT_NODE) {
+				return true;
+			}
 		}
-		return size;
+		return false;
 	}
 
-	
 	/**
 	 * Sets the text content of a node.
 	 *
