@@ -27,6 +27,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
+import org.lareferencia.core.service.validation.FrequencyPage;
+import org.lareferencia.core.service.validation.OccurrenceCount;
+import org.springframework.data.domain.Pageable;
+
 import javax.sql.DataSource;
 import java.io.IOException;
 import java.sql.*;
@@ -154,17 +158,9 @@ public class RuleOccurrenceRepository {
             return Collections.emptyMap();
         }
 
-        StringBuilder sql = new StringBuilder("""
-                SELECT occurrence_value, COUNT(*) as cnt
-                FROM rule_occurrences ro
-                JOIN record_validation ON record_validation.identifier_hash = ro.identifier_hash
-                WHERE ro.rule_id = ? AND ro.is_valid = ? AND record_validation.deleted = 0
-                """);
         List<Object> params = new ArrayList<>();
-        params.add(ruleId);
-        params.add(isValid ? 1 : 0);
-        RecordValidationRepository.applyFilters(sql, filters, params);
-        sql.append(" GROUP BY occurrence_value ORDER BY cnt DESC");
+        StringBuilder sql = groupedValues(ruleId, isValid, filters, params);
+        sql.append(" ORDER BY cnt DESC, occurrence_value");
 
         Map<String, Integer> result = new LinkedHashMap<>();
 
@@ -188,6 +184,53 @@ public class RuleOccurrenceRepository {
         }
 
         return result;
+    }
+
+    private StringBuilder groupedValues(long ruleId, boolean isValid, List<String> filters, List<Object> params) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT occurrence_value, COUNT(*) as cnt
+                FROM rule_occurrences ro
+                JOIN record_validation ON record_validation.identifier_hash = ro.identifier_hash
+                WHERE ro.rule_id = ? AND ro.is_valid = ? AND record_validation.deleted = 0
+                """);
+        params.add(ruleId);
+        params.add(isValid ? 1 : 0);
+        RecordValidationRepository.applyFilters(sql, filters, params);
+        sql.append(" GROUP BY occurrence_value");
+
+        return sql;
+    }
+
+    /** Return distinct values and the total number of occurrences from the same SQLite read. */
+    public FrequencyPage frequencyPage(long snapshotId, long ruleId, boolean valid, List<String> filters,
+            Pageable page) throws IOException {
+        List<Object> params = new ArrayList<>();
+        StringBuilder groups = groupedValues(ruleId, valid, filters, params);
+        // The totals row survives even when the requested page is empty.
+        String sql = "WITH groups AS (" + groups + ") " + """
+                SELECT p.occurrence_value, p.cnt, totals.distinct_count, totals.occurrences
+                FROM (SELECT COUNT(*) AS distinct_count, COALESCE(SUM(cnt), 0) AS occurrences FROM groups) totals
+                LEFT JOIN (SELECT * FROM groups ORDER BY cnt DESC, occurrence_value LIMIT ? OFFSET ?) p ON 1=1
+                ORDER BY p.cnt DESC, p.occurrence_value
+                """;
+        params.add(page.isPaged() ? page.getPageSize() : -1);
+        params.add(page.isPaged() ? page.getOffset() : 0L);
+        try (Connection conn = dbManager.getDataSource(snapshotId).getConnection();
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (int i = 0; i < params.size(); i++) stmt.setObject(i + 1, params.get(i));
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                long distinct = rs.getLong("distinct_count");
+                long total = rs.getLong("occurrences");
+                List<OccurrenceCount> values = new ArrayList<>();
+                do {
+                    if (rs.getObject("cnt") != null) values.add(new OccurrenceCount(rs.getString("occurrence_value"), rs.getInt("cnt")));
+                } while (rs.next());
+                return new FrequencyPage(values, distinct, total);
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to read frequency page", e);
+        }
     }
 
     /**

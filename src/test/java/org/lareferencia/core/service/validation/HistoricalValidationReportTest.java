@@ -77,6 +77,21 @@ class HistoricalValidationReportTest {
     @AfterEach void close() { databases.cleanup(); }
 
     @Test
+    void pagingPreservesGroupTotalsEvenBeyondTheLastValue() throws Exception {
+        var selected = List.of("valid_rules@@7");
+        var first = statistics.frequencyPage(ID, 8, false, selected, PageRequest.of(0, 1));
+        assertEquals(1L, first.totalOccurrences());
+        assertEquals(1L, first.totalElements());
+        assertEquals("unrecognized", first.content().get(0).getValue());
+        var beyond = statistics.frequencyPage(ID, 8, false, selected, PageRequest.of(1, 1));
+        assertTrue(beyond.content().isEmpty());
+        assertEquals(1L, beyond.totalOccurrences());
+        assertEquals(1L, beyond.totalElements());
+        assertEquals(0L, statistics.frequencyPage(ID, 8, true, selected, PageRequest.of(0, 1)).totalOccurrences());
+        assertEquals(0L, statistics.frequencyPage(ID, 8, false, List.of("invalid_rules@@7"), PageRequest.of(0, 1)).totalElements());
+    }
+
+    @Test
     void summaryRecordsAndOccurrencesUseTheCompletedSnapshot() throws Exception {
         var global = statistics.queryValidatorRulesStatsBySnapshot(snapshot, List.of());
         var filters = List.of("valid_rules@@7");

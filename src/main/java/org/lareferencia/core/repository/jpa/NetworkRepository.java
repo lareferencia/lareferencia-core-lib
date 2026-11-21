@@ -32,6 +32,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
+import org.springframework.data.rest.core.annotation.RestResource;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -99,6 +100,16 @@ public interface NetworkRepository extends JpaRepository<Network, Long> {
 	Page<Network> findByAcronymIgnoreCaseContaining(String filterExpression, Pageable pageRequest);
 
 	Page<Network> findByIdIn(List<Long> ids, Pageable pageRequest);
+
+    @RestResource(exported = false)
+    @Query(value = """
+            SELECT n.* FROM network n WHERE n.id IN (:ids)
+            AND strpos(translate(lower(concat(n.acronym, ' ', n.name)), 'áéíóúüñãõâêôàç', 'aeiouunaoaeoac'),
+                       translate(lower(:term), 'áéíóúüñãõâêôàç', 'aeiouunaoaeoac')) > 0
+            ORDER BY n.name, n.id
+            """, nativeQuery = true)
+    Page<Network> searchReadable(@Param("ids") List<Long> ids, @Param("term") String term, Pageable pageable);
+
 		
 	/**
 	 * Finds networks filtered by acronym list with pagination.

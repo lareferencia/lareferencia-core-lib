@@ -321,7 +321,7 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
             // Ensure database is open for reading
             ensureDatabaseOpenForRead(snapshotID, metadata);
 
-            int offset = pageable.getPageNumber() * pageable.getPageSize();
+            long offset = pageable.getOffset();
             int limit = pageable.getPageSize();
 
             // Query records
@@ -379,6 +379,17 @@ public class ValidationStatisticsSQLiteService implements IValidationStatisticsS
 
         } catch (IOException e) {
             throw new ValidationStatisticsException("Error querying occurrences: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public FrequencyPage frequencyPage(long snapshotId, long ruleId, boolean valid, List<String> filters, Pageable page)
+            throws ValidationStatisticsException {
+        try {
+            openReportDatabase(snapshotId);
+            return occurrenceRepository.frequencyPage(snapshotId, ruleId, valid, filters, page);
+        } catch (IOException e) {
+            throw new ValidationStatisticsException("Error reading frequency page: " + e.getMessage(), e);
         }
     }
 

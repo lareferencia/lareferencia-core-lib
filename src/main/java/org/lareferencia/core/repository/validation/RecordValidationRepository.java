@@ -404,7 +404,7 @@ public class RecordValidationRepository {
         }
     }
 
-    public List<ValidationRecord> queryWithPagination(Long snapshotId, List<String> filters, int offset, int limit)
+    public List<ValidationRecord> queryWithPagination(Long snapshotId, List<String> filters, long offset, int limit)
             throws IOException {
         DataSource ds = dbManager.getDataSource(snapshotId);
         if (ds == null) {
