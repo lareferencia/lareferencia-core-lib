@@ -21,6 +21,8 @@
 
 package org.lareferencia.core.worker.validation.transformer;
 
+import java.util.regex.Pattern;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -36,7 +38,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 /**
  * Transformation rule that removes whitespace from field values.
  * <p>
- * Trims leading and trailing whitespace from field occurrences.
+ * Removes whitespace anywhere in the field value.
  * </p>
  * 
  * @author LA Referencia Team
@@ -66,31 +68,21 @@ public class FieldContentRemoveWhiteSpacesTranslateRule extends AbstractTransfor
         return "FieldContentRemoveWhiteSpacesTranslateRule [fieldName=" + fieldName + "]";
     }
 
-    String occr = null;
-    String replace = null;
+    // Keep the original Java \s character class, including whitespace inside identifiers.
+    private static final Pattern WHITESPACE = Pattern.compile("\\s");
 
     @Override
     public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-
         boolean wasTransformed = false;
-
         for (Node node : metadata.getFieldNodes(fieldName)) {
-
-            occr = node.getFirstChild().getNodeValue();
-
-            int originalSize = occr.length();
-            // Replace every whitespace with nothing (removing whitespaces)
-            replace = occr.replaceAll("\\s", "");
-
-            node.getFirstChild().setNodeValue(replace);
-
-            if (replace != null && originalSize != replace.length()) {
-                // si entra al ciclo al menos una vez entonces transformó
+            Node text = node.getFirstChild();
+            String original = text.getNodeValue();
+            String cleaned = WHITESPACE.matcher(original).replaceAll("");
+            if (cleaned.length() != original.length()) {
+                text.setNodeValue(cleaned);
                 wasTransformed = true;
             }
-
         }
-
         return wasTransformed;
     }
 

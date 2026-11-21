@@ -30,6 +30,27 @@ class PipelineRegressionTest {
         assertEquals(List.of("article"), xml.getFieldOcurrences("dc.subject"));
     }
 
+    @Test void regexTranslationPreservesLaterSourceValuesAndReplacesOnlyTheFirstMatch() throws Exception {
+        var xml = record("xx", "Yx", "xxx", "xxx");
+        var rule = new RegexTranslateRule();
+        rule.setSourceFieldName("dc.type");
+        rule.setTargetFieldName("dc.type");
+        rule.setRegexSearch("(x)");
+        rule.setRegexReplace("Y");
+        rule.setRemoveMatchingOccurrences(true);
+        assertTrue(rule.transform(null, null, xml));
+        assertEquals(List.of("xx", "xxx", "YY", "Yxx"), xml.getFieldOcurrences("dc.type"));
+    }
+
+    @Test void absentFieldKeepsItsExpressionDiagnosticEvenWithAnInvalidRegex() throws Exception {
+        var rule = new FieldExpressionValidatorRule();
+        rule.setQuantifier(QuantifierValues.ALL);
+        rule.setExpression("dc.type=%'['");
+        var result = rule.validate(record());
+        assertTrue(result.getValid());
+        assertEquals("no_occurrences_found", result.getResults().get(0).getReceivedValue());
+    }
+
     @Test void priorityReportsPreviousMutation() throws Exception {
         var xml = record("paper");
         var rule = new FieldContentPriorityTranslateRule();

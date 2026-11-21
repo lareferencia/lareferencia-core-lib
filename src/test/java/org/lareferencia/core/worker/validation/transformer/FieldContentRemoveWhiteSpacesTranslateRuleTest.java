@@ -94,7 +94,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
-        verify(node.getFirstChild()).setNodeValue("testvalue");
+        verify(node.getFirstChild(), never()).setNodeValue(anyString());
     }
 
     @Test
@@ -196,7 +196,7 @@ class FieldContentRemoveWhiteSpacesTranslateRuleTest {
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
-        verify(node1.getFirstChild()).setNodeValue("nowhitespace");
+        verify(node1.getFirstChild(), never()).setNodeValue(anyString());
         verify(node2.getFirstChild()).setNodeValue("haswhitespace");
     }
 }
