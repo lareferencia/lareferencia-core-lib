@@ -27,6 +27,7 @@ import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.metadata.OAIMetadataElement.Type;
 import org.w3c.dom.DOMException;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
@@ -40,6 +41,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Represents OAI record metadata with DOM-based XML manipulation capabilities.
@@ -92,6 +94,8 @@ public class OAIRecordMetadata {
 	@Getter
 	@Setter
 	private String storeSchema;
+
+	private static final Pattern SIMPLE_FIELD_PATH = Pattern.compile("[a-zA-Z0-9_.:-]++");
 
 	private static final String EMPTY_DOCUMENT = "<metadata></metadata>";
 
@@ -302,9 +306,12 @@ public class OAIRecordMetadata {
 
 			Node parent;
 			if (literalField) {
-				// The first matching field can belong to a later branch with the same name.
-				Node existing = MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath());
-				parent = existing != null ? existing.getParentNode() : findOrCreateFieldParent(path);
+				parent = SIMPLE_FIELD_PATH.matcher(fieldName).matches() ? uniqueFieldParent(path) : null;
+				if (parent == null) {
+					// The first matching field can belong to a later branch with the same name.
+					Node existing = MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath());
+					parent = existing != null ? existing.getParentNode() : findOrCreateFieldParent(path);
+				}
 			} else {
 				parent = MedatadaDOMHelper.getSingleNode(DOMDocument, XOAIXPATHHelper.getRootXPATH());
 				for (int i = 0; i < path.size() - 1; i++) {
@@ -330,6 +337,58 @@ public class OAIRecordMetadata {
 		} catch (DOMException | TransformerException e) {
 			logger.error("Error en agregador de metadato:" + fieldName);
 			e.printStackTrace();
+		}
+	}
+
+	// A literal field with one possible parent needs no XPath query. If a path branches,
+	// leave the DOM untouched so XPath can choose the historical first match.
+	private Node uniqueFieldParent(List<OAIMetadataElement> path) throws TransformerException {
+		Node parent = DOMDocument.getDocumentElement();
+		if (parent == null || !"metadata".equals(parent.getLocalName())) {
+			return null;
+		}
+		for (int i = 0; i < path.size() - 1; i++) {
+			String name = path.get(i).getName();
+			Node match = null;
+			for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+				if (child instanceof Element element) {
+					if (element.getLocalName() == null) {
+						return null;
+					}
+					if ("element".equals(element.getLocalName()) && element.hasAttributeNS(null, "name")
+							&& name.equals(element.getAttributeNS(null, "name"))) {
+						if (match != null) {
+							return null;
+						}
+						match = child;
+					}
+				}
+			}
+			parent = match != null ? match : MedatadaDOMHelper.addChildElementWithNameAttr(parent, "element", name);
+		}
+		return parent;
+	}
+
+	/** Checks the text of the destination fields, including empty elements after an XML round trip. */
+	public boolean containsFieldValue(String fieldName, String value) {
+		List<OAIMetadataElement> path = XOAIXPATHHelper.getXPATHList(fieldName);
+		OAIMetadataElement target = path.get(path.size() - 1);
+		String xpath = target.getXpath();
+		if (target.getType() == Type.element) {
+			// An element selector ($) writes its content into a child field named value.
+			xpath += "/*[local-name()='field' and @name='value']";
+		}
+		try {
+			NodeList fields = MedatadaDOMHelper.getNodeList(DOMDocument, xpath);
+			String text = value == null ? "" : value;
+			for (int i = 0; i < fields.getLength(); i++) {
+				if (text.equals(fields.item(i).getTextContent())) {
+					return true;
+				}
+			}
+			return false;
+		} catch (TransformerException e) {
+			throw new IllegalArgumentException("Cannot select field " + fieldName, e);
 		}
 	}
 
