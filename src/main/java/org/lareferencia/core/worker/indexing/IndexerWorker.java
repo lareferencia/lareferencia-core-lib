@@ -22,6 +22,7 @@ package org.lareferencia.core.worker.indexing;
 
 import java.io.IOException;
 import java.text.NumberFormat;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 
@@ -91,7 +92,7 @@ public class IndexerWorker extends BaseIndexerWorker {
 
 	private IMDFormatTransformer metadataTransformer;
 
-	private HttpSolrClient solrClient;
+	protected HttpSolrClient solrClient;
 
 	@Getter
 	private String solrUrl;
@@ -187,6 +188,8 @@ public class IndexerWorker extends BaseIndexerWorker {
 						&& validationManifestStore.read(snapshotMetadata)
 						.map(f -> "INCREMENTAL".equalsIgnoreCase(f.getScope())).orElse(false);
 				if (isIncremental() && !useIncrementalDelta) logger.warn("Incremental identity or validation scope is missing; rebuilding index fully");
+
+				prepareIndex();
 
 				if (!useIncrementalDelta) {
 					logger.debug("Executing index deletion: " + runningContext.getNetwork().getAcronym());
@@ -318,12 +321,7 @@ public class IndexerWorker extends BaseIndexerWorker {
 			// frontend indexer should set indexDeletedRecords to false and oai provider
 			// indexer should set it to true
 			if (record.isValid()) {
-				String recordStr = metadataTransformer.transformToString(metadata.getDOMDocument());
-				stringBuffer.append(recordStr);
-
-				logger.debug("Transformed record to be indexed: " + record.getIdentifierHash() + " :: "
-						+ record.getIdentifier() + " :: " + recordStr);
-				logger.debug("Indexed record size in bytes: " + recordStr.length());
+				queueDocument(record, metadata, metadataTransformer);
 			} else {
 				logger.debug(
 						"Record not indexed: " + record.getIdentifierHash() + " :: " + record.getIdentifier() + " :: "
@@ -348,32 +346,30 @@ public class IndexerWorker extends BaseIndexerWorker {
 
 	}
 
-	public void postPage() {
+	/** Called after selecting the snapshot and before any Solr updates or deletions. */
+	protected void prepareIndex() { }
 
+	protected void queueDocument(ValidationRecord record, OAIRecordMetadata metadata,
+			IMDFormatTransformer transformer) throws MDFormatTranformationException, IOException, SQLException {
+		String xml = transformer.transformToString(metadata.getDOMDocument());
+		stringBuffer.append(xml);
+		logger.debug("Transformed record {} :: {}", record.getIdentifierHash(), xml);
+	}
+
+	protected void flushPage() throws IOException, SolrServerException {
 		if (stringBuffer != null && stringBuffer.length() > 0) {
-			try {
-				this.sendUpdateToSolr("<add>" + stringBuffer.toString() + "</add>");
-				stringBuffer.setLength(0);
-			} catch (SolrServerException e) {
-				logError("Issues whe connecting to SOLR: " + runningContext.toString() + ": " + e.getMessage());
-				logger.debug(stringBuffer);
-				solrRollback();
-				error();
+			sendUpdateToSolr("<add>" + stringBuffer + "</add>");
+			stringBuffer.setLength(0);
+		}
+	}
 
-			} catch (IOException e) {
-				logError("Issues when sending to SOLR - I/O: " + runningContext.toString()
-						+ ": " + e.getMessage());
-				logger.debug(stringBuffer);
-				solrRollback();
-				error();
-
-			} catch (Exception e) {
-				logError("Issues with the index process - Undetermined: " + runningContext.toString()
-						+ ": " + e.getMessage());
-				logger.debug(stringBuffer);
-				solrRollback();
-				error();
-			}
+	public void postPage() {
+		try {
+			flushPage();
+		} catch (Exception e) {
+			logError("Error submitting Solr page for " + runningContext + ": " + e.getMessage());
+			solrRollback();
+			error();
 		}
 	}
 
