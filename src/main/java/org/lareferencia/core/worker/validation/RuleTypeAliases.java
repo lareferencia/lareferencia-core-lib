@@ -15,6 +15,9 @@ public final class RuleTypeAliases {
     private RuleTypeAliases() {}
 
     public static String canonicalName(String name) {
+        if ((CURRENT + "transformer.SQLiteEnrichmentRule").equals(name)) {
+            return CURRENT + "transformer.ImportEnrichments";
+        }
         if (name == null || !(name.startsWith(LEGACY + "validator.")
                 || name.startsWith(LEGACY + "transformer."))) return name;
         String candidate = CURRENT + name.substring(LEGACY.length());

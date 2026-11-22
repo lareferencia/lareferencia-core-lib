@@ -146,6 +146,47 @@ class IncrementalValidationLifecycleTest {
         assertEquals(SnapshotStatus.VALID,states.get(2L)); assertEquals("FULL",manifests.read(child).orElseThrow().getScope());
         verify(snapshots).updateValidationCounts(2L,1,0);
     }
+    @Test void replacingEditionReprocessesInheritedCatalogRecord() throws Exception {
+        var model = new org.lareferencia.core.domain.Transformer();
+        var rule = new org.lareferencia.core.domain.TransformerRule();
+        rule.setRunorder(1);
+        rule.setJsonserialization("""
+            {"@class":"org.lareferencia.core.worker.validation.transformer.ImportEnrichments",
+             "filename":"rights.sqlite","mappings":[{"source":"dc.rights.license_l2","producer":"rights"}]}
+            """);
+        model.getRules().add(rule);
+        network.setTransformer(model);
+        var service = new ValidationService();
+        field(service, "serializer", new RuleSerializer());
+        field(worker, "validationManager", service);
+        field(worker, "enrichmentBase", directory.toString());
+        var store = mock(IMetadataStore.class);
+        when(store.getMetadata(child, "original")).thenReturn("<metadata/>");
+        when(store.storeAndReturnHash(eq(child), anyString())).thenReturn("enriched");
+        field(worker, "metadataStoreService", store);
+        Path folder = java.nio.file.Files.createDirectories(directory.resolve("FIX/enrichments"));
+        Path target = folder.resolve("rights.sqlite");
+        for (String facet : List.of("FIRST", "SECOND")) {
+            Path staged = folder.resolve(facet);
+            try (var db = java.sql.DriverManager.getConnection("jdbc:sqlite:" + staged);
+                 var sql = db.createStatement();
+                 var stream = getClass().getResourceAsStream("/enrichment/edition.sql")) {
+                String fixture = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+                        .replace("'PY'", "'FIX'").replace("'hash'", "'original'")
+                        .replace("'stored-id'", "'" + OAIRecord.generateIdFromIdentifier("record") + "'")
+                        .replace("\"BY\"", "\"" + facet + "\"");
+                for (String command : fixture.split(";")) if (!command.isBlank()) sql.execute(command);
+            }
+            java.nio.file.Files.move(staged, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            worker.run();
+            assertEquals(SnapshotStatus.VALID, states.get(2L));
+            verify(store).storeAndReturnHash(eq(child), contains(facet));
+            var manifest = manifests.read(child).orElseThrow();
+            assertEquals("FULL", manifest.getScope());
+            manifests.write(parent, manifest);
+        }
+    }
+
     static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> publicationCases() {
         return java.util.stream.Stream.of("deduplicate", "conditionalNoOp", "priority", "priorityNoOp",
                 "rename", "identifierNoOp").flatMap(operation -> java.util.stream.Stream.of(false, true)

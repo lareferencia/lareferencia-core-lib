@@ -182,7 +182,10 @@ public class RuleSerializer {
 
 		try {
 			AbstractTransformerRule rule = mapper.readValue(RuleTypeAliases.resolve(jsonString), AbstractTransformerRule.class);
-			autowireIfPossible(rule);
+			if (rule instanceof org.lareferencia.core.worker.validation.transformer.ImportEnrichments enrichment) {
+                enrichment.validateConfiguration();
+            }
+            autowireIfPossible(rule);
 			return rule;
 		} catch (JsonParseException e) {
 
