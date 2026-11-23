@@ -19,7 +19,7 @@ import org.lareferencia.core.util.PathUtils;
 import org.springframework.beans.factory.annotation.Value;
 
 /** Frontend indexer that adds one precomputed vector to each matching bibliographic document. */
-public class SQLiteVectorIndexerWorker extends IndexerWorker {
+public class SemanticDbIndexerWorker extends IndexerWorker {
     @Value("${store.basepath:/tmp/data/}") private String storeBase;
     @Setter private String embeddingsDirectory = "embeddings";
     @Setter private String sqliteFilename = "";
@@ -29,7 +29,7 @@ public class SQLiteVectorIndexerWorker extends IndexerWorker {
     private long withVector;
     private long withoutVector;
 
-    public SQLiteVectorIndexerWorker(String solrUrl) {
+    public SemanticDbIndexerWorker(String solrUrl) {
         super(solrUrl);
     }
 
