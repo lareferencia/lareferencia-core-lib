@@ -127,6 +127,37 @@ class MetadataExportServiceTest {
         Files.delete(original.directory().resolve("validation/validation.db"));
         assertThrows(MetadataExportService.ExportFailure.class, () -> service.export(request("processed", "jsonl", "collection", false, "none", null, null)));
     }
+    @Test void recordFilterUsesSelectedVariantAndPreservesAllOccurrences() throws Exception {
+        var spec = (com.fasterxml.jackson.databind.node.ObjectNode) ExportJson.JSON.readTree(mapping.toFile());
+        var filter = spec.putObject("recordFilter");
+        filter.putArray("select").add("dc.title").add("dc.title.*");
+        filter.putArray("startsWithAny").add("unused").add("Chang");
+        Files.writeString(mapping, spec.toString());
+        var request = request("processed", "jsonl", "collection", false, "none", null, null);
+        var result = service.export(request);
+        assertEquals(2, result.exported());
+        assertEquals(2, result.filtered());
+        assertEquals(0, result.errors());
+        var manifest = ExportJson.JSON.readTree(result.directory().resolve("manifest.json").toFile());
+        assertEquals(2, manifest.at("/filteredBy/recordFilter").intValue());
+        var preview = service.preview(request, 4);
+        var lines = Files.readAllLines(result.directory().resolve("data/part-000001.jsonl"));
+        for (int i = 0; i < 2; i++) {
+            var record = ExportJson.JSON.readTree(lines.get(i));
+            assertEquals(preview.path("records").get(i), record);
+            assertEquals(2, record.at("/data/titles").size());
+        }
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + result.directory().resolve("records.sqlite"));
+             Statement s = c.createStatement();
+             ResultSet rows = s.executeQuery("SELECT count(*) FROM records WHERE status='FILTERED' AND file IS NULL")) {
+            assertTrue(rows.next());
+            assertEquals(2, rows.getInt(1));
+        }
+        filter.putArray("startsWithAny").add(" ");
+        Files.writeString(mapping, spec.toString());
+        assertThrows(IllegalArgumentException.class, () -> service.validateMapping(mapping));
+    }
+
     @Test void previewDoesNotWriteAndLimitsAttemptedRecords() throws Exception {
         var preview = service.preview(request("processed", "jsonl", "collection", false, "none", null, null), 1);
         assertEquals(1, preview.path("records").size()); assertFalse(Files.exists(temp.resolve("output")));

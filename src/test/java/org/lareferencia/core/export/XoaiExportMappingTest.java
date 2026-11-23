@@ -182,6 +182,29 @@ class XoaiExportMappingTest {
         }
     }
 
+    @Test void recordFilterSelectsDirectAndNestedValuesWithoutChangingTheirLiterals() throws Exception {
+        var profile = (com.fasterxml.jackson.databind.node.ObjectNode) ExportJson.JSON.readTree(spec("""
+            {"subjects":{"select":"dc.subject.*","type":"string"}}
+            """));
+        var filter = profile.putObject("recordFilter");
+        filter.putArray("select").add("dc.subject").add("dc.subject.*");
+        filter.putArray("startsWithAny").add("ford/");
+        var mapping = new XoaiExportMapping(profile);
+        String template = """
+            <metadata><element name="dc"><element name="subject"><field>%s</field>
+            <element name="none"><field name="value">%s</field><field>free</field></element>
+            </element></element></metadata>
+            """;
+        for (var pair : java.util.List.of(new String[]{" ford/1 ", "free"}, new String[]{"free", " ford/2 "})) {
+            var data = mapping.projectIfSelected(ExportXml.parse(template.formatted(pair[0], pair[1]))).orElseThrow();
+            assertEquals(pair[1], data.at("/subjects/0").textValue());
+            assertEquals("free", data.at("/subjects/1").textValue());
+        }
+        assertTrue(mapping.projectIfSelected(ExportXml.parse(template.formatted("FORD/1", "contains ford/2"))).isEmpty());
+        assertTrue(mapping.projectIfSelected(ExportXml.parse("<metadata/>")).isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> mapping.projectIfSelected(ExportXml.parse("<record/>")));
+    }
+
     @Test void canonicalHashSortsObjectsButPreservesArrays() throws Exception {
         var a = ExportJson.JSON.readTree("{\"b\":[1,2],\"a\":{\"y\":1,\"x\":2}}");
         var b = ExportJson.JSON.readTree("{ \"a\": {\"x\":2,\"y\":1}, \"b\":[1,2] }");

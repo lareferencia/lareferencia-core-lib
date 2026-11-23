@@ -15,15 +15,33 @@ public final class XoaiExportMapping {
     private static final ObjectMapper JSON = new ObjectMapper();
     private final JsonNode specification;
 
+    private final String filterExpression;
+
     public XoaiExportMapping(JsonNode specification) {
         this.specification = specification.deepCopy();
-        allowed(specification, Set.of("specVersion", "name", "version", "inputSchema", "fields"));
+        allowed(specification, Set.of("specVersion", "name", "version", "inputSchema", "fields", "recordFilter"));
         if (!specification.path("specVersion").isIntegralNumber() || !specification.path("specVersion").bigIntegerValue().equals(BigInteger.ONE)
                 || !specification.path("inputSchema").asText().equals("xoai"))
             throw new IllegalArgumentException("Expected specVersion=1 and inputSchema=xoai");
         for (String key : List.of("name", "version"))
             if (!specification.path(key).isTextual() || specification.path(key).asText().isBlank())
                 throw new IllegalArgumentException("Missing " + key);
+        if (specification.has("recordFilter")) {
+            JsonNode filter = specification.get("recordFilter");
+            allowed(filter, Set.of("select", "startsWithAny"));
+            JsonNode selectors = filter.path("select");
+            if (!selectors.isArray() || selectors.isEmpty())
+                throw new IllegalArgumentException("recordFilter.select requires a non-empty array");
+            filterExpression = selectionExpression(selectors, false);
+            JsonNode prefixes = filter.path("startsWithAny");
+            if (!prefixes.isArray() || prefixes.isEmpty())
+                throw new IllegalArgumentException("startsWithAny requires a non-empty array");
+            for (JsonNode prefix : prefixes)
+                if (!prefix.isTextual() || prefix.textValue().isBlank())
+                    throw new IllegalArgumentException("startsWithAny entries must be non-blank strings");
+        } else {
+            filterExpression = null;
+        }
         validateFields(specification.path("fields"));
     }
 
@@ -34,12 +52,33 @@ public final class XoaiExportMapping {
     }
 
     public ObjectNode project(Document document) throws Exception {
+        return fields(xoaiRoot(document), specification.get("fields"));
+    }
+
+    Optional<ObjectNode> projectIfSelected(Document document) throws Exception {
+        Element root = xoaiRoot(document);
+        if (filterExpression != null && !matchesFilter(root)) return Optional.empty();
+        return Optional.of(fields(root, specification.get("fields")));
+    }
+
+    private boolean matchesFilter(Element root) throws XPathExpressionException {
+        NodeList values = (NodeList) XPathFactory.newInstance().newXPath()
+                .evaluate(filterExpression, root, XPathConstants.NODESET);
+        for (int i = 0; i < values.getLength(); i++) {
+            String text = values.item(i).getTextContent().strip();
+            for (JsonNode prefix : specification.get("recordFilter").get("startsWithAny"))
+                if (text.startsWith(prefix.textValue())) return true;
+        }
+        return false;
+    }
+
+    private static Element xoaiRoot(Document document) {
         Element root = document.getDocumentElement();
         if (!"metadata".equals(root.getLocalName())) throw new IllegalArgumentException("Expected XOAI metadata root");
         String namespace = root.getNamespaceURI();
         if (namespace != null && !namespace.isEmpty() && !namespace.equals("http://www.lyncode.com/xoai"))
             throw new IllegalArgumentException("Unsupported XOAI namespace: " + namespace);
-        return fields(root, specification.get("fields"));
+        return root;
     }
 
     private static void allowed(JsonNode node, Set<String> keys) {
@@ -52,7 +91,7 @@ public final class XoaiExportMapping {
         fields.elements().forEachRemaining(rule -> {
             if (rule.has("forEach")) {
                 allowed(rule, Set.of("forEach", "fields", "occurrenceStart", "includeContext"));
-                selectionExpression(rule.get("forEach"));
+                selectionExpression(rule.get("forEach"), true);
                 validateFields(rule.path("fields"));
                 if (rule.has("includeContext")) {
                     JsonNode context = rule.get("includeContext");
@@ -103,14 +142,14 @@ public final class XoaiExportMapping {
     }
 
     /** XPath union keeps source document order and selects overlapping elements once. */
-    private static String selectionExpression(JsonNode selector) {
-        if (!selector.isArray()) return expression(selector, true);
+    private static String selectionExpression(JsonNode selector, boolean elements) {
+        if (!selector.isArray()) return expression(selector, elements);
         if (selector.isEmpty()) throw new IllegalArgumentException("forEach selectors cannot be empty");
         List<String> paths = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (JsonNode item : selector) {
-            String path = expression(item, true);
-            if (!seen.add(path)) throw new IllegalArgumentException("Duplicate forEach selector");
+            String path = expression(item, elements);
+            if (!seen.add(path)) throw new IllegalArgumentException("Duplicate selector");
             paths.add(path);
         }
         return String.join(" | ", paths);
@@ -165,7 +204,7 @@ public final class XoaiExportMapping {
             JsonNode rule = entry.getValue();
             boolean grouped = rule.has("forEach");
             NodeList nodes = (NodeList) XPathFactory.newInstance().newXPath().evaluate(
-                    grouped ? selectionExpression(rule.get("forEach")) : expression(rule.get("select"), false), context, XPathConstants.NODESET);
+                    grouped ? selectionExpression(rule.get("forEach"), true) : expression(rule.get("select"), false), context, XPathConstants.NODESET);
             ArrayNode values = JSON.createArrayNode();
             Set<JsonNode> seen = new HashSet<>();
             for (int i = 0; i < nodes.getLength(); i++) {

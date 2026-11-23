@@ -49,7 +49,7 @@ public class MetadataExportService {
         Path root = request.output().toAbsolutePath().normalize().resolve(exportId);
         Files.createDirectories(root.getParent()); Files.createDirectory(root);
         ObjectNode manifest = manifest(exportId, request, selection);
-        long attempted = 0, exported = 0, filtered = 0, errors = 0;
+        long attempted = 0, exported = 0, filtered = 0, errors = 0, filteredByMapping = 0;
         Exception failure = null;
         ExportBatchWriter batches = new ExportBatchWriter(root, request);
         Path errorFile = root.resolve("errors.jsonl.tmp"), indexFile = root.resolve("records.sqlite.tmp");
@@ -82,6 +82,11 @@ public class MetadataExportService {
                                     index.add(envelope, row, "FILTERED", null, null); filtered++; sourceFiltered++; continue;
                                 }
                                 prepared = prepare(envelope, source, request, mapping);
+                                if (prepared == null) {
+                                    index.add(envelope, row, "FILTERED", null, null);
+                                    filtered++; sourceFiltered++; filteredByMapping++;
+                                    continue;
+                                }
                             } catch (RecordFailure e) {
                                 errors++; sourceErrors++;
                                 ObjectNode error = compact(envelope); error.remove("data");
@@ -108,6 +113,7 @@ public class MetadataExportService {
             String status = failure != null ? "FAILED" : errors > 0 ? "PARTIAL" : "COMPLETE";
             manifest.put("status", status).put("finishedAt", Instant.now().toString());
             manifest.putObject("counts").put("attempted", attempted).put("exported", exported).put("filtered", filtered).put("errors", errors);
+            manifest.putObject("filteredBy").put("recordFilter", filteredByMapping).put("validOnly", filtered - filteredByMapping);
             manifest.putObject("warnings").put("oversizedRecords", batches.oversizedRecords);
             if (failure != null) manifest.put("failure", failure.toString());
             ExportJson.writeManifest(root, manifest);
@@ -139,7 +145,7 @@ public class MetadataExportService {
                     try {
                         validateRow(row, request);
                         if (request.validOnly() && !Boolean.TRUE.equals(row.valid())) continue;
-                        prepare(envelope, source, request, mapping); records.add(compact(envelope));
+                        if (prepare(envelope, source, request, mapping) != null) records.add(compact(envelope));
                     } catch (RecordFailure e) { errors.add(compact(envelope).put("error", e.getMessage())); }
                 }
             }
@@ -165,7 +171,9 @@ public class MetadataExportService {
             String xml = metadata.getMetadata(source.metadata(), hash);
             if (xml == null) throw new IllegalArgumentException("Metadata store returned null");
             if (mapping != null) {
-                ObjectNode data = mapping.project(xml); envelope.set("data", data);
+                var data = mapping.projectIfSelected(ExportXml.parse(xml));
+                if (data.isEmpty()) return null;
+                envelope.set("data", data.get());
                 return new Prepared(ExportJson.JSON.writeValueAsBytes(compact(envelope)));
             }
             var document = ExportXml.parse(xml);
