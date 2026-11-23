@@ -37,19 +37,24 @@ class ApplicationActionCatalogServiceTest {
     }
 
     @Test
-    void reconcile_EmptyLegacyCatalogue_UsesMigrationDefaultsBeforeUnknownActions() {
+    void reconcile_EmptyLegacyCatalogue_UsesDefaultsBeforeUnknownActions() {
         service.reconcile("legacy", List.of(action("ZZ_CUSTOM"), action("VALIDATION_ACTION"),
                 action("DARK_RECONCILE_ACTION"), action("AA_CUSTOM"), action("HARVESTING_ACTION"),
-                action("DARK_STAGE_ACTION"), action("SEMANTIC_INDEXING_ACTION")), "system:startup");
+                action("DARK_STAGE_ACTION"), action("SEMANTIC_INDEXING_ACTION"), action("SEMANTIC_DB_DELETE_ACTION"),
+                action("SEMANTIC_DELETE_ACTION"), action("SEMANTIC_DB_INDEXING_ACTION")), "system:startup");
 
         assertEquals(List.of("HARVESTING_ACTION", "DARK_STAGE_ACTION", "DARK_RECONCILE_ACTION",
-                "VALIDATION_ACTION", "SEMANTIC_INDEXING_ACTION", "AA_CUSTOM", "ZZ_CUSTOM"),
+                "VALIDATION_ACTION", "SEMANTIC_INDEXING_ACTION", "SEMANTIC_DB_INDEXING_ACTION",
+                "SEMANTIC_DELETE_ACTION", "SEMANTIC_DB_DELETE_ACTION", "AA_CUSTOM", "ZZ_CUSTOM"),
                 service.list("legacy").stream().map(ApplicationAction::getActionKey).toList());
         assertTrue(service.require("legacy", "HARVESTING_ACTION").isEnabled());
         assertTrue(service.require("legacy", "VALIDATION_ACTION").isEnabled());
         assertFalse(service.require("legacy", "DARK_STAGE_ACTION").isEnabled());
         assertFalse(service.require("legacy", "DARK_RECONCILE_ACTION").isEnabled());
         assertFalse(service.require("legacy", "SEMANTIC_INDEXING_ACTION").isEnabled());
+        assertFalse(service.require("legacy", "SEMANTIC_DB_INDEXING_ACTION").isEnabled());
+        assertFalse(service.require("legacy", "SEMANTIC_DELETE_ACTION").isEnabled());
+        assertFalse(service.require("legacy", "SEMANTIC_DB_DELETE_ACTION").isEnabled());
         assertFalse(service.require("legacy", "AA_CUSTOM").isEnabled());
     }
 

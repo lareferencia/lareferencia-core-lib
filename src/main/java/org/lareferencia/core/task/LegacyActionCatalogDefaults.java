@@ -4,15 +4,16 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
-/** Initial legacy policy, matching V5.0.0.12 for catalogues created after migration. */
+/** Initial legacy policy for new catalogues. */
 final class LegacyActionCatalogDefaults {
     private static final List<String> ORDER = List.of(
             "HARVESTING_ACTION", "DARK_STAGE_ACTION", "DARK_RECONCILE_ACTION", "VALIDATION_ACTION",
-            "FRONTEND_INDEXING_ACTION", "XOAI_INDEXING_ACTION", "SEMANTIC_INDEXING_ACTION",
-            "FRONTEND_DELETE_ACTION", "XOAI_DELETE_ACTION", "SEMANTIC_DELETE_ACTION",
+            "FRONTEND_INDEXING_ACTION", "XOAI_INDEXING_ACTION", "SEMANTIC_INDEXING_ACTION", "SEMANTIC_DB_INDEXING_ACTION",
+            "FRONTEND_DELETE_ACTION", "XOAI_DELETE_ACTION", "SEMANTIC_DELETE_ACTION", "SEMANTIC_DB_DELETE_ACTION",
             "METADATA_ORPHAN_CLEANUP_ACTION", "NETWORK_CLEAN_ACTION", "NETWORK_DELETE_ACTION");
     private static final Set<String> DISABLED = Set.of(
-            "DARK_STAGE_ACTION", "DARK_RECONCILE_ACTION", "SEMANTIC_INDEXING_ACTION", "SEMANTIC_DELETE_ACTION");
+            "DARK_STAGE_ACTION", "DARK_RECONCILE_ACTION", "SEMANTIC_INDEXING_ACTION", "SEMANTIC_DELETE_ACTION",
+            "SEMANTIC_DB_INDEXING_ACTION", "SEMANTIC_DB_DELETE_ACTION");
 
     private LegacyActionCatalogDefaults() { }
 
