@@ -90,12 +90,8 @@ public class NodeOccursConditionalValidatorRule extends AbstractValidatorRule {
         ValidatorRuleResult result = new ValidatorRuleResult();
 
         List<ContentValidatorResult> results = new ArrayList<ContentValidatorResult>();
-        int occurrencesCount = 0;
-
-        boolean isRuleValid = false;
 
         List<Node> nodes = metadata.getFieldNodesByXPath(this.getSourceXPathExpression());
-        occurrencesCount = nodes.size();
 
         for (Node node : nodes) {
 
@@ -106,44 +102,16 @@ public class NodeOccursConditionalValidatorRule extends AbstractValidatorRule {
         }
 
         // SI NO HAY OCCRS LO INDICA COMO UN VALOR DE RESULTADO
-        if (occurrencesCount == 0) {
+        if (nodes.isEmpty()) {
             ContentValidatorResult occurrenceResult = new ContentValidatorResult();
             occurrenceResult.setReceivedValue("no_occurrences_found");
             occurrenceResult.setValid(false);
             results.add(occurrenceResult);
         }
 
-        switch (quantifier) {
-
-            case ONE_ONLY:
-                isRuleValid = occurrencesCount == 1;
-                break;
-
-            case ONE_OR_MORE:
-                isRuleValid = occurrencesCount >= 1;
-                break;
-
-            case ZERO_OR_MORE:
-                isRuleValid = occurrencesCount >= 0;
-                break;
-
-            case ZERO_ONLY:
-                isRuleValid = occurrencesCount == 0;
-                break;
-
-            // TODO: verify if it makes sense - since the selector is the expression
-            case ALL:
-                isRuleValid = occurrencesCount > 0;
-                break;
-
-            default:
-                isRuleValid = false;
-                break;
-        }
-
         result.setRule(this);
         result.setResults(results);
-        result.setValid(isRuleValid);
+        result.setValid(quantifier.matchesSelectedNodes(nodes.size()));
         return result;
 
     }

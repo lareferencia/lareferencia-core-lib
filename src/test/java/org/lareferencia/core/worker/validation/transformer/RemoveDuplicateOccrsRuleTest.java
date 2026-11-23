@@ -112,12 +112,13 @@ class RemoveDuplicateOccrsRuleTest {
     @Test
     @DisplayName("Should handle single occurrence")
     void testSingleOccurrence() {
-        Node node = createMockNode("Single Subject");
+        Node node = mock(Node.class);
         when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.singletonList(node));
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
+        verifyNoInteractions(node);
         verify(metadata, never()).removeNode(any());
     }
 

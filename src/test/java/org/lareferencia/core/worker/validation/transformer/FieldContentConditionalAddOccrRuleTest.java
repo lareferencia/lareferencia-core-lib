@@ -99,7 +99,7 @@ class FieldContentConditionalAddOccrRuleTest {
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
-        verify(metadata).addFieldOcurrence("dc.type", "article");
+        verify(metadata, never()).addFieldOcurrence("dc.type", "article");
         verify(metadata).removeNode(typeNode2);
     }
 
@@ -140,8 +140,8 @@ class FieldContentConditionalAddOccrRuleTest {
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
-        assertTrue(result);
-        verify(metadata).addFieldOcurrence("dc.type", "article");
+        assertFalse(result);
+        verify(metadata, never()).addFieldOcurrence("dc.type", "article");
         verify(metadata, never()).removeNode(any());
     }
 
@@ -226,7 +226,7 @@ class FieldContentConditionalAddOccrRuleTest {
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertTrue(result);
-        verify(metadata).addFieldOcurrence("dc.type", "article");
+        verify(metadata, never()).addFieldOcurrence("dc.type", "article");
         verify(metadata).removeNode(typeNode2);
         verify(metadata).removeNode(typeNode3);
         verify(metadata, never()).removeNode(typeNode1);

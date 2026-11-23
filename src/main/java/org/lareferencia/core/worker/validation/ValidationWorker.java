@@ -20,6 +20,19 @@
 
 package org.lareferencia.core.worker.validation;
 
+import java.sql.SQLException;
+import java.util.TreeMap;
+import java.util.HexFormat;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.nio.file.Path;
+import org.lareferencia.core.util.PathUtils;
+import org.lareferencia.core.worker.validation.transformer.ImportEnrichments;
+import org.springframework.beans.factory.annotation.Value;
+import java.time.Clock;
+import java.time.Year;
+import org.lareferencia.core.worker.validation.validator.DynamicYearRangeFieldContentValidatorRule;
+import org.lareferencia.core.worker.validation.transformer.FieldContentNormalizeRule;
 import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.util.Iterator;
@@ -134,6 +147,8 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 	@Autowired
 	private RecordValidationRepository validationRecordRepository;
 
+    private Clock clock = Clock.systemDefaultZone();
+    private int referenceYear;
 	private ValidatorFingerprint currentFingerprint;
 	private java.util.stream.Stream<OAIRecord> catalogStream;
 
@@ -170,6 +185,23 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
             snapshotStore.resetSnapshotValidationCounts(snapshotId);
             try { validationManifestStore.invalidate(snapshotMetadata); }
             catch (Exception e) { throw new IllegalStateException("Cannot invalidate previous validation manifest", e); }
+            referenceYear = Year.now(clock).getValue();
+            try {
+				if (runningContext.getNetwork().getTransformer() != null) {
+					transformer = validationManager
+							.createTransformerFromModel(runningContext.getNetwork().getTransformer());
+				}
+
+				if (runningContext.getNetwork().getSecondaryTransformer() != null) {
+					secondaryTransformer = validationManager
+							.createTransformerFromModel(runningContext.getNetwork().getSecondaryTransformer());
+				}
+
+                prepareEditions(transformer);
+                prepareEditions(secondaryTransformer);
+            } catch (Exception e) {
+                throw new IllegalStateException("Cannot initialize transformers for " + snapshotMetadata.getNetwork().getAcronym(), e);
+            }
             currentFingerprint = computeValidatorFingerprint();
             reusingValidationDatabase = tryReuseParentValidation(currentFingerprint);
 
@@ -226,20 +258,19 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 
 				if (runningContext.getNetwork().getValidator() != null) {
 					validator = validationManager.createValidatorFromModel(runningContext.getNetwork().getValidator());
+                    for (IValidatorRule rule : validator.getRules()) {
+                        pinYear(rule);
+                        var definition = snapshotMetadata.getRuleDefinition(rule.getRuleId());
+                        if (definition != null) {
+                            definition.setOccurrenceCaptureEnabled(detailedDiagnose && rule.isStoreOccurrences());
+                        }
+                    }
 				} else {
 					logInfo("No Validator was found for " + runningContext.toString() + "!!!");
 				}
 
-				if (runningContext.getNetwork().getTransformer() != null) {
-					transformer = validationManager
-							.createTransformerFromModel(runningContext.getNetwork().getTransformer());
-				}
-
-				if (runningContext.getNetwork().getSecondaryTransformer() != null) {
-					secondaryTransformer = validationManager
-							.createTransformerFromModel(runningContext.getNetwork().getSecondaryTransformer());
-				}
-
+                pinNestedYears(transformer);
+                pinNestedYears(secondaryTransformer);
 				if (transformer == null && secondaryTransformer == null)
 					logInfo("No transformers for " + runningContext.toString() + "!!!");
 
@@ -261,13 +292,63 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
 
 	}
 
+    @Value("${store.basepath:/tmp/data/}")
+    private String enrichmentBase;
+    private final java.util.Map<String, SQLiteEnrichmentEdition> editions = new TreeMap<>();
+
+    private void prepareEditions(ITransformer chain) throws Exception {
+        if (chain == null) return;
+        for (var rule : chain.getRules()) {
+            if (rule instanceof ImportEnrichments enrichment) {
+                enrichment.validateConfiguration();
+                String name = enrichment.getFilename();
+                if (!editions.containsKey(name)) {
+                    String network = snapshotMetadata.getNetwork().getAcronym();
+                    var path = Path.of(enrichmentBase,
+                            PathUtils.sanitizeNetworkAcronym(network), "enrichments", name);
+                    var edition = new SQLiteEnrichmentEdition(path, network);
+                    editions.put(name, edition);
+                    if ("absent".equals(edition.digest())) {
+                        String message = "Missing enrichment edition " + path;
+                        logger.warn(message);
+                        snapshotLogService.addEntry(snapshotMetadata.getSnapshotId(), "WARN: " + message);
+                    }
+                }
+                enrichment.bind(editions.get(name));
+            }
+        }
+    }
+
+    private void pinYear(IValidatorRule rule) {
+        if (rule instanceof DynamicYearRangeFieldContentValidatorRule annual) {
+            annual.useReferenceYear(referenceYear);
+        }
+    }
+
+    private void pinNestedYears(ITransformer chain) {
+        if (chain == null) return;
+        for (var rule : chain.getRules()) {
+            if (rule instanceof FieldContentNormalizeRule normalize) {
+                pinYear(normalize.getValidationRule());
+            }
+        }
+    }
+
 	/** Computes provenance; the completion manifest is published only after finalization. */
 	private ValidatorFingerprint computeValidatorFingerprint() {
 		try {
 			ValidatorFingerprint fingerprint = validatorFingerprintService
 					.fingerprintNetwork(runningContext.getNetwork(), runningContext.getBooleanActionOption(
-                            "DETAILED_DIAGNOSE", "DETAILED_DIAGNOSE", false));
+                            "DETAILED_DIAGNOSE", "DETAILED_DIAGNOSE", false), referenceYear);
 
+            if (!editions.isEmpty()) {
+                var digest = MessageDigest.getInstance("SHA-256");
+                digest.update(fingerprint.getHash().getBytes(StandardCharsets.UTF_8));
+                for (var edition : editions.values()) {
+                    digest.update(edition.digest().getBytes(StandardCharsets.UTF_8));
+                }
+                fingerprint.setHash(HexFormat.of().formatHex(digest.digest()));
+            }
 			logger.info("Computed validation pipeline fingerprint {} for snapshot {}",
 					fingerprint.getHash(), snapshotMetadata.getSnapshotId());
 			return fingerprint;
@@ -420,6 +501,10 @@ public class ValidationWorker extends BaseIteratorWorker<OAIRecord, NetworkRunni
             if (snapshotMetadata != null) snapshotStore.markValidationFailed(snapshotMetadata.getSnapshotId());
             throw e;
         } finally {
+            for (var edition : editions.values()) {
+                try { edition.close(); } catch (SQLException e) { logger.warn("Closing enrichment edition", e); }
+            }
+            editions.clear();
             if (catalogStream != null) catalogStream.close();
             if (snapshotMetadata != null) {
                 catalogRepository.closeSnapshot(snapshotMetadata.getSnapshotId());

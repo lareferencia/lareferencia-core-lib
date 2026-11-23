@@ -21,11 +21,8 @@
 package org.lareferencia.core.worker.validation.transformer;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.apache.commons.lang3.tuple.Pair;
 import org.lareferencia.core.domain.IOAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
@@ -76,12 +73,6 @@ public class RemoveDuplicateVocabularyOccrsRule extends AbstractTransformerRule 
 	}
 
 	/**
-	 * Internal list storing pairs of vocabulary indices and corresponding DOM nodes
-	 * for tracking duplicate occurrences during transformation.
-	 */
-	List<Pair<Integer, Node>> vocabularyOccurreces = new ArrayList<Pair<Integer, Node>>();
-
-	/**
 	 * Transforms the record by removing duplicate vocabulary occurrences from the
 	 * specified field,
 	 * preserving only the first occurrence based on vocabulary order priority.
@@ -92,39 +83,27 @@ public class RemoveDuplicateVocabularyOccrsRule extends AbstractTransformerRule 
 	 */
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-
-		vocabularyOccurreces.clear();
-
-		boolean wasTransformed = false;
-
-		// recorre las ocurrencias del campo de test
+		Node preferred = null;
+		int bestRank = Integer.MAX_VALUE;
+		boolean removed = false;
 		for (Node node : metadata.getFieldNodes(fieldName)) {
-
-			String occr = node.getFirstChild().getNodeValue();
-
-			// Si la ocurrencia está en el vocabulario se obtiene el numero de orden
-			int foundAtindex = vocabulary.indexOf(occr);
-
-			if (foundAtindex != -1) // se crea una entrada con el numero de orden y el nodo
-				vocabularyOccurreces.add(new ImmutablePair<Integer, Node>(foundAtindex, node));
-
-		}
-
-		if (vocabularyOccurreces.size() > 1) { // solo si hay repeticiones
-
-			// ordena la lista
-			vocabularyOccurreces.sort(Comparator.comparing(Pair::getLeft));
-			vocabularyOccurreces.remove(0); // quita la primera aparitción para asegurar que la ocurrencia con mas
-											// prioridad no sea borrada
-
-			for (Pair<Integer, Node> vocOccr : vocabularyOccurreces) { // remueve el resto de las occurrencias
-				metadata.removeNode(vocOccr.getRight());
+			int rank = vocabulary.indexOf(node.getFirstChild().getNodeValue());
+			if (rank < 0) {
+				continue;
 			}
-
-			wasTransformed = true;
+			// A smaller index wins. Equal ranks keep the first occurrence in document order.
+			if (rank < bestRank) {
+				if (preferred != null) {
+					metadata.removeNode(preferred);
+					removed = true;
+				}
+				preferred = node;
+				bestRank = rank;
+			} else {
+				metadata.removeNode(node);
+				removed = true;
+			}
 		}
-
-		return wasTransformed;
+		return removed;
 	}
-
 }

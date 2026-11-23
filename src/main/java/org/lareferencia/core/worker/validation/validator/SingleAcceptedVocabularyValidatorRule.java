@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.StringJoiner;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -114,32 +115,36 @@ public class SingleAcceptedVocabularyValidatorRule extends AbstractValidatorRule
     @Override
     public ValidatorRuleResult validate(OAIRecordMetadata metadata) {
         List<String> occurrences = metadata.getFieldOcurrences(fieldname);
-        List<String> matches = new ArrayList<>();
+        int matches = 0;
+        boolean accepted = false;
+        StringJoiner report = new StringJoiner(" · ").setEmptyValue("no_reportable_values_found");
         for (String value : occurrences) {
-            if (acceptedByValue.containsKey(value)) matches.add(value);
+            Boolean termAccepted = acceptedByValue.get(value);
+            if (termAccepted != null) {
+                // Repeated and long terms count even when the diagnostic omits their text.
+                matches++;
+                accepted = termAccepted;
+                if (reportable(value)) report.add(value);
+            }
         }
-        boolean valid = matches.size() == 1 && acceptedByValue.get(matches.get(0));
+        boolean valid = matches == 1 && accepted;
         List<ContentValidatorResult> details = new ArrayList<>();
-        if (!matches.isEmpty()) {
-            // Only vocabulary matches explain acceptance or concurrent values.
-            // Preserve their order and repetitions, including unaccepted terms.
-            List<String> reportableMatches = matches.stream().filter(SingleAcceptedVocabularyValidatorRule::reportable).toList();
-            details.add(new ContentValidatorResult(valid, reportableMatches.isEmpty()
-                    ? "no_reportable_values_found" : String.join(" · ", reportableMatches)));
-        } else if (!occurrences.isEmpty()) {
-            // Retain unmatched values so operators can identify candidate mappings.
+        if (matches > 0) {
+            details.add(new ContentValidatorResult(valid, report.toString()));
+        } else if (occurrences.isEmpty()) {
+            details.add(new ContentValidatorResult(false, "no_occurrences_found"));
+        } else {
+            // Only report unrecognized values when there are no vocabulary matches.
+            boolean hasUnrecognizedValues = false;
             for (String value : occurrences) {
-                if (!ignoredValues.contains(value) && reportable(value)) {
-                    details.add(new ContentValidatorResult(false, value));
-                }
+                if (ignoredValues.contains(value)) continue;
+                hasUnrecognizedValues = true;
+                if (reportable(value)) details.add(new ContentValidatorResult(false, value));
             }
             if (details.isEmpty()) {
-                boolean hasUnrecognizedValues = occurrences.stream().anyMatch(value -> !ignoredValues.contains(value));
                 details.add(new ContentValidatorResult(false, hasUnrecognizedValues
                         ? "no_reportable_values_found" : "no_vocabulary_occurrences_found"));
             }
-        } else {
-            details.add(new ContentValidatorResult(false, "no_occurrences_found"));
         }
         ValidatorRuleResult result = new ValidatorRuleResult();
         result.setRule(this);

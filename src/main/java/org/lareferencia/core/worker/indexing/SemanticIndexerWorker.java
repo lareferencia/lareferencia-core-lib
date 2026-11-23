@@ -63,8 +63,6 @@ import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -246,7 +244,7 @@ public class SemanticIndexerWorker extends BaseIndexerWorker {
 
 			if (record.isValid()) {
 				Document transformedDoc = metadataTransformer.transform(metadata.getDOMDocument());
-				SolrInputDocument solrDoc = xmlDocumentToSolrInputDocument(transformedDoc);
+				SolrInputDocument solrDoc = SolrDocuments.fromXml(transformedDoc);
 
 				enrichRecordWithEmbedding(solrDoc, metadata);
 				documentsToBeIndexed.add(solrDoc);
@@ -584,17 +582,5 @@ public class SemanticIndexerWorker extends BaseIndexerWorker {
 				.collect(Collectors.joining(" "));
 
     }
-
-	private SolrInputDocument xmlDocumentToSolrInputDocument(Document doc) {
-		SolrInputDocument solrDoc = new SolrInputDocument();
-		NodeList fields = doc.getElementsByTagName("field");
-		for (int i = 0; i < fields.getLength(); i++) {
-			Element field = (Element) fields.item(i);
-			String name = field.getAttribute("name");
-			String value = field.getTextContent();
-			solrDoc.addField(name, value);
-		}
-		return solrDoc;
-	}
 
 }

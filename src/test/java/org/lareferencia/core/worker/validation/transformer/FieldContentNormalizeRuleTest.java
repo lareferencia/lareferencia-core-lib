@@ -133,6 +133,24 @@ class FieldContentNormalizeRuleTest {
     }
 
     @Test
+    void invalidFirstOccurrenceStillCountsWhenLaterDuplicatesValidateDifferently() {
+        rule.setRemoveInvalidOccurrences(true);
+        rule.setRemoveDuplicatedOccurrences(true);
+        Node first = createMockNode("same");
+        Node second = createMockNode("same");
+        Node third = createMockNode("same");
+        when(metadata.getFieldNodes("dc.subject")).thenReturn(Arrays.asList(first, second, third));
+        when(validationRule.validate("same")).thenReturn(new ContentValidatorResult(false, ""),
+                new ContentValidatorResult(true, ""), new ContentValidatorResult(false, ""));
+
+        assertTrue(rule.transform(snapshotMetadata, record, metadata));
+        verify(validationRule, times(3)).validate("same");
+        verify(metadata).removeNode(first);
+        verify(metadata).removeNode(second);
+        verify(metadata).removeNode(third);
+    }
+
+    @Test
     @DisplayName("Should handle empty field list")
     void testEmptyFieldList() {
         rule.setRemoveInvalidOccurrences(true);
@@ -152,13 +170,10 @@ class FieldContentNormalizeRuleTest {
         rule.setRemoveInvalidOccurrences(false);
         rule.setRemoveDuplicatedOccurrences(false);
 
-        Node node = createMockNode("Some Subject");
-        when(metadata.getFieldNodes("dc.subject")).thenReturn(Collections.singletonList(node));
-
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
         assertFalse(result);
-        verify(metadata, never()).removeNode(any());
+        verifyNoInteractions(metadata);
     }
 
     @Test

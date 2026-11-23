@@ -90,8 +90,9 @@ public class ValidationStatsResult {
                 ruleStat.setRuleID(ruleID.longValue());
                 ruleStat.setName(ruleDef.getName());
                 ruleStat.setDescription(ruleDef.getDescription());
-                ruleStat.setQuantifier(QuantifierValues.valueOf(ruleDef.getQuantifier()));
+                ruleStat.setQuantifier(ruleDef.getQuantifier() == null ? null : QuantifierValues.valueOf(ruleDef.getQuantifier()));
                 ruleStat.setMandatory(ruleDef.getMandatory());
+                ruleStat.setOccurrenceCaptureEnabled(ruleDef.getOccurrenceCaptureEnabled());
                 ruleStat.setValidCount(ruleStats != null ? ruleStats.getValidCount().intValue() : 0);
                 ruleStat.setInvalidCount(ruleStats != null ? ruleStats.getInvalidCount().intValue() : null);
 

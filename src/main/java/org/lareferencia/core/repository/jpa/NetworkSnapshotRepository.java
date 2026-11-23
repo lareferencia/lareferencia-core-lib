@@ -34,6 +34,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
+import org.springframework.data.rest.core.annotation.RestResource;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -118,6 +119,9 @@ public interface NetworkSnapshotRepository extends JpaRepository<NetworkSnapshot
 	 * @return page of snapshots
 	 */
 	Page<NetworkSnapshot> findByNetworkAndStatus(Network network, SnapshotStatus valid, Pageable pageable);
+
+    @RestResource(exported = false)
+    Page<NetworkSnapshot> findByNetworkAndStatusAndDeletedFalse(Network network, SnapshotStatus status, Pageable page);
 
 	/**
 	 * Finds snapshots by network, status and time range with pagination.

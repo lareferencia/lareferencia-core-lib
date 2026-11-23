@@ -20,7 +20,6 @@
 
 package org.lareferencia.core.worker.validation.transformer;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -72,16 +71,6 @@ public class RemoveDuplicateOccrsRule extends AbstractTransformerRule {
 	}
 
 	/**
-	 * Internal set for tracking unique field values during transformation.
-	 */
-	Set<String> occrSet = new HashSet<String>();
-
-	/**
-	 * Internal list for collecting duplicate nodes to be removed.
-	 */
-	List<Node> removeList = new ArrayList<Node>();
-
-	/**
 	 * Transforms the record by removing duplicate occurrences from the specified
 	 * field.
 	 * Keeps only the first occurrence of each unique value.
@@ -92,28 +81,18 @@ public class RemoveDuplicateOccrsRule extends AbstractTransformerRule {
 	 */
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
-
-		boolean wasTransformed = false;
-
-		occrSet.clear();
-		removeList.clear();
-
-		// recorre las ocurrencias del campo de test
-		for (Node node : metadata.getFieldNodes(fieldName)) {
-
-			String occr = node.getFirstChild().getNodeValue();
-
-			if (occrSet.contains(occr)) {
-				removeList.add(node);
-				wasTransformed = true;
-			} else
-				occrSet.add(occr);
+		List<Node> nodes = metadata.getFieldNodes(fieldName);
+		if (nodes.size() < 2) {
+			return false;
 		}
-
-		for (Node node : removeList)
-			metadata.removeNode(node);
-
-		return wasTransformed;
+		Set<String> seen = new HashSet<>();
+		boolean removed = false;
+		for (Node node : nodes) {
+			if (!seen.add(node.getFirstChild().getNodeValue())) {
+				metadata.removeNode(node);
+				removed = true;
+			}
+		}
+		return removed;
 	}
-
 }

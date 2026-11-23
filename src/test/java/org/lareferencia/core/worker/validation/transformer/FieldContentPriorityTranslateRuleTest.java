@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.lareferencia.core.domain.OAIRecord;
 import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
+import org.lareferencia.core.worker.validation.RuleSerializer;
 import org.lareferencia.core.worker.validation.Translation;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -50,6 +51,50 @@ class FieldContentPriorityTranslateRuleTest {
         when(node.getFirstChild()).thenReturn(textNode);
         when(textNode.getNodeValue()).thenReturn(value);
         return node;
+    }
+
+    @Test
+    void unchangedSourceIsSelectedOnceAcrossDictionaryMisses() {
+        rule.setTranslationArray(List.of(new Translation("book", "B"), new Translation("thesis", "T")));
+        Node article = createMockNode("article");
+        when(metadata.getFieldNodes("dc.type")).thenReturn(List.of(article));
+
+        assertFalse(rule.transform(snapshotMetadata, record, metadata));
+        verify(metadata, times(1)).getFieldNodes("dc.type");
+    }
+
+    @Test
+    void historicalProfileSeesChainedWritesThroughWildcardAndRemembersRemovedValues() throws Exception {
+        var loaded = new RuleSerializer().deserializeTransformerFromJsonString("""
+                {"@class":"org.lareferencia.backend.validation.transformer.FieldContentPriorityTranslateRule",
+                 "testFieldName":"dc.type.*","writeFieldName":"dc.type.new",
+                 "translationArray":[{"search":"a","replace":"b"},{"search":"b","replace":"c"},
+                                     {"search":"c","replace":"a"}]}
+                """);
+        var xml = new OAIRecordMetadata("id", """
+                <metadata><element name="dc"><element name="type"><element name="old">
+                <field name="value">a</field>
+                </element></element></element></metadata>
+                """);
+
+        assertTrue(loaded.transform(null, null, xml));
+        assertTrue(xml.getFieldOcurrences("dc.type.old").isEmpty());
+        assertEquals(List.of("c"), xml.getFieldOcurrences("dc.type.new"));
+    }
+
+    @Test
+    void firstMatchStopsEvenIfItsReplacementAlreadyExists() throws Exception {
+        var xml = new OAIRecordMetadata("id", """
+                <metadata><element name="dc"><element name="type">
+                <field name="value">article</field><field name="value">book</field>
+                </element></element></metadata>
+                """);
+        rule.setReplaceAllMatchingOccurrences(false);
+        rule.setTranslationArray(List.of(new Translation("article", "book"), new Translation("book", "thesis")));
+
+        String before = xml.toString();
+        assertFalse(rule.transform(null, null, xml));
+        assertEquals(before, xml.toString());
     }
 
     @Test

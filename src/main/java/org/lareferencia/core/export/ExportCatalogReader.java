@@ -49,8 +49,13 @@ final class ExportCatalogReader implements AutoCloseable {
     /** Immutable mode ignores WAL content; a non-empty WAL means the snapshot was not cleanly finalized and would read stale. */
     private static void requireFinalized(Path database) throws java.io.IOException {
         Path wal = database.resolveSibling(database.getFileName().toString() + "-wal");
-        if (Files.isRegularFile(wal) && Files.size(wal) > 0)
-            throw new java.io.IOException("Snapshot database has a non-empty WAL; finalize the snapshot before export: " + wal);
+        try {
+            var attrs = Files.readAttributes(wal, java.nio.file.attribute.BasicFileAttributes.class);
+            if (attrs.isRegularFile() && attrs.size() > 0)
+                throw new java.io.IOException("Snapshot database has a non-empty WAL; finalize the snapshot before export: " + wal);
+        } catch (NoSuchFileException absent) {
+            // SQLite may remove an empty sidecar before we can inspect it.
+        }
     }
     Row next() throws SQLException {
         if (!rows.next()) return null;

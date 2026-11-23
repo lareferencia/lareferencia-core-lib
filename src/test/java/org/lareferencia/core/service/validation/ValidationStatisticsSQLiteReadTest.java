@@ -69,6 +69,7 @@ class ValidationStatisticsSQLiteReadTest {
             ISnapshotStore snapshots = mock(ISnapshotStore.class);
             when(snapshots.getSnapshotMetadata(4145L)).thenReturn(metadata);
             ValidationStatisticsSQLiteService service = new ValidationStatisticsSQLiteService();
+            ReflectionTestUtils.setField(service, "basePath", directory.toString());
             ReflectionTestUtils.setField(service, "dbManager", databases);
             ReflectionTestUtils.setField(service, "recordRepository", records);
             ReflectionTestUtils.setField(service, "occurrenceRepository", occurrences);

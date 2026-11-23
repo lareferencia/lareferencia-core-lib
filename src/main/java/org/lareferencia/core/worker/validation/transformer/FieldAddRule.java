@@ -21,6 +21,7 @@
 
 package org.lareferencia.core.worker.validation.transformer;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -55,6 +56,12 @@ public class FieldAddRule extends AbstractTransformerRule {
 	@SchemaProperty(order = 2)
 	String value;
 
+	@Getter
+	@Setter
+	@JsonInclude(JsonInclude.Include.NON_DEFAULT)
+	@SchemaProperty(defaultValue = "false", order = 3)
+	private boolean skipExistingValue;
+
 	/**
 	 * Creates a new field addition rule.
 	 */
@@ -65,13 +72,12 @@ public class FieldAddRule extends AbstractTransformerRule {
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
-		boolean wasTransformed = false;
-
-		metadata.addFieldOcurrence(this.getTargetFieldName(), this.getValue());
-
-		wasTransformed = true;
-
-		return wasTransformed;
+		// Profiles saved before this option always append, even on a second pass.
+		if (skipExistingValue && metadata.containsFieldValue(getTargetFieldName(), getValue())) {
+			return false;
+		}
+		metadata.addFieldOcurrence(getTargetFieldName(), getValue());
+		return true;
 	}
 
 }

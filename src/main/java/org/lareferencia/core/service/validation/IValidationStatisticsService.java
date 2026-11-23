@@ -60,6 +60,9 @@ public interface IValidationStatisticsService {
     ValidationRuleOccurrencesCount queryValidRuleOccurrencesCountBySnapshotID(Long snapshotID, Long ruleID,
             List<String> fq) throws ValidationStatisticsException;
 
+    FrequencyPage frequencyPage(long snapshotId, long ruleId, boolean valid, List<String> filters, Pageable page)
+            throws ValidationStatisticsException;
+
     /**
      * Delete observations by snapshot ID
      * 

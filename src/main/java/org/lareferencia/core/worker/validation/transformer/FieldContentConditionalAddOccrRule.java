@@ -20,9 +20,7 @@
 
 package org.lareferencia.core.worker.validation.transformer;
 
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import lombok.Getter;
@@ -109,38 +107,28 @@ public class FieldContentConditionalAddOccrRule extends AbstractTransformerRule 
 	 * 
 	 * @param record   the OAI record to transform
 	 * @param metadata the record metadata to modify
-	 * @return true if the field was added, false otherwise
+	 * @return true if an occurrence was added or a duplicate was removed
 	 */
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
-		boolean isExpressionValid = evaluator.evaluate(conditionalExpression, metadata);
-		boolean wasTransformed = false;
-
-		if (isExpressionValid) {
-			wasTransformed = true;
-			metadata.addFieldOcurrence(fieldName, valueToAdd);
-		}
-
-		Set<String> occrSet = new HashSet<String>();
-		List<Node> removeList = new ArrayList<Node>();
-
-		if (removeDuplicatedOccurrences) {
-
-			// recorre las ocurrencias del campo de test
-			for (Node node : metadata.getFieldNodes(fieldName)) {
-
-				String occr = node.getFirstChild().getNodeValue();
-
-				if (occrSet.contains(occr))
-					removeList.add(node);
-				else
-					occrSet.add(occr);
-			}
-
-			for (Node node : removeList)
-				metadata.removeNode(node);
-		}
+        boolean add = evaluator.evaluate(conditionalExpression, metadata);
+        boolean wasTransformed = false;
+        if (Boolean.TRUE.equals(removeDuplicatedOccurrences)) {
+            Set<String> seen = new HashSet<>();
+            // getFieldNodes returns a snapshot; removing a node does not invalidate the iteration.
+            for (Node node : metadata.getFieldNodes(fieldName)) {
+                if (!seen.add(node.getFirstChild().getNodeValue())) {
+                    metadata.removeNode(node);
+                    wasTransformed = true;
+                }
+            }
+            add &= !seen.contains(valueToAdd);
+        }
+        if (add) {
+            metadata.addFieldOcurrence(fieldName, valueToAdd);
+            wasTransformed = true;
+        }
 
 		return wasTransformed;
 	}

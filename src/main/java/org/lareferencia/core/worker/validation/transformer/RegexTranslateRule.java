@@ -25,10 +25,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.util.HashSet;
-import java.util.Hashtable;
-import java.util.Map;
+import java.util.List;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 import org.lareferencia.core.domain.IOAIRecord;
@@ -87,8 +85,6 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	@SchemaProperty(defaultValue = "false", order = 5)
 	Boolean removeMatchingOccurrences = false;
 
-	// private Predicate<String> regexPredicate;
-
 	/**
 	 * Constructs a new regex translate rule with default settings.
 	 */
@@ -103,52 +99,35 @@ public class RegexTranslateRule extends AbstractTransformerRule {
 	 */
 	public void setRegexSearch(String regexPattern) {
 		this.regexSearch = regexPattern;
-		// regexPredicate = Pattern.compile(regexPattern).asPredicate();
 	}
-
-	Set<String> existingValues = new HashSet<String>();
-	String occr = null;
-	String replace = null;
 
 	@Override
 	public boolean transform(SnapshotMetadata snapshotMetadata, IOAIRecord record, OAIRecordMetadata metadata) {
 
-		// setup existing values
-		existingValues.clear();
-		for (Node node : metadata.getFieldNodes(sourceFieldName))
-			existingValues.add(node.getFirstChild().getNodeValue());
-
-		boolean wasTransformed = false;
-
-		// ciclo de reemplazo
-		// recorre las ocurrencias del campo de nombre source y si la occrs matchea con
-		// el la expresion realiza los reemplazos
-		// aplicando el pattern
-		for (Node node : metadata.getFieldNodes(sourceFieldName)) {
-
-			occr = node.getFirstChild().getNodeValue();
-
-			// if ( regexPredicate.test(occr) ) {
-
-			replace = occr.replaceFirst(regexSearch, regexReplace);
-
-			// Agrega instancia target con el contenido a reemplazar
-			if (!existingValues.contains(replace)) {
-
-				// Si esta marcada la opción remueve ocurrencia source
-				if (removeMatchingOccurrences)
-					metadata.removeNode(node);
-
-				metadata.addFieldOcurrence(this.getTargetFieldName(), replace);
-				existingValues.add(replace);
-
-				// si entra al ciclo al menos una vez entonces transformó
-				wasTransformed = true;
-			}
-
-			// }
+		List<Node> sourceNodes = metadata.getFieldNodes(sourceFieldName);
+		if (sourceNodes.isEmpty()) {
+			return false;
 		}
 
+		// Seed from all original source values before changing the DOM, including later siblings.
+		Set<String> existingValues = new HashSet<>();
+		for (Node node : sourceNodes) {
+			existingValues.add(node.getFirstChild().getNodeValue());
+		}
+
+		Pattern pattern = Pattern.compile(regexSearch);
+		boolean wasTransformed = false;
+		for (Node node : sourceNodes) {
+			String value = node.getFirstChild().getNodeValue();
+			String replacement = pattern.matcher(value).replaceFirst(regexReplace);
+			if (existingValues.add(replacement)) {
+				if (removeMatchingOccurrences) {
+					metadata.removeNode(node);
+				}
+				metadata.addFieldOcurrence(getTargetFieldName(), replacement);
+				wasTransformed = true;
+			}
+		}
 		return wasTransformed;
 	}
 

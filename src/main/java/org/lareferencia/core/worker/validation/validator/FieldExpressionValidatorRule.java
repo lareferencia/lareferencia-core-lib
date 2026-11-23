@@ -20,6 +20,7 @@
 
 package org.lareferencia.core.worker.validation.validator;
 
+import org.lareferencia.core.worker.validation.QuantifierValues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.metadata.OAIRecordMetadata;
@@ -65,6 +66,12 @@ public class FieldExpressionValidatorRule extends AbstractValidatorRule {
 	 */
 	public FieldExpressionValidatorRule() {
 		evaluator = new FieldExpressionEvaluator(this.quantifier);
+	}
+
+	@Override
+	public void setQuantifier(QuantifierValues quantifier) {
+		super.setQuantifier(quantifier);
+		evaluator = new FieldExpressionEvaluator(quantifier);
 	}
 
 	/**

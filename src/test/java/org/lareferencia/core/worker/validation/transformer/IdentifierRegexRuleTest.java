@@ -116,8 +116,8 @@ class IdentifierRegexRuleTest {
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
-        assertTrue(result);
-        verify(record).setIdentifier("identifier-123");
+        assertFalse(result);
+        verify(record, never()).setIdentifier(anyString());
     }
 
     @Test
@@ -158,8 +158,8 @@ class IdentifierRegexRuleTest {
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
-        assertTrue(result);
-        verify(record).setIdentifier("");
+        assertFalse(result);
+        verify(record, never()).setIdentifier(anyString());
     }
 
     @Test
@@ -177,8 +177,8 @@ class IdentifierRegexRuleTest {
     }
 
     @Test
-    @DisplayName("Should always return true")
-    void testAlwaysReturnsTrue() {
+    @DisplayName("Should report unchanged identifier")
+    void testUnchangedIdentifier() {
         rule.setRegexSearch("anything");
         rule.setRegexReplace("replacement");
         
@@ -186,7 +186,7 @@ class IdentifierRegexRuleTest {
 
         boolean result = rule.transform(snapshotMetadata, record, metadata);
 
-        assertTrue(result);
+        assertFalse(result);
     }
 
     @Test

@@ -37,6 +37,35 @@ class FieldAddRuleTest {
     }
 
     @Test
+    void legacyJsonStillAppendsAndOptInOnlySkipsExactText() throws Exception {
+        var serializer = new org.lareferencia.core.worker.validation.RuleSerializer();
+        String json = """
+                {"@class":"org.lareferencia.backend.validation.transformer.FieldAddRule",
+                 "targetFieldName":"dc.type.none","value":"Artículo"}
+                """;
+        var legacy = serializer.deserializeTransformerFromJsonString(json);
+        var xml = new OAIRecordMetadata("id", "<metadata/>");
+        assertTrue(legacy.transform(null, null, xml));
+        assertTrue(legacy.transform(null, null, xml));
+        assertFalse(serializer.serializeTransformerToJsonString(legacy).contains("skipExistingValue"));
+
+        var enabled = (FieldAddRule) serializer.deserializeTransformerFromJsonString(
+                json.replace("{", "{\"skipExistingValue\":true,"));
+        String before = xml.toString();
+        assertFalse(enabled.transform(null, null, xml));
+        assertEquals(before, xml.toString());
+        for (String distinct : java.util.List.of("artículo", "Articulo", " Artículo ", "")) {
+            enabled.setValue(distinct);
+            assertTrue(enabled.transform(null, null, xml));
+            xml = new OAIRecordMetadata("id", xml.toString());
+            assertFalse(enabled.transform(null, null, xml));
+        }
+        enabled.setTargetFieldName("dc.type.none.$");
+        assertFalse(enabled.transform(null, null, xml));
+        assertEquals(6, xml.getFieldNodesIncludingEmpty("dc.type.none").size());
+    }
+
+    @Test
     @DisplayName("Should add field with specified value")
     void testAddField() {
         rule.setTargetFieldName("dc.publisher");

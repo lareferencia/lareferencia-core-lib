@@ -33,6 +33,7 @@ import org.lareferencia.core.worker.validation.QuantifierValues;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -113,101 +114,28 @@ public class FieldExpressionEvaluator extends AbstractEvaluator<Boolean> {
 
 		Matcher matcher = PATTERN.matcher(literal);
 
-		boolean match = matcher.matches();
-		int groupCount = matcher.groupCount();
-
-		if (match && groupCount == 3) {
-
-			String fieldName = matcher.group(1);
-			String testValue = matcher.group(3);
-			String operator = matcher.group(2);
-
-			int validOccurrencesCount = 0;
-
-			int occurrencesSize = 0;
-			
-			
-			List<String> occrs =  metadata.getFieldOcurrences(fieldName);
-			
-
-			for (String fieldValue :occrs) {
-
-				occurrencesSize++;
-
-				ContentValidatorResult result = new ContentValidatorResult();
-				result.setReceivedValue(fieldName + " :: " + testValue + " " + operator + " " + fieldValue);
-				result.setValid(false);
-
-				switch (operator) {
-
-				case "==": /* caso igualdad strings */
-					if (testValue.equals(fieldValue)) {
-						result.setValid(true);
-						validOccurrencesCount++;
-					}
-					break;
-
-				case "=%": /* caso expresiones regulares */
-					
-					try {
-						if (Pattern.matches(testValue, fieldValue)) {
-							result.setValid(true);
-							validOccurrencesCount++;
-						} 
-					} catch (Exception | StackOverflowError e) {
-						logger.debug("FieldExpressionEvaluator::" + e.getMessage() + "  regexp= " + testValue + "\n\n fieldcontent: " + fieldValue ); 
-						throw e; 
-					}
-					break;
-
-				default:
-					break;
-				}
-
-				//evaluationResults.add(result);
-
-			}
-			
-			// SI NO HAY OCCRS LO INDICA COMO UN VALOR DE RESULTADO
-			if ( occrs.size() == 0 ) {
-				ContentValidatorResult result = new ContentValidatorResult();
-				result.setReceivedValue("no_occurrences_found");
-				result.setValid(false);
-				evaluationResults.add(result);
-			}
-
-			/*
-			 * de acuerdo al cuantificador y la cantidad de reglas válidas
-			 * decide si la reglas es válida
-			 */
-			switch (quantifier) {
-
-			case ONE_ONLY:
-				return validOccurrencesCount == 1;
-
-			case ONE_OR_MORE:
-				return validOccurrencesCount >= 1;
-
-			case ZERO_OR_MORE:
-				return validOccurrencesCount >= 0;
-
-			case ZERO_ONLY:
-				return validOccurrencesCount == 0;
-
-			case ALL:
-				return validOccurrencesCount == occurrencesSize;
-
-			default:
-				return false;
-
-			}
-
-		} else {
-
-			logger.error("Error en la expresión de regla: " +literal);
+		if (!matcher.matches()) {
+			logger.error("Error en la expresión de regla: " + literal);
 			return false;
 		}
 
+		List<String> occurrences = metadata.getFieldOcurrences(matcher.group(1));
+		if (occurrences.isEmpty()) {
+			// An absent field contributes a diagnostic and never attempts to compile its regex.
+			evaluationResults.add(new ContentValidatorResult(false, "no_occurrences_found"));
+			return quantifier.matchesExpressionOperand(0, 0);
+		}
+
+		String expected = matcher.group(3);
+		Predicate<String> matches = "==".equals(matcher.group(2))
+				? expected::equals : Pattern.compile(expected).asMatchPredicate();
+		int matchCount = 0;
+		for (String value : occurrences) {
+			if (matches.test(value)) {
+				matchCount++;
+			}
+		}
+		return quantifier.matchesExpressionOperand(matchCount, occurrences.size());
 	}
 
 	@Override

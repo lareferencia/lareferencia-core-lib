@@ -359,79 +359,52 @@ public class RecordValidationRepository {
         return null;
     }
 
-    /**
-     * Queries records with pagination and optional filters.
-     */
-    /**
-     * Helper class for filter processing
-     */
-
-    private void applyFilters(StringBuilder sql, List<String> filters, List<Object> params) {
-        if (filters == null || filters.isEmpty()) {
-            return;
-        }
-
-        List<String> conditions = new ArrayList<>();
-
+    /** Append predicates on active record queries, including joins to rule_occurrences. */
+    static void applyFilters(StringBuilder sql, List<String> filters, List<Object> params) {
+        if (filters == null) return;
         for (String filter : filters) {
-            if (filter == null)
-                continue;
-
-            String field = null;
-            String value = null;
-
-            // Support both @@ and : separators
-            if (filter.contains("@@")) {
-                String[] parts = filter.split("@@", 2);
-                field = parts[0].trim();
-                value = parts[1].trim();
-            } else if (filter.contains(":")) {
-                String[] parts = filter.split(":", 2);
-                field = parts[0].trim();
-                value = parts[1].trim();
-            } else {
-                continue;
+            if (filter == null) continue;
+            String[] parts = filter.split(filter.contains("@@") ? "@@" : ":", 2);
+            if (parts.length != 2) continue;
+            String field = parts[0].trim();
+            String value = parts[1].trim();
+            if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+                value = value.substring(1, value.length() - 1);
             }
-
-            // Remove quotes if present
-            value = value.replace("\"", "");
-
             switch (field) {
-                case "identifier":
-                    conditions.add("identifier LIKE ?");
-                    params.add("%" + value + "%"); // Partial match typical for search
-                    break;
-                case "is_valid":
-                case "record_is_valid":
-                    conditions.add("is_valid = ?");
-                    params.add("true".equalsIgnoreCase(value) ? 1 : 0);
-                    break;
-                case "is_transformed":
-                case "record_is_transformed":
-                    conditions.add("is_transformed = ?");
-                    params.add("true".equalsIgnoreCase(value) ? 1 : 0);
-                    break;
-                case "valid_rules":
-                    conditions.add("rule_" + value + " = 1");
-                    // No param needed for column selection, assuming rule ID is safe (numeric)
-                    break;
-                case "invalid_rules":
-                    conditions.add("rule_" + value + " = 0");
-                    break;
+                case "identifier_eq" -> {
+                    sql.append(" AND record_validation.identifier = ?");
+                    params.add(value);
+                }
+                case "identifier_contains" -> {
+                    sql.append(" AND record_validation.identifier LIKE ? ESCAPE '!'");
+                    params.add("%" + value.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%");
+                }
+                case "identifier" -> {
+                    // Preserve the dashboard's historical LIKE pattern syntax.
+                    sql.append(" AND record_validation.identifier LIKE ?");
+                    params.add("%" + value + "%");
+                }
+                case "is_valid", "record_is_valid", "isValid" -> {
+                    sql.append(" AND record_validation.is_valid = ?");
+                    params.add(Boolean.parseBoolean(value) ? 1 : 0);
+                }
+                case "is_transformed", "record_is_transformed", "isTransformed" -> {
+                    sql.append(" AND record_validation.is_transformed = ?");
+                    params.add(Boolean.parseBoolean(value) ? 1 : 0);
+                }
+                case "valid_rules", "invalid_rules", "validRulesID", "invalidRulesID" -> {
+                    if (!value.matches("[0-9]+")) {
+                        throw new IllegalArgumentException("Rule filter requires a numeric rule id");
+                    }
+                    sql.append(" AND record_validation.rule_").append(value).append(" = ?");
+                    params.add(field.equals("valid_rules") || field.equals("validRulesID") ? 1 : 0);
+                }
             }
-        }
-
-        if (!conditions.isEmpty()) {
-            if (sql.toString().toUpperCase().contains(" WHERE ")) {
-                sql.append(" AND ");
-            } else {
-                sql.append(" WHERE ");
-            }
-            sql.append(String.join(" AND ", conditions));
         }
     }
 
-    public List<ValidationRecord> queryWithPagination(Long snapshotId, List<String> filters, int offset, int limit)
+    public List<ValidationRecord> queryWithPagination(Long snapshotId, List<String> filters, long offset, int limit)
             throws IOException {
         DataSource ds = dbManager.getDataSource(snapshotId);
         if (ds == null) {

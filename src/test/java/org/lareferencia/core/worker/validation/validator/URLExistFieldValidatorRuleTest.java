@@ -120,21 +120,9 @@ class URLExistFieldValidatorRuleTest {
     }
 
     @Test
-    @DisplayName("Should handle URL with special characters")
-    void testURLWithSpecialCharacters() {
-        ContentValidatorResult result = rule.validate("http://example.com/path?param=value&other=123");
-
-        assertFalse(result.isValid());
-        // Will likely fail due to connection error or unknown host (since it's a test)
-        assertTrue(result.getReceivedValue().equals("UnknownHost") || 
-                   result.getReceivedValue().equals("ConnectionError") ||
-                   result.getReceivedValue().equals("ERROR"));
-    }
-
-    @Test
     @DisplayName("Should handle HTTPS URL")
     void testHTTPSURL() {
-        ContentValidatorResult result = rule.validate("https://nonexistent-test-domain-12345.com");
+        ContentValidatorResult result = rule.validate("https://unreachable.invalid");
 
         assertFalse(result.isValid());
         assertEquals("UnknownHost", result.getReceivedValue());
@@ -143,7 +131,7 @@ class URLExistFieldValidatorRuleTest {
     @Test
     @DisplayName("Should handle URL with port")
     void testURLWithPort() {
-        ContentValidatorResult result = rule.validate("http://nonexistent-domain-12345.com:8080");
+        ContentValidatorResult result = rule.validate("http://unreachable.invalid:8080");
 
         assertFalse(result.isValid());
         assertEquals("UnknownHost", result.getReceivedValue());
@@ -152,7 +140,7 @@ class URLExistFieldValidatorRuleTest {
     @Test
     @DisplayName("Should handle URL with fragment")
     void testURLWithFragment() {
-        ContentValidatorResult result = rule.validate("http://nonexistent-domain-12345.com/page#section");
+        ContentValidatorResult result = rule.validate("http://unreachable.invalid/page#section");
 
         assertFalse(result.isValid());
         assertEquals("UnknownHost", result.getReceivedValue());
@@ -161,7 +149,7 @@ class URLExistFieldValidatorRuleTest {
     @Test
     @DisplayName("Should handle URL with username and password")
     void testURLWithCredentials() {
-        ContentValidatorResult result = rule.validate("http://user:pass@nonexistent-domain-12345.com");
+        ContentValidatorResult result = rule.validate("http://user:pass@unreachable.invalid");
 
         assertFalse(result.isValid());
         assertEquals("UnknownHost", result.getReceivedValue());
@@ -181,7 +169,7 @@ class URLExistFieldValidatorRuleTest {
     @DisplayName("Should handle very long URL")
     void testVeryLongURL() {
         String longPath = "a".repeat(1000);
-        ContentValidatorResult result = rule.validate("http://nonexistent-domain-12345.com/" + longPath);
+        ContentValidatorResult result = rule.validate("http://unreachable.invalid/" + longPath);
 
         assertFalse(result.isValid());
         assertEquals("UnknownHost", result.getReceivedValue());
@@ -190,7 +178,7 @@ class URLExistFieldValidatorRuleTest {
     @Test
     @DisplayName("Should handle URL with international domain name")
     void testInternationalDomainName() {
-        ContentValidatorResult result = rule.validate("http://ñoño-nonexistent-12345.com");
+        ContentValidatorResult result = rule.validate("http://ñoño.invalid");
 
         assertFalse(result.isValid());
         // Could be MalformedURL or UnknownHost
@@ -200,7 +188,7 @@ class URLExistFieldValidatorRuleTest {
     @Test
     @DisplayName("Should handle URL with unicode characters in path")
     void testUnicodeInPath() {
-        ContentValidatorResult result = rule.validate("http://nonexistent-domain-12345.com/página");
+        ContentValidatorResult result = rule.validate("http://unreachable.invalid/página");
 
         assertFalse(result.isValid());
         assertEquals("UnknownHost", result.getReceivedValue());
@@ -227,5 +215,50 @@ class URLExistFieldValidatorRuleTest {
         assertNotNull(result);
         assertNotNull(result.getReceivedValue());
         assertFalse(result.isValid());
+    }
+    @Test
+    @org.junit.jupiter.api.parallel.ResourceLock(org.junit.jupiter.api.parallel.Resources.SYSTEM_PROPERTIES)
+    void followsRedirectsUsesHeadAndBoundsTheRead() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        var method = new java.util.concurrent.atomic.AtomicReference<String>();
+        server.createContext("/ok", exchange -> {
+            method.set(exchange.getRequestMethod());
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.createContext("/redirect", exchange -> {
+            exchange.getResponseHeaders().set("Location", "/ok");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        server.createContext("/missing", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+        var release = new java.util.concurrent.CountDownLatch(1);
+        server.createContext("/waiting", exchange -> {
+            try { release.await(5, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            finally { exchange.close(); }
+        });
+        String key = "lareferencia.validation.url.readTimeoutMillis";
+        String previous = System.getProperty(key);
+        server.start();
+        try {
+            String base = "http://127.0.0.1:" + server.getAddress().getPort();
+            assertTrue(rule.validate(base + "/ok?param=value&other=123").isValid());
+            assertTrue(rule.validate(base + "/redirect").isValid());
+            assertEquals("HEAD", method.get());
+            assertFalse(rule.validate(base + "/missing").isValid());
+            System.setProperty(key, "150");
+            var timed = new URLExistFieldValidatorRule();
+            assertTimeout(java.time.Duration.ofSeconds(2), () ->
+                    assertEquals("ConnectionError", timed.validate(base + "/waiting").getReceivedValue()));
+        } finally {
+            release.countDown();
+            server.stop(0);
+            if (previous == null) System.clearProperty(key);
+            else System.setProperty(key, previous);
+        }
     }
 }

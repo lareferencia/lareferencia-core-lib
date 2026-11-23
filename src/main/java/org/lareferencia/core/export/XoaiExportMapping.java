@@ -73,7 +73,7 @@ public final class XoaiExportMapping {
                     });
                 }
             } else {
-                allowed(rule, Set.of("select", "type", "many", "normalize", "unique", "maxLength"));
+                allowed(rule, Set.of("select", "type", "many", "normalize", "unique", "maxLength", "excludePrefixes", "prefixDelimiters"));
                 expression(rule.path("select"), false);
                 if (!Set.of("string", "integer", "boolean").contains(rule.path("type").asText()))
                     throw new IllegalArgumentException("Unsupported type");
@@ -83,6 +83,17 @@ public final class XoaiExportMapping {
                     throw new IllegalArgumentException("maxLength must be a non-negative integer");
                 if (rule.has("maxLength") && !rule.path("type").asText().equals("string"))
                     throw new IllegalArgumentException("maxLength is only supported for string fields");
+                if (rule.has("excludePrefixes")) {
+                    JsonNode prefixes = rule.get("excludePrefixes");
+                    if (!rule.path("type").asText().equals("string") || !prefixes.isArray() || prefixes.isEmpty())
+                        throw new IllegalArgumentException("excludePrefixes requires a string field and a non-empty array");
+                    for (JsonNode prefix : prefixes)
+                        if (!prefix.isTextual() || prefix.textValue().isBlank())
+                            throw new IllegalArgumentException("excludePrefixes entries must be non-blank strings");
+                }
+                if (rule.has("prefixDelimiters") && (!rule.has("excludePrefixes")
+                        || !rule.get("prefixDelimiters").isTextual() || rule.get("prefixDelimiters").textValue().isEmpty()))
+                    throw new IllegalArgumentException("prefixDelimiters requires excludePrefixes and a non-empty delimiter string");
                 if (rule.has("normalize")) {
                     if (!rule.get("normalize").isArray()) throw new IllegalArgumentException("normalize must be array");
                     rule.get("normalize").forEach(n -> { if (!n.isTextual() || !n.asText().equals("trim")) throw new IllegalArgumentException("Unknown normalization"); });
@@ -169,6 +180,7 @@ public final class XoaiExportMapping {
                     String text = nodes.item(i).getTextContent();
                     if (rule.path("normalize").isArray() && rule.get("normalize").size() > 0) text = text.trim();
                     if (rule.has("maxLength") && text.codePointCount(0, text.length()) > rule.get("maxLength").asInt()) continue;
+                    if (rule.has("excludePrefixes") && hasExcludedPrefix(text, rule)) continue;
                     switch (rule.get("type").asText()) {
                         case "integer":
                             if (!text.matches("[+-]?[0-9]+")) throw new IllegalArgumentException("Invalid integer");
@@ -186,6 +198,18 @@ public final class XoaiExportMapping {
             else if (values.size() == 1) result.set(entry.getKey(), values.get(0));
         }
         return result;
+    }
+
+    private static boolean hasExcludedPrefix(String text, JsonNode rule) {
+        String delimiters = rule.path("prefixDelimiters").textValue();
+        for (JsonNode entry : rule.get("excludePrefixes")) {
+            String prefix = entry.textValue();
+            int end = prefix.length();
+            if (text.regionMatches(true, 0, prefix, 0, end)
+                    && (delimiters == null || text.length() == end || delimiters.indexOf(text.codePointAt(end)) >= 0))
+                return true;
+        }
+        return false;
     }
 
     /** Each start field opens a group; following sibling fields belong to it. Never zip arrays. */

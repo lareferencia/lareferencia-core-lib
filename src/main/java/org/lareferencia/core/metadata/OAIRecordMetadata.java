@@ -27,6 +27,7 @@ import org.apache.logging.log4j.Logger;
 import org.lareferencia.core.metadata.OAIMetadataElement.Type;
 import org.w3c.dom.DOMException;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
@@ -40,6 +41,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Represents OAI record metadata with DOM-based XML manipulation capabilities.
@@ -92,6 +94,8 @@ public class OAIRecordMetadata {
 	@Getter
 	@Setter
 	private String storeSchema;
+
+	private static final Pattern SIMPLE_FIELD_PATH = Pattern.compile("[a-zA-Z0-9_.:-]++");
 
 	private static final String EMPTY_DOCUMENT = "<metadata></metadata>";
 
@@ -295,97 +299,121 @@ public class OAIRecordMetadata {
 	 * @param content the content for the new field occurrence
 	 */
 	public void addFieldOcurrence(String fieldName, String content) {
-
 		try {
-			
-			String parentXPATH = XOAIXPATHHelper.getRootXPATH();
-			Node parentNode = MedatadaDOMHelper.getSingleNode(DOMDocument, parentXPATH);
-			
-			List<OAIMetadataElement> elements = XOAIXPATHHelper.getXPATHList(fieldName);
+			List<OAIMetadataElement> path = XOAIXPATHHelper.getXPATHList(fieldName);
+			OAIMetadataElement target = path.get(path.size() - 1);
+			boolean literalField = target.getType() == Type.field && fieldName.indexOf('\'') < 0;
 
-			// esto va a definir todos los nodos no definidos, mira hasta el anteultimo elemento
-			for (int i=0; i<elements.size()-1; i++) {
-				
-				OAIMetadataElement elem = elements.get(i);
-				String xpath =  elem.getXpath();
-		
-				if ( !MedatadaDOMHelper.isNodeDefined(DOMDocument, xpath) ) {
-					Node newNode = MedatadaDOMHelper.addChildElementWithNameAttr(parentNode, elem.getType().toString(), elem.getName());
+			Node parent;
+			if (literalField) {
+				parent = SIMPLE_FIELD_PATH.matcher(fieldName).matches() ? uniqueFieldParent(path) : null;
+				if (parent == null) {
+					// The first matching field can belong to a later branch with the same name.
+					Node existing = MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath());
+					parent = existing != null ? existing.getParentNode() : findOrCreateFieldParent(path);
 				}
-				
-					
-				parentNode = MedatadaDOMHelper.getSingleNode(DOMDocument, xpath);
-			}
-			
-			// trata el ultimo elemento aparte
-			
-			OAIMetadataElement lastElem = elements.get(elements.size()-1); 
-			String xpath =  lastElem.getXpath();
-			
-			// si el ultimo elemento ya esta definido
-			if ( MedatadaDOMHelper.isNodeDefined(DOMDocument, xpath) ) {
-				
-				// lo obtiene
-				Node node = MedatadaDOMHelper.getSingleNode(DOMDocument, xpath);
-				
-				if ( lastElem.getType() == Type.field ) { // si es de tipo field
-					
-					// agrega un nuevo nodo al padre (element), de tipo field, con el mismo nombre y con el valor deseado
-					Node newNode = MedatadaDOMHelper.addChildElementWithNameAttr(node.getParentNode(), Type.field.toString(), lastElem.getName());
-					MedatadaDOMHelper.setNodeText(newNode, content);
-				
+			} else {
+				parent = MedatadaDOMHelper.getSingleNode(DOMDocument, XOAIXPATHHelper.getRootXPATH());
+				for (int i = 0; i < path.size() - 1; i++) {
+					OAIMetadataElement element = path.get(i);
+					String xpath = element.getXpath();
+					if (!MedatadaDOMHelper.isNodeDefined(DOMDocument, xpath)) {
+						MedatadaDOMHelper.addChildElementWithNameAttr(parent, element.getType().toString(), element.getName());
+					}
+					parent = MedatadaDOMHelper.getSingleNode(DOMDocument, xpath);
 				}
-				else { // si no es de tipo field es de tipo element, entonces
-				
-					// agrega un nuevo nodo hijo, de tipo field, con nombre value y el contenido
-					Node newNode = MedatadaDOMHelper.addChildElementWithNameAttr(node, Type.field.toString(), "value");
-					MedatadaDOMHelper.setNodeText(newNode, content);
-					
-				}
-	
-			}
-			else { // si no esta definido
-				
 
-				if ( lastElem.getType() == Type.field ) { // si es de tipo field
-					
-					// agrega un nuevo nodo al padre (anteultimo elemento), de tipo field, con el mismo nombre y con el valor deseado
-					Node newNode = MedatadaDOMHelper.addChildElementWithNameAttr(parentNode, Type.field.toString(), lastElem.getName());
-					MedatadaDOMHelper.setNodeText(newNode, content);
-				
+				// Element selectors ($) and paths containing quotes keep their historical lookup order.
+				if (MedatadaDOMHelper.isNodeDefined(DOMDocument, target.getXpath())) {
+					Node existing = MedatadaDOMHelper.getSingleNode(DOMDocument, target.getXpath());
+					parent = target.getType() == Type.field ? existing.getParentNode() : existing;
+				} else if (target.getType() == Type.element) {
+					parent = MedatadaDOMHelper.addChildElementWithNameAttr(parent, Type.element.toString(), target.getName());
 				}
-				else { // si no es de tipo field es de tipo element, entonces
-					
-					// agrega un nuevo nodo hijo al anteultimo nodo, de tipo element, usando el nombre del ultimo elemento
-					Node newElementNode = MedatadaDOMHelper.addChildElementWithNameAttr(parentNode, Type.element.toString(), lastElem.getName());
-				
-					// a ese nuevo nodo element le agrega un nuevo nodo hijo, de tipo field, con nombre value y el contenido
-					Node newFieldNode = MedatadaDOMHelper.addChildElementWithNameAttr(newElementNode, Type.field.toString(), "value");
-					MedatadaDOMHelper.setNodeText(newFieldNode, content);
-					
-				}
-				
-				
-				/**
-				 * Nota: Se puede resumir este codigo juntando casos y puede quedar más corto, pero prefiero dejar los casos 
-				 * separados para facilitar el debug.
-				 */
 			}
-			
-
-		
-		} catch (DOMException e) {
-			logger.error("Error en agregador de metadato:" +fieldName);
-			e.printStackTrace();
-		} 
-		
-		catch (TransformerException e) {
-			logger.error("Error en agregador de metadato:" +fieldName);
+			String name = target.getType() == Type.field ? target.getName() : "value";
+			Node field = MedatadaDOMHelper.addChildElementWithNameAttr(parent, Type.field.toString(), name);
+			MedatadaDOMHelper.setNodeText(field, content);
+		} catch (DOMException | TransformerException e) {
+			logger.error("Error en agregador de metadato:" + fieldName);
 			e.printStackTrace();
 		}
 	}
-	
-	
+
+	// A literal field with one possible parent needs no XPath query. If a path branches,
+	// leave the DOM untouched so XPath can choose the historical first match.
+	private Node uniqueFieldParent(List<OAIMetadataElement> path) throws TransformerException {
+		Node parent = DOMDocument.getDocumentElement();
+		if (parent == null || !"metadata".equals(parent.getLocalName())) {
+			return null;
+		}
+		for (int i = 0; i < path.size() - 1; i++) {
+			String name = path.get(i).getName();
+			Node match = null;
+			for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+				if (child instanceof Element element) {
+					if (element.getLocalName() == null) {
+						return null;
+					}
+					if ("element".equals(element.getLocalName()) && element.hasAttributeNS(null, "name")
+							&& name.equals(element.getAttributeNS(null, "name"))) {
+						if (match != null) {
+							return null;
+						}
+						match = child;
+					}
+				}
+			}
+			parent = match != null ? match : MedatadaDOMHelper.addChildElementWithNameAttr(parent, "element", name);
+		}
+		return parent;
+	}
+
+	/** Checks the text of the destination fields, including empty elements after an XML round trip. */
+	public boolean containsFieldValue(String fieldName, String value) {
+		List<OAIMetadataElement> path = XOAIXPATHHelper.getXPATHList(fieldName);
+		OAIMetadataElement target = path.get(path.size() - 1);
+		String xpath = target.getXpath();
+		if (target.getType() == Type.element) {
+			// An element selector ($) writes its content into a child field named value.
+			xpath += "/*[local-name()='field' and @name='value']";
+		}
+		try {
+			NodeList fields = MedatadaDOMHelper.getNodeList(DOMDocument, xpath);
+			String text = value == null ? "" : value;
+			for (int i = 0; i < fields.getLength(); i++) {
+				if (text.equals(fields.item(i).getTextContent())) {
+					return true;
+				}
+			}
+			return false;
+		} catch (TransformerException e) {
+			throw new IllegalArgumentException("Cannot select field " + fieldName, e);
+		}
+	}
+
+	// Look up complete prefixes so repeated branches keep their document order. Once a
+	// prefix is absent, its descendants are absent too and can be created directly.
+	private Node findOrCreateFieldParent(List<OAIMetadataElement> path) throws TransformerException {
+		int firstMissing = path.size() - 1; // Exclude the terminal field.
+		Node parent = null;
+		while (firstMissing > 0) {
+			parent = MedatadaDOMHelper.getSingleNode(DOMDocument, path.get(firstMissing - 1).getXpath());
+			if (parent != null) {
+				break;
+			}
+			firstMissing--;
+		}
+		if (parent == null) {
+			parent = MedatadaDOMHelper.getSingleNode(DOMDocument, XOAIXPATHHelper.getRootXPATH());
+		}
+		for (int i = firstMissing; i < path.size() - 1; i++) {
+			parent = MedatadaDOMHelper.addChildElementWithNameAttr(parent, Type.element.toString(), path.get(i).getName());
+		}
+		return parent;
+	}
+
+
 	/**
 	 * Gets the content of a field that starts with a specified prefix, removing the prefix.
 	 * 
@@ -452,6 +480,24 @@ public class OAIRecordMetadata {
 	
 
 	
+    /** Select field elements for cleanup, including elements without a text child. */
+    public List<Node> getFieldNodesIncludingEmpty(String fieldName) {
+        try {
+            NodeList nodes = MedatadaDOMHelper.getNodeList(DOMDocument, XOAIXPATHHelper.getXPATH(fieldName));
+            List<Node> result = new ArrayList<>(nodes.getLength());
+            for (int i = 0; i < nodes.getLength(); i++) {
+                Node node = nodes.item(i);
+                if (node.getNodeType() == Node.ELEMENT_NODE &&
+                        ("field".equals(node.getLocalName()) || "field".equals(node.getNodeName()))) {
+                    result.add(node);
+                }
+            }
+            return result;
+        } catch (TransformerException e) {
+            throw new IllegalArgumentException("Cannot select field " + fieldName, e);
+        }
+    }
+
 	/**
 	 * Extracts bitstream (file) metadata from this record.
 	 * 

@@ -75,7 +75,6 @@ public abstract class AbstractValidatorFieldContentRule extends AbstractValidato
 
 		List<ContentValidatorResult> results = new ArrayList<ContentValidatorResult>();
 		int validOccurrencesCount = 0;
-		int occurrencesCount = 0;
 
 		List<String> occurrences = metadata.getFieldOcurrences(fieldname);
 
@@ -86,9 +85,6 @@ public abstract class AbstractValidatorFieldContentRule extends AbstractValidato
 
 			// Se agrega a la lista de ocurrencias
 			results.add(occurrenceResult);
-
-			// processed records invalid or valid ones
-			occurrencesCount += 1;
 
 			// Se suman las ocurrencias válidas
 			validOccurrencesCount += occurrenceResult.isValid() ? 1 : 0;
@@ -102,43 +98,9 @@ public abstract class AbstractValidatorFieldContentRule extends AbstractValidato
 			results.add(occurrenceResult);
 		}
 
-		boolean isRuleValid;
-
-		switch (quantifier) {
-
-			case ONE_ONLY:
-				isRuleValid = validOccurrencesCount == 1;
-				break;
-
-			case ONE_OR_MORE:
-				isRuleValid = validOccurrencesCount >= 1;
-				break;
-
-			case ZERO_OR_MORE:
-				// If we have at least one processed entry and if it's invalid
-				if (occurrencesCount > 0 && validOccurrencesCount == 0) {
-					isRuleValid = false;
-				} else {
-					isRuleValid = validOccurrencesCount >= 0;
-				}
-				break;
-
-			case ZERO_ONLY:
-				isRuleValid = validOccurrencesCount == 0;
-				break;
-
-			case ALL:
-				isRuleValid = validOccurrencesCount == occurrences.size();
-				break;
-
-			default:
-				isRuleValid = false;
-				break;
-		}
-
 		result.setRule(this);
 		result.setResults(results);
-		result.setValid(isRuleValid);
+		result.setValid(quantifier.matchesFieldContent(validOccurrencesCount, occurrences.size()));
 		return result;
 
 	}

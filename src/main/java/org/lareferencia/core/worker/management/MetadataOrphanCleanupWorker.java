@@ -12,6 +12,7 @@ import org.lareferencia.core.domain.Network;
 import org.lareferencia.core.metadata.ISnapshotStore;
 import org.lareferencia.core.metadata.MetadataOrphanAnalysisService;
 import org.lareferencia.core.metadata.SnapshotMetadata;
+import org.lareferencia.core.service.management.SnapshotLogService;
 import org.lareferencia.core.worker.BaseWorker;
 import org.lareferencia.core.worker.NetworkRunningContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,7 @@ public class MetadataOrphanCleanupWorker extends BaseWorker<NetworkRunningContex
     private static final Logger logger = LogManager.getLogger(MetadataOrphanCleanupWorker.class);
 
     @Autowired private ISnapshotStore snapshotStore;
+    @Autowired private SnapshotLogService snapshotLogService;
     @Autowired private MetadataOrphanAnalysisService metadataOrphans;
 
     /** Maximum metadata hashes inspected in one run. */
@@ -53,35 +55,53 @@ public class MetadataOrphanCleanupWorker extends BaseWorker<NetworkRunningContex
             return;
         }
 
-        List<SnapshotMetadata> protectedSnapshots = new ArrayList<>();
-        protectedSnapshots.add(snapshotStore.getSnapshotMetadata(lastGoodKnown));
-        Long lastHarvested = snapshotStore.findLastHarvestingSnapshot(network);
-        if (lastHarvested != null && !lastHarvested.equals(lastGoodKnown))
-            protectedSnapshots.add(snapshotStore.getSnapshotMetadata(lastHarvested));
+        List<Long> protectedIds = new ArrayList<>();
+        protectedIds.add(lastGoodKnown);
 
         try {
+            Long lastHarvested = snapshotStore.findLastHarvestingSnapshot(network);
+            if (lastHarvested != null && !lastHarvested.equals(lastGoodKnown)) {
+                protectedIds.add(lastHarvested);
+            }
             validateProgressInterval();
             status = "Preparing metadata cleanup";
-            logger.info("Starting metadata cleanup for {}: protectedSnapshots={}, maxMetadataEntries={}, maxDeletes={}, progressEvery={}",
-                    network.getAcronym(), protectedSnapshots.stream().map(SnapshotMetadata::getSnapshotId).toList(),
-                    maxMetadataEntries, maxDeletes, progressEvery);
+            logInfo(protectedIds, ("Starting metadata cleanup for %s: protectedSnapshots=%s, "
+                    + "maxMetadataEntries=%d, maxDeletes=%d, progressEvery=%d")
+                    .formatted(network.getAcronym(), protectedIds, maxMetadataEntries, maxDeletes, progressEvery));
+            List<SnapshotMetadata> protectedSnapshots = protectedIds.stream()
+                    .map(snapshotStore::getSnapshotMetadata).toList();
             long[] lastReported = { -1L };
             var result = metadataOrphans.cleanup(protectedSnapshots, maxMetadataEntries, maxDeletes, progress -> {
                 status = status(progress);
                 long completed = "DELETING".equals(progress.stage()) ? progress.deleted() : progress.metadataEntriesScanned();
-                if ("COMPLETED".equals(progress.stage()) || completed == 0 || completed - lastReported[0] >= progressEvery) {
-                    logger.info("Metadata cleanup progress for {}: {}", network.getAcronym(), status);
+                if (logger.isDebugEnabled() && ("COMPLETED".equals(progress.stage())
+                        || completed == 0 || completed - lastReported[0] >= progressEvery)) {
+                    logger.debug("Metadata cleanup progress for {}: {}", network.getAcronym(), status);
                     lastReported[0] = completed;
                 }
             });
             status = "Completed: " + result.deleted() + " metadata entries deleted";
-            logger.info("Metadata cleanup completed for {}: scanned={}, candidates={}, deleted={}, scanLimitReached={}, deleteLimitReached={}",
-                    network.getAcronym(), result.metadataEntriesScanned(), result.orphanCandidates(), result.deleted(),
-                    result.scanLimitReached(), result.deleteLimitReached());
+            logInfo(protectedIds, ("Metadata cleanup completed for %s: scanned=%d, candidates=%d, "
+                    + "deleted=%d, scanLimitReached=%b, deleteLimitReached=%b")
+                    .formatted(network.getAcronym(), result.metadataEntriesScanned(), result.orphanCandidates(),
+                            result.deleted(), result.scanLimitReached(), result.deleteLimitReached()));
         } catch (Exception exception) {
             status = "Failed: " + exception.getMessage();
-            logger.error("Metadata cleanup failed for {}", network.getAcronym(), exception);
+            String message = "Metadata cleanup failed for " + network.getAcronym() + ": " + exception.getMessage();
+            logger.error(message, exception);
+            addSnapshotLog(protectedIds, "ERROR: " + message);
             throw new IllegalStateException("Metadata cleanup failed for " + network.getAcronym(), exception);
+        }
+    }
+
+    private void logInfo(List<Long> snapshotIds, String message) {
+        logger.info(message);
+        addSnapshotLog(snapshotIds, "INFO: " + message);
+    }
+
+    private void addSnapshotLog(List<Long> snapshotIds, String message) {
+        for (Long snapshotId : snapshotIds) {
+            snapshotLogService.addEntry(snapshotId, message);
         }
     }
 

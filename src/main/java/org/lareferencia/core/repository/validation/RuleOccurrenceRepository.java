@@ -20,11 +20,16 @@
 
 package org.lareferencia.core.repository.validation;
 
+import org.lareferencia.core.metadata.SnapshotMetadata;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
+
+import org.lareferencia.core.service.validation.FrequencyPage;
+import org.lareferencia.core.service.validation.OccurrenceCount;
+import org.springframework.data.domain.Pageable;
 
 import javax.sql.DataSource;
 import java.io.IOException;
@@ -110,6 +115,28 @@ public class RuleOccurrenceRepository {
         }
     }
 
+    /** Finds rules with occurrences for active records without aggregating their values. */
+    public Set<Long> rulesWithOccurrences(SnapshotMetadata metadata, List<Long> ruleIds) throws IOException {
+        String sql = """
+                SELECT 1 FROM rule_occurrences ro
+                JOIN record_validation rv ON rv.identifier_hash = ro.identifier_hash
+                WHERE ro.rule_id = ? AND rv.deleted = 0
+                LIMIT 1
+                """;
+        Set<Long> available = new HashSet<>();
+        try (Connection conn = dbManager.openReadOnlyConnection(metadata); PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (Long ruleId : ruleIds) {
+                stmt.setLong(1, ruleId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) available.add(ruleId);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to check stored occurrences: " + e.getMessage(), e);
+        }
+        return available;
+    }
+
     /**
      * Counts occurrences by value for a specific rule.
      * Used for occurrence drill-down reports.
@@ -121,27 +148,28 @@ public class RuleOccurrenceRepository {
      */
     public Map<String, Integer> countByRuleAndValidity(Long snapshotId, Long ruleId, boolean isValid)
             throws IOException {
+        return countByRuleAndValidity(snapshotId, ruleId, isValid, List.of());
+    }
+
+    private Map<String, Integer> countByRuleAndValidity(Long snapshotId, Long ruleId, boolean isValid,
+            List<String> filters) throws IOException {
         DataSource ds = dbManager.getDataSource(snapshotId);
         if (ds == null) {
             return Collections.emptyMap();
         }
 
-        String sql = """
-                SELECT occurrence_value, COUNT(*) as cnt
-                FROM rule_occurrences ro
-                JOIN record_validation rv ON rv.identifier_hash = ro.identifier_hash
-                WHERE ro.rule_id = ? AND ro.is_valid = ? AND rv.deleted = 0
-                GROUP BY occurrence_value
-                ORDER BY cnt DESC
-                """;
+        List<Object> params = new ArrayList<>();
+        StringBuilder sql = groupedValues(ruleId, isValid, filters, params);
+        sql.append(" ORDER BY cnt DESC, occurrence_value");
 
         Map<String, Integer> result = new LinkedHashMap<>();
 
         try (Connection conn = ds.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
 
-            stmt.setInt(1, ruleId.intValue());
-            stmt.setInt(2, isValid ? 1 : 0);
+            for (int i = 0; i < params.size(); i++) {
+                stmt.setObject(i + 1, params.get(i));
+            }
 
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
@@ -158,6 +186,53 @@ public class RuleOccurrenceRepository {
         return result;
     }
 
+    private StringBuilder groupedValues(long ruleId, boolean isValid, List<String> filters, List<Object> params) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT occurrence_value, COUNT(*) as cnt
+                FROM rule_occurrences ro
+                JOIN record_validation ON record_validation.identifier_hash = ro.identifier_hash
+                WHERE ro.rule_id = ? AND ro.is_valid = ? AND record_validation.deleted = 0
+                """);
+        params.add(ruleId);
+        params.add(isValid ? 1 : 0);
+        RecordValidationRepository.applyFilters(sql, filters, params);
+        sql.append(" GROUP BY occurrence_value");
+
+        return sql;
+    }
+
+    /** Return distinct values and the total number of occurrences from the same SQLite read. */
+    public FrequencyPage frequencyPage(long snapshotId, long ruleId, boolean valid, List<String> filters,
+            Pageable page) throws IOException {
+        List<Object> params = new ArrayList<>();
+        StringBuilder groups = groupedValues(ruleId, valid, filters, params);
+        // The totals row survives even when the requested page is empty.
+        String sql = "WITH groups AS (" + groups + ") " + """
+                SELECT p.occurrence_value, p.cnt, totals.distinct_count, totals.occurrences
+                FROM (SELECT COUNT(*) AS distinct_count, COALESCE(SUM(cnt), 0) AS occurrences FROM groups) totals
+                LEFT JOIN (SELECT * FROM groups ORDER BY cnt DESC, occurrence_value LIMIT ? OFFSET ?) p ON 1=1
+                ORDER BY p.cnt DESC, p.occurrence_value
+                """;
+        params.add(page.isPaged() ? page.getPageSize() : -1);
+        params.add(page.isPaged() ? page.getOffset() : 0L);
+        try (Connection conn = dbManager.getDataSource(snapshotId).getConnection();
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (int i = 0; i < params.size(); i++) stmt.setObject(i + 1, params.get(i));
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                long distinct = rs.getLong("distinct_count");
+                long total = rs.getLong("occurrences");
+                List<OccurrenceCount> values = new ArrayList<>();
+                do {
+                    if (rs.getObject("cnt") != null) values.add(new OccurrenceCount(rs.getString("occurrence_value"), rs.getInt("cnt")));
+                } while (rs.next());
+                return new FrequencyPage(values, distinct, total);
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to read frequency page", e);
+        }
+    }
+
     /**
      * Gets all occurrences for a specific rule.
      * Returns both valid and invalid occurrences aggregated.
@@ -167,9 +242,14 @@ public class RuleOccurrenceRepository {
      * @return Map with "valid" and "invalid" keys, each containing value->count map
      */
     public Map<String, Map<String, Integer>> getOccurrencesByRule(Long snapshotId, Long ruleId) throws IOException {
+        return getOccurrencesByRule(snapshotId, ruleId, List.of());
+    }
+
+    public Map<String, Map<String, Integer>> getOccurrencesByRule(Long snapshotId, Long ruleId,
+            List<String> filters) throws IOException {
         Map<String, Map<String, Integer>> result = new HashMap<>();
-        result.put("valid", countByRuleAndValidity(snapshotId, ruleId, true));
-        result.put("invalid", countByRuleAndValidity(snapshotId, ruleId, false));
+        result.put("valid", countByRuleAndValidity(snapshotId, ruleId, true, filters));
+        result.put("invalid", countByRuleAndValidity(snapshotId, ruleId, false, filters));
         return result;
     }
 

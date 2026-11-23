@@ -67,6 +67,31 @@ class XoaiExportMappingTest {
         assertEquals(1, rights.size());
         assertEquals("CC BY", rights.get(0).asText());
     }
+    @Test void literalPrefixesFilterNormalizedValuesBeforeScalarCardinality() throws Exception {
+        var projection = mapping("""
+            {"title":{"select":"dc.title.*","type":"string","normalize":["trim"],"excludePrefixes":["tI"],"many":false},
+             "ids":{"select":"dc.identifier.*","type":"string","excludePrefixes":["a","unrelated"]},
+             "missing":{"select":"dc.identifier.*","type":"string","excludePrefixes":["ark:"],"many":false},
+             "literal":{"select":"dc.identifier.dark","type":"string","excludePrefixes":["ark.*"],"many":false}}
+            """);
+        assertEquals(ExportJson.JSON.readTree("""
+            {"title":"Outro","ids":[],"literal":"ark:/123"}
+            """), projection.project(XML));
+    }
+
+    @Test void rejectsInvalidPrefixFilters() {
+        for (String options : java.util.List.of(
+                "\"type\":\"integer\",\"excludePrefixes\":[\"1\"]",
+                "\"type\":\"string\",\"excludePrefixes\":\"a\"",
+                "\"type\":\"string\",\"excludePrefixes\":[]",
+                "\"type\":\"string\",\"excludePrefixes\":[42]",
+                "\"type\":\"string\",\"excludePrefixes\":[\"  \"]",
+                "\"type\":\"string\",\"prefixDelimiters\":\"/\"",
+                "\"type\":\"string\",\"excludePrefixes\":[\"a\"],\"prefixDelimiters\":\"\"")) {
+            assertThrows(IllegalArgumentException.class, () -> mapping("{\"x\":{\"select\":\"dc.title\"," + options + "}}"), options);
+        }
+    }
+
     @Test void unnamedFieldsMatchValueSelectorsAndStartOccurrences() throws Exception {
         var projection = mapping("""
             {"flat":{"select":"dc.subject.*:value","type":"string"},

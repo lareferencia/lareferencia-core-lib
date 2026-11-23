@@ -50,6 +50,9 @@ public class ValidationRuleStat {
     QuantifierValues quantifier;
     /** Whether this rule is mandatory for record validity */
     Boolean mandatory;
+    Boolean occurrenceCaptureEnabled;
+    /** Whether active records in a historical snapshot have stored occurrences for this rule. */
+    Boolean storedOccurrencesAvailable;
     /** Number of times the rule validated successfully */
     Integer validCount;
     /** Number of times the rule validation failed */

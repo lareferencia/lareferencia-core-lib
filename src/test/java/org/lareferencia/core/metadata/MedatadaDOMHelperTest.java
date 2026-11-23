@@ -417,6 +417,17 @@ class MedatadaDOMHelperTest {
         assertEquals(1, doc.getElementsByTagName("child2").getLength());
     }
 
+    @Test
+    void pruningChecksElementSiblingsAndPreservesTheDocumentRoot() throws Exception {
+        Document doc = MedatadaDOMHelper.XMLString2Document(
+                "<root><parent>text<!--note--><first/><second/></parent></root>");
+        MedatadaDOMHelper.removeNodeAndEmptyParents(doc.getElementsByTagName("first").item(0));
+        assertEquals(1, doc.getElementsByTagName("parent").getLength());
+        MedatadaDOMHelper.removeNodeAndEmptyParents(doc.getElementsByTagName("second").item(0));
+        assertEquals(0, doc.getElementsByTagName("parent").getLength());
+        assertEquals("root", doc.getDocumentElement().getNodeName());
+    }
+
     // ========== Round-trip Conversion Tests ==========
 
     @Test
