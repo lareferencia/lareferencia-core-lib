@@ -251,7 +251,7 @@ public final class XoaiExportMapping {
         return false;
     }
 
-    /** Each start field opens a group; following sibling fields belong to it. Never zip arrays. */
+    /** Start fields delimit groups. Leading authority metadata belongs to the first value, if present. */
     private static List<Node> occurrences(Node element, String start) {
         List<Node> groups = new ArrayList<>();
         Node current = null;
@@ -259,11 +259,13 @@ public final class XoaiExportMapping {
             if (!(child instanceof Element field) || !"field".equals(field.getLocalName())) continue;
             String fieldName = field.hasAttribute("name") ? field.getAttribute("name") : "value";
             if (start.equals(fieldName)) {
-                current = element.cloneNode(false);
+                if (current == null || !groups.isEmpty()) current = element.cloneNode(false);
                 groups.add(current);
+            } else if (groups.isEmpty()) {
+                if (!"value".equals(start) || !Set.of("authority", "confidence").contains(fieldName))
+                    throw new IllegalArgumentException("Ambiguous occurrence: field " + fieldName + " precedes " + start);
+                if (current == null) current = element.cloneNode(false);
             }
-            if (current == null)
-                throw new IllegalArgumentException("Ambiguous occurrence: field " + field.getAttribute("name") + " precedes " + start);
             current.appendChild(child.cloneNode(true));
         }
         return groups;

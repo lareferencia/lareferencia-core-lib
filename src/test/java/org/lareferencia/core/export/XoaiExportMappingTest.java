@@ -145,6 +145,31 @@ class XoaiExportMappingTest {
             """));
     }
 
+    @Test void leadingAuthorityFieldsCanAnnotateAValueButDoNotCreateOne() throws Exception {
+        var projection = mapping("""
+            {"descriptions":{"forEach":"dc.description.*","occurrenceStart":"value","fields":{
+              "value":{"select":":value","type":"string","many":false},
+              "authority":{"select":":authority","type":"string","many":false},
+              "confidence":{"select":":confidence","type":"string","many":false}}}}
+            """);
+        var result = projection.project("""
+            <metadata xmlns="http://www.lyncode.com/xoai"><element name="dc"><element name="description">
+              <element name="resumo"><element name="pt_BR">
+                <field name="authority">orphan</field><field name="confidence">600</field>
+              </element></element>
+              <element name="en">
+                <field name="authority">a1</field><field name="confidence">500</field>
+                <field name="value">Abstract</field><field name="value">Other</field>
+              </element>
+            </element></element></metadata>
+            """);
+        assertEquals(2, result.path("descriptions").size());
+        assertEquals("Abstract", result.at("/descriptions/0/value").asText());
+        assertEquals("a1", result.at("/descriptions/0/authority").asText());
+        assertEquals("500", result.at("/descriptions/0/confidence").asText());
+        assertFalse(result.path("descriptions").get(1).has("authority"));
+    }
+
     @Test void mergedSelectorsPreserveOrderContextAndDoNotDuplicateOverlaps() throws Exception {
         var projection = mapping("""
             {"titles":{"forEach":["dc.title.*","dc.title.none","dcterms.title.*"],
