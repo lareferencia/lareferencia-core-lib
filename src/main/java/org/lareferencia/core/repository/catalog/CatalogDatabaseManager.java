@@ -160,6 +160,15 @@ public class CatalogDatabaseManager {
         return dataSources.get(snapshotId);
     }
 
+    /** Independent reader for a completed harvest, without sharing a worker's open/close lifecycle. */
+    public DataSource readOnlyDataSource(SnapshotMetadata snapshot) {
+        var config = new org.sqlite.SQLiteConfig();
+        config.setReadOnly(true);
+        var source = new SQLiteDataSource(config);
+        source.setUrl("jdbc:sqlite:" + getCatalogPath(snapshot).resolve(DB_FILENAME).toAbsolutePath());
+        return source;
+    }
+
     /**
      * Abre un catálogo existente para lectura.
      * Usado por ValidationWorker y otros workers que necesitan leer de un catálogo
